@@ -1,0 +1,243 @@
+@import 'leaflet/dist/leaflet.css';
+/* Font lokal, bersumber dari @fontsource, subset latin saja. Tidak bergantung pada Google Fonts CDN. */
+
+/* big-shoulders-display-latin-600-normal */
+@font-face {
+  font-family: 'Big Shoulders Display';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('./assets/fonts/big-shoulders-display-latin-600-normal.woff2') format('woff2');
+}
+
+/* big-shoulders-display-latin-700-normal */
+@font-face {
+  font-family: 'Big Shoulders Display';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('./assets/fonts/big-shoulders-display-latin-700-normal.woff2') format('woff2');
+}
+
+/* big-shoulders-display-latin-800-normal */
+@font-face {
+  font-family: 'Big Shoulders Display';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 800;
+  src: url('./assets/fonts/big-shoulders-display-latin-800-normal.woff2') format('woff2');
+}
+
+/* big-shoulders-display-latin-900-normal */
+@font-face {
+  font-family: 'Big Shoulders Display';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 900;
+  src: url('./assets/fonts/big-shoulders-display-latin-900-normal.woff2') format('woff2');
+}
+
+/* ibm-plex-sans-latin-400-normal */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('./assets/fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2');
+}
+
+/* ibm-plex-sans-latin-400-italic */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url('./assets/fonts/ibm-plex-sans-latin-400-italic.woff2') format('woff2');
+}
+
+/* ibm-plex-sans-latin-500-normal */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('./assets/fonts/ibm-plex-sans-latin-500-normal.woff2') format('woff2');
+}
+
+/* ibm-plex-sans-latin-500-italic */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 500;
+  src: url('./assets/fonts/ibm-plex-sans-latin-500-italic.woff2') format('woff2');
+}
+
+/* ibm-plex-sans-latin-600-normal */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('./assets/fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2');
+}
+
+/* ibm-plex-sans-latin-600-italic */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 600;
+  src: url('./assets/fonts/ibm-plex-sans-latin-600-italic.woff2') format('woff2');
+}
+
+/* ibm-plex-sans-latin-700-normal */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('./assets/fonts/ibm-plex-sans-latin-700-normal.woff2') format('woff2');
+}
+
+/* ibm-plex-sans-latin-700-italic */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 700;
+  src: url('./assets/fonts/ibm-plex-sans-latin-700-italic.woff2') format('woff2');
+}
+
+/* ibm-plex-mono-latin-400-normal */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('./assets/fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2');
+}
+
+/* ibm-plex-mono-latin-500-normal */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('./assets/fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+}
+
+/* ibm-plex-mono-latin-600-normal */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('./assets/fonts/ibm-plex-mono-latin-600-normal.woff2') format('woff2');
+}
+
+/* ibm-plex-mono-latin-700-normal */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('./assets/fonts/ibm-plex-mono-latin-700-normal.woff2') format('woff2');
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base{
+  html{ scroll-behavior:smooth; }
+  body{ @apply bg-bg text-ink font-sans antialiased overflow-x-hidden; }
+  h1,h2,h3,h4{ @apply font-disp uppercase font-extrabold text-ink m-0; letter-spacing:.01em; }
+  ::selection{ background:#FF5A1F; color:#fff; }
+  a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible{ outline:2px solid #3E7899; outline-offset:2px; }
+  select, input[type="text"], input[type="password"], input[type="date"], input[type="search"], input[type="number"]{
+    @apply font-sans text-[13px] px-2.5 py-2 rounded-sm border border-line-strong bg-surface text-ink min-w-[150px] transition-colors;
+  }
+  select:focus, input:focus{ @apply outline-none border-accent; }
+  input[type="date"]{ @apply font-mono text-[12.5px] min-w-0; color-scheme:light; }
+  table{ @apply w-full border-collapse text-[13px]; min-width:640px; }
+}
+
+@layer components{
+  .card{ @apply relative overflow-hidden bg-surface border border-line rounded shadow-card px-[22px] py-5; }
+  .card::after{ content:""; @apply absolute top-0 left-0 w-full h-[3px] pointer-events-none opacity-70; background:linear-gradient(90deg,#FF5A1F,transparent 60%); }
+  .card.plain::after{ display:none; }
+  .card-title{ @apply font-mono text-[11px] uppercase text-faint font-semibold mb-1; letter-spacing:.08em; }
+  .kpi-value{ @apply font-disp font-extrabold text-[38px] leading-[1.05] text-ink flex items-baseline gap-1.5; }
+  .kpi-value .unit{ @apply text-sm font-mono text-faint font-medium; }
+  .kpi-delta{ @apply flex items-center gap-[5px] font-mono text-xs mt-1.5 font-medium; }
+  .kpi-delta.up{ @apply text-green; } .kpi-delta.down{ @apply text-red; }
+  .kpi-icon{ @apply absolute top-4 right-4 w-[26px] h-[26px] rounded-[7px] flex items-center justify-center shrink-0; }
+  .kpi-icon svg{ @apply w-3.5 h-3.5; }
+  .kpi-icon.i-neutral{ @apply bg-surface2 text-faint; } .kpi-icon.i-accent{ @apply bg-accent-soft text-accent-ink; }
+  .kpi-icon.i-good{ @apply bg-green-soft text-green; } .kpi-icon.i-bad{ @apply bg-red-soft text-red; } .kpi-icon.i-warn{ @apply bg-amber-soft text-amber; }
+
+  .grid-kpi{ @apply grid gap-4; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); }
+  .section-title{ @apply text-xl mt-[38px] mb-3.5 flex items-center gap-2.5; }
+  .section-title .n{ @apply text-accent-ink font-medium text-[13px] normal-case font-mono; }
+
+  .table-wrap{ @apply overflow-x-auto border border-line rounded bg-surface; }
+  thead th{ @apply text-left px-3.5 py-[11px] font-mono text-[10.5px] uppercase text-faint font-semibold border-b border-line-strong bg-surface2 sticky top-0 whitespace-nowrap select-none; letter-spacing:.06em; }
+  thead th.sortable{ @apply cursor-pointer hover:text-accent-ink pr-5 relative; }
+  thead th.sortable[aria-sort]{ @apply text-accent-ink; }
+  thead th.sortable[aria-sort]::after{ content:''; position:absolute; right:7px; top:50%; width:0; height:0; border-left:4px solid transparent; border-right:4px solid transparent; }
+  thead th.sortable[aria-sort="ascending"]::after{ border-bottom:5px solid currentColor; margin-top:-5px; }
+  thead th.sortable[aria-sort="descending"]::after{ border-top:5px solid currentColor; }
+  th.num, td.num{ @apply text-right; }
+  tbody td{ @apply px-3.5 py-2.5 border-b border-line align-middle; }
+  tbody tr{ @apply transition-colors hover:bg-surface2; }
+  tbody tr:last-child td{ @apply border-b-0; }
+  tfoot td{ @apply px-3.5 py-2.5 align-middle; border-top:2px solid #AFA790; }
+  .tbl-dense td, .tbl-dense th{ @apply px-2.5 py-[7px] text-xs whitespace-nowrap; }
+  .tag-code{ @apply font-mono text-[11px] font-semibold text-blue bg-blue-soft px-[7px] py-0.5 rounded-[3px]; letter-spacing:.02em; }
+  .cell-link{ @apply text-accent-ink no-underline cursor-pointer font-semibold pb-px transition-colors hover:text-accent hover:bg-accent-soft; border-bottom:1px dashed rgba(179,63,22,.45); }
+  .cell-link::after{ content:'\2192'; margin-left:3px; opacity:.55; display:inline-block; }
+
+  .badge{ @apply inline-flex items-center gap-[5px] font-mono text-[10.5px] font-semibold px-2 py-[3px] rounded-sm uppercase border border-transparent; letter-spacing:.03em; }
+  .badge.good{ @apply text-green bg-green-soft; border-color:rgba(63,122,82,.3); }
+  .badge.warn{ @apply text-amber bg-amber-soft; border-color:rgba(184,121,26,.3); }
+  .badge.bad{ @apply text-red bg-red-soft; border-color:rgba(178,59,46,.3); }
+  .badge.neutral{ @apply text-faint bg-surface2 border-line-strong; }
+  .badge.online{ @apply text-accent-ink bg-accent-soft; border-color:rgba(179,63,22,.3); }
+  .badge .dot{ @apply w-[5px] h-[5px] rounded-full bg-current shrink-0; }
+
+  .capaian{ @apply flex items-center gap-2 min-w-[120px]; }
+  .capaian-track{ @apply flex-1 h-1.5 bg-surface2 border border-line rounded overflow-hidden; }
+  .capaian-bar{ @apply h-full rounded; }
+  .capaian-label{ @apply font-mono text-xs font-semibold w-[42px] text-right; }
+  .capaian.good .capaian-bar{ @apply bg-green; } .capaian.warn .capaian-bar{ @apply bg-amber; } .capaian.bad .capaian-bar{ @apply bg-red; }
+  .capaian.good .capaian-label{ @apply text-green; } .capaian.warn .capaian-label{ @apply text-amber; } .capaian.bad .capaian-label{ @apply text-red; }
+
+  .controls{ @apply flex gap-2.5 flex-wrap items-end mb-5; }
+  .control{ @apply flex flex-col gap-1; }
+  .control > label, .control-group-label{ @apply font-mono text-[10px] uppercase text-faint; letter-spacing:.07em; }
+  .search-input{ min-width:220px; }
+  .chip{ @apply font-mono text-[11px] px-[11px] py-1.5 rounded-full border border-line-strong bg-surface cursor-pointer text-soft transition-colors; }
+  .chip.active{ @apply bg-ink text-white border-ink; }
+  .chip:hover:not(.active){ @apply border-accent text-accent-ink; }
+  .pill-row{ @apply flex gap-2 flex-wrap; }
+
+  .btn{ @apply font-sans text-[13px] font-semibold px-4 py-[9px] rounded-sm border border-line-strong bg-surface text-ink cursor-pointer transition-colors inline-flex items-center gap-[7px] hover:border-accent hover:text-accent-ink disabled:opacity-50 disabled:cursor-not-allowed; }
+  .btn svg{ @apply w-[13px] h-[13px]; }
+  .btn-primary{ @apply bg-accent border-accent text-white hover:bg-[#E64F17] hover:border-[#E64F17] hover:text-white; }
+
+  .chart-box{ @apply relative h-[280px]; } .chart-box.tall{ @apply h-[340px]; } .chart-box.small{ @apply h-16; }
+  .legend{ @apply flex gap-[18px] flex-wrap text-xs text-soft mb-1.5; }
+  .legend span{ @apply inline-flex items-center gap-1.5; } .legend i{ @apply w-3 h-3 rounded-[2px] inline-block; }
+  .error-box{ @apply p-5 border border-red bg-red-soft rounded text-accent-ink text-[13px]; }
+  .empty-box{ @apply px-5 py-10 text-center text-faint font-mono text-xs border border-dashed border-line-strong rounded; }
+  .spinner{ @apply w-[26px] h-[26px] mx-auto mb-3 rounded-full border-[2.5px] border-line-strong border-t-accent animate-spin; }
+  .skel{ @apply rounded-sm; background:linear-gradient(90deg,#F1EEE5 25%,#EAE6DA 37%,#F1EEE5 63%); background-size:600px 100%; animation:skel-shimmer 1.4s ease-in-out infinite; }
+  .divider{ @apply h-px bg-line my-[34px] border-0; }
+}
+
+@keyframes skel-shimmer{ 0%{ background-position:-300px 0; } 100%{ background-position:300px 0; } }
+@media (prefers-reduced-motion: reduce){ .skel{ animation:none; } .spinner{ animation-duration:1.6s; } }
+.leaflet-control-attribution{ font-size:9.5px !important; padding:1px 6px !important; background:rgba(255,255,255,.75) !important; }
+.leaflet-popup-content{ font-family:'IBM Plex Sans',sans-serif; font-size:12.5px; }
+.leaflet-popup-content b{ font-family:'Big Shoulders Display',sans-serif; text-transform:uppercase; font-size:15px; }
