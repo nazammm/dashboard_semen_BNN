@@ -76,5 +76,16 @@ Check(th.RemainingMs("u") == 120_000, "10x gagal -> 2 menit");
 th.RecordSuccess("u");
 Check(th.RemainingMs("u") == 0, "sukses mereset");
 
+// ---- Regresi: kolom DATE tidak boleh bergeser karena zona waktu server (bug Rekap Harian) ----
+var dateVal = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Unspecified); // bentuk yang dikembalikan Npgsql untuk `date`
+Check((string?)ValueNormalizer.Normalize(dateVal, "date") == "2026-10-01", "date Unspecified -> 2026-10-01 (tanpa geser zona)");
+Check((string?)ValueNormalizer.Normalize(new DateOnly(2026, 10, 1), "date") == "2026-10-01", "DateOnly -> yyyy-MM-dd");
+Check((string?)ValueNormalizer.Normalize(new DateTimeOffset(2026, 10, 1, 7, 0, 0, TimeSpan.FromHours(7)), "timestamptz") == "2026-10-01T00:00:00.000Z", "timestamptz -> UTC ISO");
+Check((string?)ValueNormalizer.Normalize(new DateTime(2026, 10, 1, 10, 30, 0, DateTimeKind.Utc), "timestamptz") == "2026-10-01T10:30:00.000Z", "DateTime Utc -> ISO");
+Check((string?)ValueNormalizer.Normalize(new DateTime(2026, 10, 1, 10, 30, 0, DateTimeKind.Unspecified), "timestamp") == "2026-10-01T10:30:00.000Z", "timestamp tanpa zona tidak digeser");
+Check(ValueNormalizer.Normalize(123L, "int8") is long, "angka tidak diubah");
+// Awal hari lokal -> UTC harus ber-offset 0 (Npgsql menolak offset != 0)
+Check(new DateTimeOffset(DateTime.Today).ToUniversalTime().Offset == TimeSpan.Zero, "batas awal hari dikirim sebagai UTC");
+
 Console.WriteLine($"Lulus: {passed}, Gagal: {failed}");
 return failed == 0 ? 0 : 1;

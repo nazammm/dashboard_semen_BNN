@@ -16,6 +16,7 @@ namespace Npgsql
     {
         public int FieldCount => 0;
         public string GetName(int i) => "";
+        public string GetDataTypeName(int i) => "";
         public bool IsDBNull(int i) => true;
         public object GetValue(int i) => DBNull.Value;
         public Task<bool> ReadAsync(CancellationToken ct = default) => Task.FromResult(false);

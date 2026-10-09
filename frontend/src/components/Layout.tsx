@@ -42,7 +42,7 @@ export default function Layout() {
 
       <aside className="fixed top-0 left-0 bottom-0 w-sidebar bg-ink text-[#EDE9DF] flex flex-col z-[100] border-r border-[#100F0C] max-[880px]:hidden">
         <div className="px-[22px] pt-6 pb-5 border-b border-white/10 flex items-center gap-3.5">
-          <img src="/assets/logo.svg" alt="Logo Perusahaan" className="w-14 h-14 object-contain shrink-0" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+          <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="Logo Perusahaan" className="w-14 h-14 object-contain shrink-0" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
           <div className="font-extrabold text-xl text-white leading-tight" style={{ fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif', letterSpacing: '-.01em' }}>DASHBOARD<br />SEMEN</div>
         </div>
         <nav className="px-3 py-3.5 flex flex-col flex-1 overflow-y-auto" aria-label="Navigasi utama">

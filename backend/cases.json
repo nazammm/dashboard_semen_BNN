@@ -1,0 +1,13 @@
+[
+  [["select","*"],["dist_code","eq.PKB"],["order","do_date.desc,do_no"],["limit","50"],["offset","100"]],
+  [["do_date","gte.2026-01-01"],["do_date","lt.2026-02-01"],["salesman_code","eq.S1"]],
+  [["product_code","in.(A,B,C)"]],
+  [["product_code","in.()"]],
+  [["product_code","in."]],
+  [["bad-col","eq.1"],["ok","eq.2"]],
+  [["x","foo.1"],["y","eq."]],
+  [["month","eq.9"],["year","gt.2025"],["z","lte.5"]],
+  [["order","amount.desc"]],
+  [["a","eq.x.y.z"],["b","in.(1,2"]],
+  [["year","eq.2026"],["limit","abc"]]
+]

@@ -181,7 +181,8 @@ internal static class AdminEndpoints
             try
             {
                 var since30 = DateTimeOffset.UtcNow.AddDays(-30);
-                var today = new DateTimeOffset(DateTime.Today); // awal hari menurut zona waktu server (sama dengan Node)
+                // awal hari menurut zona waktu server (sama dengan Node), dikirim sebagai UTC: Npgsql menolak DateTimeOffset ber-offset != 0
+                var today = new DateTimeOffset(DateTime.Today).ToUniversalTime();
                 static async Task<int> Count(Db db, string ev, DateTimeOffset t) =>
                     Convert.ToInt32((await db.QueryAsync($"select count(*)::int c from auth_local.activity_log where event_type='{ev}' and lower(role)!='admin' and created_at >= $1", new object?[] { t }))[0]["c"]);
                 var active = Convert.ToInt32((await db.QueryAsync("select count(distinct username)::int c from auth_local.activity_log where lower(role)!='admin' and created_at >= $1", new object?[] { today }))[0]["c"]);

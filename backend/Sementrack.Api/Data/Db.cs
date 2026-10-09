@@ -1,6 +1,7 @@
 using System.Globalization;
 using Npgsql;
 using NpgsqlTypes;
+using Sementrack.Core;
 
 namespace Sementrack.Api.Data;
 
@@ -37,7 +38,7 @@ public sealed class Db
         {
             var row = new Dictionary<string, object?>(rd.FieldCount);
             for (int i = 0; i < rd.FieldCount; i++)
-                row[rd.GetName(i)] = rd.IsDBNull(i) ? null : Normalize(rd.GetValue(i));
+                row[rd.GetName(i)] = rd.IsDBNull(i) ? null : ValueNormalizer.Normalize(rd.GetValue(i), rd.GetDataTypeName(i));
             rows.Add(row);
         }
         return rows;
@@ -51,12 +52,4 @@ public sealed class Db
         return await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    /// <summary>Bentuk nilai agar JSON-nya sama dengan versi Node: DATE jadi "YYYY-MM-DD", timestamp jadi ISO-8601 UTC.</summary>
-    private static object? Normalize(object v) => v switch
-    {
-        DateOnly d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-        DateTimeOffset dto => dto.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
-        DateTime dt => dt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture),
-        _ => v,
-    };
 }

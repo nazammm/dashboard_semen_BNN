@@ -73,7 +73,7 @@ export default function Login() {
       <div className="w-full max-w-[400px] relative z-[1]">
         <div className="card plain px-8 pt-9 pb-7 shadow-[0_8px_30px_rgba(33,30,25,.12)]" role="main">
           <div className="flex items-center gap-3.5 mb-6">
-            <img src="/assets/logo.svg" alt="" className="w-14 h-14 object-contain" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+            <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="" className="w-14 h-14 object-contain" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
             <div className="font-extrabold text-xl leading-tight text-ink" style={{ fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif' }}>DASHBOARD<br />SEMEN</div>
           </div>
           <h1 className="text-[28px]">Masuk ke Dashboard</h1>

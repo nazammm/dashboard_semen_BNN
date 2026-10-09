@@ -28,6 +28,10 @@ if (!string.IsNullOrWhiteSpace(origin))
 
 var app = builder.Build();
 
+// Sub-folder (mis. https://bangunsukses.com/Dashboard_semen/) tanpa IIS virtual-app: set PATH_BASE=/Dashboard_semen
+// (di IIS virtual application, IIS sudah mengatur path base sendiri -- jangan set).
+if (!string.IsNullOrWhiteSpace(app.Configuration["PATH_BASE"])) app.UsePathBase(app.Configuration["PATH_BASE"]);
+
 if (!app.Environment.IsDevelopment()) { app.UseHsts(); app.UseHttpsRedirection(); }
 
 // Header keamanan (setara CSP di versi lama). Tile peta: Esri/CARTO.

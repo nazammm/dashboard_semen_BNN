@@ -11,7 +11,7 @@
 ```
 cd backend
 dotnet new sln -n Sementrack; dotnet sln add Sementrack.Core Sementrack.Api Sementrack.Core.Tests   # sekali saja
-dotnet run --project Sementrack.Core.Tests          # harus: "Gagal: 0"
+dotnet run --project Sementrack.Core.Tests -- ../cases.json ../node_out.json   # harus: "Gagal: 0" (jalankan dari folder backend/)
 dotnet build Sementrack.Api -c Release              # harus 0 error (memakai Npgsql & BCrypt.Net-Next asli)
 ```
 `backend/stubs` hanya untuk pengecekan kompilasi tanpa NuGet (`-p:UseStubs=true`) — boleh dihapus.
@@ -34,6 +34,16 @@ Tabel `auth_local.*` dibuat otomatis kalau belum ada. Skema `sementrack` (toko m
 ```
 Atau manual: `cd frontend && npm ci && npm run build`, lalu `dotnet publish backend/Sementrack.Api -c Release -o publish`
 dan salin `frontend/dist/*` ke `publish/wwwroot/`.
+
+## 3b. Hosting di SUB-FOLDER (mis. https://bangunsukses.com/Dashboard_semen/)
+Base path ditentukan saat build frontend: `set VITE_BASE=/Dashboard_semen/` (PowerShell: `$env:VITE_BASE='/Dashboard_semen/'`) lalu `npm run build`.
+API otomatis `/<base>/api/`. Ada 2 cara host:
+- **A (disarankan) — semua lewat ASP.NET Core:** buat *IIS Application* `Dashboard_semen` (bukan sekadar folder) berisi hasil `dotnet publish`
+  (+ frontend di `wwwroot`). Refresh di `/Dashboard_semen/beranda` aman karena ASP.NET yang menangani semua path.
+- **B — frontend sebagai file statis di IIS:** WAJIB ada aturan rewrite ke `index.html` (modul *URL Rewrite*). `frontend/public/web.config`
+  sudah menyediakannya dan ikut tersalin ke `dist/`. **Tanpa ini, refresh halaman = "404 - File or directory not found"** (halaman 404 bawaan IIS).
+  Dalam mode B, `/Dashboard_semen/api/` harus diteruskan (reverse proxy/ARR) ke aplikasi ASP.NET API.
+Kestrel tanpa IIS: set `PATH_BASE=/Dashboard_semen` pada backend.
 
 ## 4. Hosting IIS (in-process) + HTTPS
 1. Pasang **.NET 8 Hosting Bundle** (ASP.NET Core Runtime + IIS module), restart IIS.

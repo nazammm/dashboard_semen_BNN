@@ -1,7 +1,7 @@
 import type { Row } from './types';
 
-/** Alamat API. Default '/api/' (satu origin dengan aplikasi). Bisa diganti lewat VITE_API_URL saat build. */
-export const API_URL: string = (import.meta.env.VITE_API_URL as string | undefined) ?? '/api/';
+/** Alamat API. Default `<base>api/` (satu origin dengan aplikasi, ikut sub-folder). Bisa diganti lewat VITE_API_URL saat build. */
+export const API_URL: string = (import.meta.env.VITE_API_URL as string | undefined) ?? `${import.meta.env.BASE_URL}api/`;
 
 // --- Penyimpan token (diisi oleh auth.tsx) ---
 let tokenGetter: () => string | null = () => null;
