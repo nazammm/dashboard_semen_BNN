@@ -14,6 +14,8 @@ public static class AccessRules
 
     public static readonly string[] AdminOnlyPages = { "interaksi-web", "kelola-akses" };
 
+    public static readonly HashSet<string> KnownPageIds = new(DashboardPages.Concat(AdminOnlyPages));
+
     public static readonly string[] AllRoles = { "admin", "mo", "sales", "spv" };
 
     /// <summary>Role yang datanya dibatasi server ke SATU distributor (dist_code di sesi).</summary>
@@ -57,6 +59,7 @@ public static class AccessRules
         "v_salesman_performance", "v_toko_agg", "v_yearly_totals", "v_monthly_totals",
         "v_dist_monthly_totals", "produk", "v_target_dist", "v_delivery_ext",
         "v_transaksi_detail", "v_toko_pegangan_sales", "status_sync", "toko",
+        "distributor_target_salesman",
     };
 
     /// <summary>Tabel di atas yang punya kolom dist_code -> filter distributor DIPAKSA server untuk spv/sales.</summary>
@@ -64,6 +67,7 @@ public static class AccessRules
     {
         "v_salesman_performance", "v_toko_agg", "toko", "v_transaksi_detail",
         "v_toko_pegangan_sales", "v_dist_monthly_totals", "v_transaksi_monthly",
+        "distributor_target_salesman",
     };
 
     /// <summary>Nama tabel -> objek sebenarnya di database (toko boleh punya >1 distributor, schema sementrack).</summary>
@@ -71,6 +75,7 @@ public static class AccessRules
     {
         ["toko"] = "sementrack.v_toko_multi",
         ["v_toko_agg"] = "sementrack.v_toko_agg",
+        ["distributor_target_salesman"] = "sementrack.distributor_target_salesman",
     };
 
     /// <summary>Fungsi yang versi barunya ada di schema sementrack.</summary>
@@ -103,11 +108,17 @@ public static class AccessRules
         ["performa-daerah"] = new(new[] { "v_cement_targets_ext" }, Array.Empty<string>()),
         ["delivery"] = new(new[] { "v_delivery_ext" }, Array.Empty<string>()),
         ["rekap-harian"] = new(new[] { "v_distributor_summary", "v_monthly_totals", "produk", "v_target_dist" }, new[] { "dashboard_daily_matrix" }),
-        ["tim-sales"] = new(new[] { "v_salesman_performance" }, Array.Empty<string>()),
+        ["tim-sales"] = new(new[] { "v_salesman_performance", "distributor_target_salesman" }, Array.Empty<string>()),
         ["peta-toko"] = new(new[] { "v_monthly_totals" }, new[] { "dashboard_toko_monthly_v2" }),
         ["daftar-toko"] = new(new[] { "v_monthly_totals", "toko" }, new[] { "dashboard_toko_monthly_v2" }),
         ["transaksi-detail"] = new(new[] { "produk", "v_salesman_performance", "v_toko_pegangan_sales", "v_transaksi_detail" }, Array.Empty<string>()),
         ["toko-detail"] = new(new[] { "toko", "v_transaksi_detail" }, new[] { "dashboard_store_year" }),
+    };
+
+    /// <summary>Tabel yang hanya boleh dibaca role tertentu, walau halaman asalnya (tim-sales) terbuka untuk role lain.</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> RoleOnlyTables = new Dictionary<string, string[]>
+    {
+        ["distributor_target_salesman"] = new[] { "admin", "mo" },
     };
 
     private static readonly string[] AlwaysTables = { "status_sync" };
@@ -128,6 +139,7 @@ public static class AccessRules
             foreach (var t in dep.Tables) tables.Add(t);
             foreach (var f in dep.Functions) functions.Add(f);
         }
+        tables.RemoveWhere(t => RoleOnlyTables.TryGetValue(t, out var roles) && !roles.Contains(role));
         return new Access(tables, functions);
     }
 

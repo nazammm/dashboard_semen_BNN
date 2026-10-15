@@ -1,4 +1,4 @@
-import { apiCount, apiGet, apiGetAll, apiRpc } from './api';
+import { ApiError, apiCount, apiGet, apiGetAll, apiRpc } from './api';
 import type { Row } from './types';
 
 const cache = new Map<string, Promise<any>>();
@@ -56,7 +56,17 @@ export const DataSource = {
   distMonthlyTotals: () => getData('distMonthlyTotals', () => apiGetAll('v_dist_monthly_totals', '?select=*&order=dist_code.asc,year.asc,month.asc')),
   produk: () => getData('produk', () => apiGetAll('produk', '?select=*')),
   /** Jumlah toko UNIK. */
-  tokoCount: () => getData('tokoCount', async () => new Set((await apiGetAll('v_toko_agg', '?select=cust_code')).map(r => r.cust_code)).size),
+  tokoCount: () => getData('tokoCount', async () => {
+    try {
+      const r = await apiGet<{ count: number }>('toko-count');   // dihitung database (1 request ringan)
+      if (typeof r?.count === 'number') return r.count;
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 404) throw e;  // 404 = backend lama belum punya endpoint ini
+    }
+    return new Set((await apiGetAll('v_toko_agg', '?select=cust_code')).map(r => r.cust_code)).size; // cadangan (lambat)
+  }),
+  /** Target jumlah salesman aktif per distributor (flat per bulan). */
+  targetSalesman: () => getData('targetSalesman', () => apiGetAll('distributor_target_salesman', '?select=*&order=dist_code.asc')),
   targetDist: () => getData('targetDist', () => apiGetAll('v_target_dist', '?select=*')),
   delivery: () => getData('delivery', () => apiGetAll('v_delivery_ext', '?select=*')),
   transaksiDetail: (date: string, distCode?: string | null, productCodes?: string[] | null) => {

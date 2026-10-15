@@ -62,8 +62,13 @@ function Content({ rows }: { rows: Row[] }) {
     (filters.distributor === 'all' || r.distributor === filters.distributor) &&
     (filters.type === 'all' || r.type_cement === filters.type)), [rows, filters]);
 
+  // Toko Aktif: "Semua Tipe" memakai ta_distinct_YYYY (toko unik lintas produk, punya target);
+  // per tipe semen memakai ta_YYYY (tanpa target, karena target TA hanya ada di level total).
+  const isAllTypes = filters.type === 'all';
+  const taField = isAllTypes ? kTaD : kTa;
   const sum = (f: string) => filtered.reduce((a, r) => a + Number(r[f] || 0), 0);
-  const agg = { do_cur: sum(kDo), target_do: sum(kTdo), ta_cur: sum(kTaD), target_ta: sum(kTta) };
+  const agg = { do_cur: sum(kDo), target_do: sum(kTdo), ta_cur: sum(taField), target_ta: isAllTypes ? sum(kTta) : 0 };
+  const filterActive = filters.region !== 'all' || filters.distributor !== 'all' || filters.type !== 'all';
 
   // Pertumbuhan: Jan s.d. bulan terakhir yang sudah ada datanya (bukan Jan-Des penuh)
   const monthsWithData = filtered.filter(r => Number(r[kDo]) > 0).map(r => Number(r.month_num));
@@ -73,8 +78,6 @@ function Content({ rows }: { rows: Row[] }) {
   const prevYTD = ytd.reduce((a, r) => a + Number(r[kDoP] || 0), 0);
   const growth = prevYTD > 0 ? (curYTD - prevYTD) / prevYTD * 100 : null;
 
-  const isAllTypes = filters.type === 'all';
-  const taField = isAllTypes ? kTaD : kTa;
   const labels = MONTHS_ID.slice(1);
   const byMonth = useMemo(() => {
     const b = Array.from({ length: 13 }, () => ({ do26: 0, tdo: 0, do25: 0, ta26: 0, tta: 0 }));
@@ -94,7 +97,7 @@ function Content({ rows }: { rows: Row[] }) {
       const m = Number(r.month_num);
       const b = agg[m] || (agg[m] = { month_num: m, do_cur: 0, target_do: 0, do_prev: 0, ta_cur: 0, target_ta: 0 });
       b.do_cur += Number(r[kDo] || 0); b.target_do += Number(r[kTdo] || 0); b.do_prev += Number(r[kDoP] || 0);
-      b.ta_cur += Number(r[kTaD] || 0); b.target_ta += Number(r[kTta] || 0);
+      b.ta_cur += Number(r[taField] || 0); b.target_ta += isAllTypes ? Number(r[kTta] || 0) : 0;
     });
     const list: MonthAgg[] = Object.values(agg).filter(b => b.do_cur > 0).map(b => ({
       ...b,
@@ -104,7 +107,7 @@ function Content({ rows }: { rows: Row[] }) {
     }));
     list.sort((a, b) => sortDir * ((a[sortKey] - b[sortKey]) || (a.month_num - b.month_num)));
     return list;
-  }, [filtered, sortKey, sortDir, kDo, kTdo, kDoP, kTaD, kTta]);
+  }, [filtered, sortKey, sortDir, kDo, kTdo, kDoP, taField, isAllTypes, kTta]);
 
   // Tutup bulan yang dibuka kalau sudah tidak relevan (filter Distributor aktif / bulan hilang dari tabel)
   useEffect(() => {
@@ -131,23 +134,33 @@ function Content({ rows }: { rows: Row[] }) {
 
   return (
     <>
-      <PageHeader title="Penjualan Daerah" status={freshness.status} statusVariant={freshness.statusVariant}>
-        <div className="controls !mb-0">
+      <PageHeader title="Penjualan Daerah" status={freshness.status} statusVariant={freshness.statusVariant} />
+
+      {/* Bar filter menempel di atas saat halaman di-scroll, supaya filter bisa diganti tanpa kembali ke atas */}
+      <div role="group" aria-label="Filter Penjualan Daerah"
+        className="sticky top-0 max-[880px]:top-14 z-30 -mx-11 px-11 max-[880px]:-mx-[18px] max-[880px]:px-[18px] py-2.5 mb-5 bg-bg border-b border-line shadow-[0_6px_10px_-8px_rgba(33,30,25,.35)]">
+        <div className="controls !mb-0 max-[880px]:grid max-[880px]:grid-cols-3 max-[880px]:gap-2 [&_.control]:min-w-0 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
           <Select label="Region" value={filters.region} onChange={e => change({ region: e.target.value })}
             options={[{ value: 'all', label: 'Semua Region' }, ...regionOpts.map(r => ({ value: r, label: r }))]} />
           <Select label="Distributor" value={filters.distributor} onChange={e => change({ distributor: e.target.value })}
             options={[{ value: 'all', label: 'Semua Distributor' }, ...distOpts.map(r => ({ value: r, label: r }))]} />
           <Select label="Tipe Semen" value={filters.type} onChange={e => change({ type: e.target.value })}
             options={[{ value: 'all', label: 'Semua Tipe' }, ...typeOpts.map(r => ({ value: r, label: r }))]} />
+          {filterActive && (
+            <button type="button" className="btn max-[880px]:col-span-3 max-[880px]:justify-center max-[880px]:!py-1.5 max-[880px]:!text-xs"
+              onClick={() => { setFilters({ region: 'all', distributor: 'all', type: 'all' }); setExpandedMonth(null); }}>
+              Reset filter
+            </button>
+          )}
         </div>
-      </PageHeader>
+      </div>
 
       <div className="grid-kpi">
         <Kpi title={`Realisasi DO ${Y}`} value={fmt(agg.do_cur)} unit="ton" delta={<Capaian actual={agg.do_cur} target={agg.target_do} />} />
         <Kpi title={`Target DO ${Y}`} value={fmt(agg.target_do)} unit="ton" delta="Akumulasi target tahunan" />
         <Kpi title={`Pertumbuhan vs ${P}`} value={<span className={growth == null ? '' : growth >= 0 ? 'text-green' : 'text-red'}>{growth == null ? '–' : (growth >= 0 ? '+' : '') + growth.toFixed(1) + '%'}</span>}
           delta={`Jan–${MONTHS_ID[maxDataMonth]} ${Y} vs periode sama ${P}`} />
-        <Kpi title={`Toko Aktif ${Y}`} value={fmt(agg.ta_cur)} delta={<Capaian actual={agg.ta_cur} target={agg.target_ta} />} />
+        <Kpi title={`Toko Aktif ${Y}`} value={fmt(agg.ta_cur)} delta={isAllTypes ? <Capaian actual={agg.ta_cur} target={agg.target_ta} /> : `${filters.type} · tanpa target`} />
       </div>
 
       <div className="grid grid-cols-2 gap-4 mt-3.5 max-[1000px]:grid-cols-1">
@@ -213,7 +226,7 @@ function Content({ rows }: { rows: Row[] }) {
                   <td className="num font-mono">{fmt(r.do_cur)}</td>
                   <td className={cx('num font-mono', r.growth_do >= 0 ? 'text-green' : 'text-red')}>{fmtGrowth(r.growth_do)}</td>
                   <td className="num font-mono">{fmt(r.ta_cur)}</td>
-                  <td className="num font-mono">{fmt(r.target_ta)}</td>
+                  <td className={cx('num font-mono', !isAllTypes && 'text-faint')}>{isAllTypes ? fmt(r.target_ta) : '–'}</td>
                   <td><Capaian actual={r.ta_cur} target={r.target_ta} /></td>
                 </tr>
                 {expandedMonth === r.month_num && (

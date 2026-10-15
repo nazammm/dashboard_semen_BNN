@@ -13,7 +13,7 @@ internal static class Helpers
             var el = await req.ReadFromJsonAsync<JsonElement>();
             return el.ValueKind == JsonValueKind.Object ? el : default;
         }
-        catch (JsonException) { return default; }
+        catch (Exception e) when (e is JsonException or InvalidOperationException) { return default; }   // JSON rusak / Content-Type bukan JSON
     }
 
     public static bool Has(this JsonElement body, string name) =>

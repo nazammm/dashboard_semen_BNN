@@ -9,14 +9,25 @@ internal static class LoginEndpoint
 {
     public static void Map(RouteGroupBuilder api)
     {
-        api.MapPost("/rpc/login", async (HttpContext ctx, AuthService auth, Db db, LoginThrottle throttle, IConfiguration cfg, ILogger<Db> log) =>
+        api.MapPost("/rpc/login", async (HttpContext ctx, AuthService auth, Db db, LoginThrottle throttle, IpLoginThrottle ipThrottle, IConfiguration cfg, ILogger<Db> log) =>
         {
             var body = await Helpers.ReadBodyAsync(ctx.Request);
             var uname = (body.GetString("username") ?? "").Trim().ToLowerInvariant();
             var password = body.GetString("password") ?? "";
+            // Input tak masuk akal ditolak sebelum menyentuh database / pembatas (mencegah memori membengkak oleh nama acak).
+            if (uname.Length is 0 or > 64 || password.Length > 256)
+            {
+                await Task.Delay(300);
+                return Helpers.Error(401, "invalid credentials");
+            }
+            // Kunci pembatas = akun + IP: orang lain tidak bisa mengunci akun korban dari IP-nya sendiri (admin tidak bisa di-DoS dari luar).
+            var ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
+            var key = uname + "|" + ip;
             try
             {
-                var remaining = throttle.RemainingMs(uname);
+                await auth.PurgeExpiredSessionsAsync();
+                var ipLimit = cfg.GetValue("LOGIN_IP_LIMIT", true);   // false bila semua pengguna terlihat dari 1 IP (reverse proxy tanpa IP asli)
+                var remaining = Math.Max(throttle.RemainingMs(key), ipLimit ? ipThrottle.Inner.RemainingMs(ip) : 0);
                 if (remaining > 0)
                     return Results.Json(new { error = "too many failed attempts, try again later", retry_after_seconds = (long)Math.Ceiling(remaining / 1000.0) }, statusCode: 429);
 
@@ -26,10 +37,11 @@ internal static class LoginEndpoint
                 var ok = PasswordHasher.Verify(password, u?["password_hash"] as string) && u is not null;
                 if (!ok)
                 {
-                    throttle.RecordFailure(uname);
+                    throttle.RecordFailure(key);
+                    if (ipLimit) ipThrottle.Inner.RecordFailure(ip);
                     return Helpers.Error(401, "invalid credentials");
                 }
-                throttle.RecordSuccess(uname);
+                throttle.RecordSuccess(key);
 
                 var username = (string)u!["username"]!;
                 var role = (string)u["role"]!;
@@ -58,6 +70,18 @@ internal static class LoginEndpoint
                 log.LogError(e, "[login]");
                 return Helpers.Error(500, "server error");
             }
+        });
+
+        // POST /api/auth/logout: hapus sesi di server. Selalu 200 (tidak membocorkan apakah token valid).
+        api.MapPost("/auth/logout", async (HttpContext ctx, AuthService auth, ILogger<Db> log) =>
+        {
+            var header = ctx.Request.Headers.Authorization.ToString();
+            if (header.StartsWith("Bearer ", StringComparison.Ordinal) && header.Length is > 7 and <= 200)
+            {
+                try { await auth.RevokeAsync(header[7..]); }
+                catch (Exception e) { log.LogError(e, "[logout]"); }
+            }
+            return Helpers.Json(new { ok = true });
         });
     }
 }

@@ -52,6 +52,7 @@ internal static class AdminEndpoints
             if (scoped && dc is null) return Helpers.Error(400, "Role spv/sales wajib diisi distributornya.");
             try
             {
+                if (scoped && !await DistExistsAsync(db, dc!)) return Helpers.Error(400, "Kode distributor tidak dikenal.");
                 var name = (b.GetString("name") ?? uname).Trim();
                 await db.ExecuteAsync("insert into auth_local.users (username, password_hash, role, name, dist_code) values ($1,$2,$3,$4,$5)",
                     new object?[] { uname, PasswordHasher.Hash(password), role, name.Length > 0 ? name : uname, scoped ? dc : null });
@@ -82,6 +83,7 @@ internal static class AdminEndpoints
                 var dc = distSent ? (b.GetString("dist_code") is { } d && d.Trim().Length > 0 ? d.Trim() : null) : cur["dist_code"] as string;
                 var scoped = AccessRules.DistScopedRoles.Contains(effRole);
                 if (scoped && dc is null) return Helpers.Error(400, "Role spv/sales wajib diisi distributornya.");
+                if (scoped && !await DistExistsAsync(db, dc!)) return Helpers.Error(400, "Kode distributor tidak dikenal.");
 
                 var sets = new List<string>(); var pars = new List<object?>();
                 var name = b.GetString("name")?.Trim();
@@ -99,7 +101,10 @@ internal static class AdminEndpoints
 
                 // Paksa logout kalau role / dist_code / password berubah, supaya hak lama tidak terpakai.
                 if (!string.IsNullOrEmpty(role) || distSent || !string.IsNullOrEmpty(password))
+                {
                     await db.ExecuteAsync("delete from auth_local.sessions where username=$1", new object?[] { username });
+                    auth.ForgetUserSessions(username);
+                }
                 return Helpers.Json(new { ok = true });
             }
             catch (Exception e) { log.LogError(e, "[admin/users update]"); return Helpers.Error(500, "Gagal mengubah akun."); }
@@ -118,6 +123,7 @@ internal static class AdminEndpoints
                     if (Convert.ToInt32(c[0]["c"]) <= 1) return Helpers.Error(400, "Tidak bisa menghapus admin terakhir (dashboard butuh minimal 1 akun admin).");
                 }
                 await db.ExecuteAsync("delete from auth_local.sessions where username=$1", new object?[] { username });
+                auth.ForgetUserSessions(username);
                 await db.ExecuteAsync("delete from auth_local.users where username=$1", new object?[] { username });
                 return Helpers.Json(new { ok = true });
             }
@@ -158,7 +164,9 @@ internal static class AdminEndpoints
             try
             {
                 await db.ExecuteAsync("delete from auth_local.role_pages where role=$1", new object?[] { role });
-                foreach (var p in pages)
+                if (pages.Count == 0)   // tabel kosong berarti "pakai default" -> simpan penanda supaya role benar-benar tanpa halaman
+                    await db.ExecuteAsync("insert into auth_local.role_pages (role, page_id, can_view_detail, can_download) values ($1,$2,false,false)", new object?[] { role, AuthService.NoPagesMarker });
+                foreach (var p in pages.Distinct())
                 {
                     bool view = true, dl = true;
                     if (perms is { ValueKind: System.Text.Json.JsonValueKind.Object } pe && pe.TryGetProperty(p, out var one) && one.ValueKind == System.Text.Json.JsonValueKind.Object)
@@ -199,6 +207,9 @@ internal static class AdminEndpoints
             catch (Exception e) { log.LogError(e, "[admin/activity]"); return Helpers.Error(500, "Gagal mengambil data aktivitas."); }
         });
     }
+
+    private static async Task<bool> DistExistsAsync(Db db, string distCode) =>
+        (await db.QueryAsync("select 1 from public.distributor where dist_code=$1", new object?[] { distCode })).Count > 0;
 
     private static bool Truthy(System.Text.Json.JsonElement v) => v.ValueKind switch
     {

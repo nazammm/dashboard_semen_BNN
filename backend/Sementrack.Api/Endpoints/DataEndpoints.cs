@@ -7,6 +7,9 @@ namespace Sementrack.Api.Endpoints;
 
 internal static class DataEndpoints
 {
+    private const int DefaultRows = 1000;   // bila klien tidak menulis limit
+    private const int MaxRows = 10000;      // batas keras per request (klien halaman-per-halaman bila lebih banyak)
+
     public static void Map(RouteGroupBuilder api)
     {
         // ---- POST /api/rpc/{fn}: panggil fungsi dashboard_* ----
@@ -60,13 +63,17 @@ internal static class DataEndpoints
                     }
                 }
                 var schema = AccessRules.RpcSchema.TryGetValue(fn, out var sc) ? sc + "." : "";
-                var result = await db.QueryAsync($"SELECT * FROM {schema}{fn}({string.Join(", ", args)})", pars);
+                var result = await db.QueryCachedAsync($"SELECT * FROM {schema}{fn}({string.Join(", ", args)})", pars);
                 return Helpers.Json(result);
+            }
+            catch (Npgsql.PostgresException e) when (e.SqlState.StartsWith("22", StringComparison.Ordinal))
+            {
+                return Helpers.Error(400, "parameter tidak valid");
             }
             catch (Exception e)
             {
                 log.LogError(e, "[RPC {Fn}]", fn);
-                return Results.Json(new { error = "query failed", detail = e.Message }, statusCode: 500);
+                return Results.Json(new { error = "query failed" }, statusCode: 500);   // pesan database hanya di log server
             }
         });
 
@@ -83,6 +90,33 @@ internal static class DataEndpoints
             catch (Exception e) { log.LogError(e, "[data-freshness]"); return Helpers.Error(500, "Gagal mengambil kesegaran data."); }
         });
 
+        // ---- GET /api/toko-count: jumlah toko UNIK (dihitung database; pengganti mengunduh seluruh v_toko_agg) ----
+        api.MapGet("/toko-count", async (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) =>
+        {
+            var (s, st, err) = await auth.GetSessionAsync(ctx);
+            if (s is null) return Helpers.Error(st, err!);
+            const string table = "v_toko_agg";
+            var sqlTable = AccessRules.ReadAlias.TryGetValue(table, out var alias) ? alias : table;
+            try
+            {
+                var pages = await auth.GetPagesForRoleAsync(s.Role);
+                var access = AccessRules.ComputeAccess(s.Role, pages);
+                if (!access.Tables.Contains(table)) return Helpers.Error(403, "role ini tidak boleh mengakses data ini");
+
+                var pars = new List<object?>();
+                var where = "";
+                if (AccessRules.DistScopedRoles.Contains(s.Role) && AccessRules.TablesWithDistCode.Contains(table))
+                {
+                    if (string.IsNullOrEmpty(s.DistCode)) return Helpers.Json(new { count = 0 });
+                    pars.Add(s.DistCode);
+                    where = " WHERE \"dist_code\" IN ($1)";
+                }
+                var rows = await db.QueryAsync($"SELECT COUNT(DISTINCT \"cust_code\")::int AS c FROM {sqlTable}{where}", pars);
+                return Helpers.Json(new { count = rows.Count > 0 ? rows[0]["c"] : 0 });
+            }
+            catch (Exception e) { log.LogError(e, "[toko-count]"); return Helpers.Error(500, "Gagal menghitung toko."); }
+        });
+
         // ---- POST /api/activity/log ----
         api.MapPost("/activity/log", async (HttpContext ctx, AuthService auth, ILogger<Db> log) =>
         {
@@ -91,7 +125,12 @@ internal static class DataEndpoints
             var body = await Helpers.ReadBodyAsync(ctx.Request);
             var ev = body.GetString("event_type");
             if (ev != "page_view" && ev != "download") return Helpers.Error(400, "event_type tidak valid");
-            auth.LogActivity(log, s.Username, s.Role, s.Name, ev, body.GetString("page_id"), body.GetString("detail"));
+            // Hanya id halaman yang dikenal & detail dipotong: log aktivitas tidak boleh jadi tempat sampah / penuhi disk.
+            var pageId = body.GetString("page_id");
+            if (pageId is not null && !AccessRules.KnownPageIds.Contains(pageId)) pageId = null;
+            var detail = body.GetString("detail");
+            if (detail is { Length: > 300 }) detail = detail[..300];
+            auth.LogActivity(log, s.Username, s.Role, s.Name, ev, pageId, detail);
             return Helpers.Json(new { ok = true });
         });
 
@@ -126,15 +165,22 @@ internal static class DataEndpoints
                 var sql = new StringBuilder($"SELECT * FROM {sqlTable}{whereSql}");
                 var pars = q.Params.Cast<object?>().ToList();
                 if (!string.IsNullOrEmpty(q.Order)) sql.Append(" ORDER BY ").Append(q.Order);
-                if (q.Limit is int lim) { pars.Add(lim); sql.Append($" LIMIT ${pars.Count}"); }
-                if (q.Offset is int off) { pars.Add(off); sql.Append($" OFFSET ${pars.Count}"); }
-                return Helpers.Json(await db.QueryAsync(sql.ToString(), pars));
+                // Selalu berbatas: tanpa ini satu request bisa memuat ratusan ribu baris ke memori server (DoS).
+                var lim = q.Limit is int l ? Math.Clamp(l, 0, MaxRows) : DefaultRows;
+                var off = q.Offset is int o ? Math.Max(o, 0) : 0;
+                pars.Add(lim); sql.Append($" LIMIT ${pars.Count}");
+                if (off > 0) { pars.Add(off); sql.Append($" OFFSET ${pars.Count}"); }
+                return Helpers.Json(await db.QueryCachedAsync(sql.ToString(), pars));
             }
             catch (ArgumentException e) { return Helpers.Error(400, e.Message); }
+            catch (Npgsql.PostgresException e) when (e.SqlState.StartsWith("22", StringComparison.Ordinal) || e.SqlState == "42703")
+            {
+                return Helpers.Error(400, "nilai filter / nama kolom tidak valid");   // mis. tanggal/angka ngawur di URL
+            }
             catch (Exception e)
             {
                 log.LogError(e, "[GET {Table}]", table);
-                return Results.Json(new { error = "query failed", detail = e.Message }, statusCode: 500);
+                return Results.Json(new { error = "query failed" }, statusCode: 500);   // pesan database hanya di log server
             }
         });
     }

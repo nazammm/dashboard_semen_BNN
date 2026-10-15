@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using Npgsql;
 using NpgsqlTypes;
@@ -42,6 +43,49 @@ public sealed class Db
             rows.Add(row);
         }
         return rows;
+    }
+
+    // ---- Cache hasil singkat untuk bacaan data dashboard ------------------------------------------
+    // Data hanya berubah saat import (batch), tapi view-nya berat (1-2 dtk) dan dipakai semua pengguna.
+    // Kunci = teks SQL + parameter. Filter distributor spv/sales sudah MASUK ke SQL/parameter, jadi hasil
+    // satu distributor tidak pernah terpakai oleh distributor lain. Permintaan identik yang berbarengan
+    // berbagi satu eksekusi (single-flight).
+    private sealed record CacheEntry(long At, Task<List<Dictionary<string, object?>>> Task);
+    private readonly ConcurrentDictionary<string, CacheEntry> _cache = new();
+    private const int MaxCachedRowsTotal = 60_000;
+
+    public async Task<List<Dictionary<string, object?>>> QueryCachedAsync(string sql, IEnumerable<object?> pars, int ttlSeconds = 45)
+    {
+        var plist = pars.ToList();
+        var key = sql + "\u0001" + string.Join("\u0002", plist.Select(p => p is null ? "\0null" : p.GetType().Name + ":" + p));
+        var now = Environment.TickCount64;
+        if (_cache.TryGetValue(key, out var hit) && now - hit.At < ttlSeconds * 1000L && !hit.Task.IsFaulted && !hit.Task.IsCanceled)
+            return await hit.Task;
+
+        var entry = new CacheEntry(now, QueryAsync(sql, plist));
+        _cache[key] = entry;
+        try
+        {
+            var rows = await entry.Task;
+            TrimCache(now, ttlSeconds);
+            return rows;
+        }
+        catch
+        {
+            _cache.TryRemove(new KeyValuePair<string, CacheEntry>(key, entry));   // kegagalan tidak di-cache
+            throw;
+        }
+    }
+
+    private void TrimCache(long now, int ttlSeconds)
+    {
+        long total = 0;
+        foreach (var kv in _cache.ToArray())
+        {
+            if (now - kv.Value.At >= ttlSeconds * 1000L) { _cache.TryRemove(kv); continue; }
+            if (kv.Value.Task.IsCompletedSuccessfully) total += kv.Value.Task.Result.Count;
+        }
+        if (total > MaxCachedRowsTotal) _cache.Clear();   // batas memori: lebih baik hitung ulang daripada membengkak
     }
 
     public async Task<int> ExecuteAsync(string sql, IEnumerable<object?>? pars = null, CancellationToken ct = default)

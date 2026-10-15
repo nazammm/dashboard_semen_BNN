@@ -25,7 +25,7 @@ public sealed class ParsedQuery
 /// </summary>
 public static partial class QueryParser
 {
-    [GeneratedRegex("^[a-zA-Z0-9_]+$")]
+    [GeneratedRegex("\\A[a-zA-Z0-9_]+\\z")]
     private static partial Regex IdentRegex();
 
     [GeneratedRegex("^(eq|gte|lte|gt|lt|in)\\.(.*)$", RegexOptions.Singleline)]

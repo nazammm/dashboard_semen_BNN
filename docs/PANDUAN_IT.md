@@ -23,6 +23,8 @@ dotnet build Sementrack.Api -c Release              # harus 0 error (memakai Npg
 | `DB_USER` / `DB_PASSWORD` | akun database (hak: baca `public`, `sementrack`; tulis `auth_local`) |
 | `ALLOWED_ORIGIN` | kosongkan (satu origin) |
 | `SESSION_HOURS` | `8` |
+| `LOGIN_IP_LIMIT` | opsional, default `true`. Isi `false` HANYA bila semua pengguna terlihat berasal dari satu IP (mis. reverse proxy yang tidak meneruskan IP asli) |
+| `DB_POOL_MAX` | opsional, default `10` (koneksi database maksimum yang dipakai aplikasi) |
 | `BOOTSTRAP_ADMIN_USER` / `BOOTSTRAP_ADMIN_PASSWORD` | hanya untuk start PERTAMA bila tabel akun kosong (min 12 karakter) — hapus setelahnya |
 
 Akun lama (tabel `auth_local.users`, hash bcrypt) tetap bisa dipakai — hash dari versi Node kompatibel.
@@ -60,5 +62,16 @@ cd frontend && npm install && npm run dev                                     # 
 ```
 
 ## 6. Keamanan (ringkas)
-Sesi = token acak di `auth_local.sessions` (8 jam, idle-logout 10 menit di frontend), bcrypt, throttle login per username,
-spv/sales dipaksa server ke distributornya, whitelist tabel/fungsi per role, header CSP/HSTS. Tidak ada kredensial bawaan di kode.
+Sesi = token acak di `auth_local.sessions` (8 jam, idle-logout 10 menit di frontend), bcrypt, throttle login per akun+IP (plus batas
+longgar per IP), spv/sales dipaksa server ke distributornya, whitelist tabel/fungsi per role, header CSP/HSTS. Tidak ada kredensial bawaan di kode.
+
+Hasil audit keamanan (v1.2) yang sekarang berlaku:
+- **Logout sungguhan**: tombol Keluar memanggil `POST /api/auth/logout` (sesi dihapus di server); sesi kedaluwarsa dibersihkan otomatis.
+- **Batas baris**: `GET /api/{tabel}` tanpa `limit` = 1000 baris, maksimum 10.000 per request (mencegah satu request menghabiskan memori).
+- **Body request maks 256 KB**; JSON/Content-Type rusak = 401/400, bukan 500. Pesan error database tidak dikirim ke browser (hanya di log server).
+- **Cache hasil 45 detik** di server untuk bacaan data (kunci = SQL + parameter, filter distributor sudah termasuk) — view berat tidak dihitung ulang
+  untuk tiap pengguna. Setelah import data, angka bisa tertinggal maksimal 45 detik.
+- **Kompresi respons** (gzip/brotli), `index.html` tidak di-cache, file `/assets/` di-cache lama (nama file ber-hash).
+- Tabel `distributor_target_salesman` hanya terbaca role `admin` dan `mo` (`AccessRules.RoleOnlyTables`).
+- Menyimpan hak akses sebuah role TANPA halaman sekarang benar-benar tanpa halaman (sebelumnya otomatis kembali ke default).
+- Akun spv/sales hanya boleh dibuat/diubah ke kode distributor yang ada di tabel `distributor`.

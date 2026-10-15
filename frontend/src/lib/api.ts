@@ -52,9 +52,9 @@ export async function apiGet<T = Row[]>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** GET semua halaman (1000 baris per request). */
+/** GET semua halaman (10.000 baris per request = batas server). Hampir semua data muat dalam 1 request. */
 export async function apiGetAll(view: string, query: string): Promise<Row[]> {
-  const pageSize = 1000;
+  const pageSize = 10000;
   let offset = 0;
   let out: Row[] = [];
   for (;;) {
@@ -96,6 +96,12 @@ export async function adminApi<T = any>(method: 'GET' | 'POST' | 'PUT' | 'DELETE
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError((data as any).error || `Gagal (${res.status})`, res.status);
   return data as T;
+}
+
+/** Logout di server (hapus sesi). Gagal = diam: sesi lokal tetap dihapus oleh pemanggil. */
+export function apiLogout(token: string | null) {
+  if (!token) return;
+  try { void fetch(API_URL + 'auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {}); } catch { /* diam */ }
 }
 
 /** Catat aktivitas; gagal = diam (tidak boleh mengganggu pemakaian). */

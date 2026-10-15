@@ -11,6 +11,14 @@ public sealed class AuthService
 {
     private readonly Db _db;
     private readonly ConcurrentDictionary<string, string[]> _rolePagesCache = new();
+    /// <summary>Penanda "role ini sengaja tanpa halaman" (tabel kosong = pakai default, jadi perlu baris penanda).</summary>
+    public const string NoPagesMarker = "__none__";
+
+    // Cache sesi singkat (20 dtk): satu halaman memicu ~10 request, tiap request tidak perlu 1 query sesi lagi.
+    // Logout / ubah akun membersihkan cache langsung, jadi pencabutan akses tetap seketika.
+    private const long SessionCacheMs = 20_000;
+    private readonly ConcurrentDictionary<string, (SessionInfo S, long At)> _sessionCache = new();
+    private long _lastPurge;
 
     public AuthService(Db db) { _db = db; }
 
@@ -23,6 +31,15 @@ public sealed class AuthService
         var token = header.StartsWith("Bearer ", StringComparison.Ordinal) ? header[7..] : null;
         if (string.IsNullOrEmpty(token)) return (null, 401, "missing token");
 
+        if (token.Length > 200) return (null, 401, "expired");
+
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (_sessionCache.TryGetValue(token, out var hit))
+        {
+            if (nowMs - hit.At < SessionCacheMs && hit.S.ExpiresAt >= NowSeconds()) return (hit.S, 200, null);
+            _sessionCache.TryRemove(token, out _);
+        }
+
         var rows = await _db.QueryAsync(
             "select token, username, role, name, dist_code, expires_at from auth_local.sessions where token=$1", new object?[] { token });
         if (rows.Count == 0) return (null, 401, "expired");
@@ -31,7 +48,33 @@ public sealed class AuthService
         if (expires < NowSeconds()) return (null, 401, "expired");
 
         var username = r["username"] as string ?? "";
-        return (new SessionInfo(token, username, r["role"] as string ?? "", (r["name"] as string) ?? username, r["dist_code"] as string, expires), 200, null);
+        var info = new SessionInfo(token, username, r["role"] as string ?? "", (r["name"] as string) ?? username, r["dist_code"] as string, expires);
+        if (_sessionCache.Count > 5000) _sessionCache.Clear();
+        _sessionCache[token] = (info, nowMs);
+        return (info, 200, null);
+    }
+
+    /// <summary>Logout sungguhan: sesi dihapus di server (token curian/yang tertinggal di browser jadi tidak berguna).</summary>
+    public async Task RevokeAsync(string token)
+    {
+        _sessionCache.TryRemove(token, out _);
+        await _db.ExecuteAsync("delete from auth_local.sessions where token=$1", new object?[] { token });
+    }
+
+    /// <summary>Dipanggil setelah sesi sebuah akun dihapus di database (ubah role/dist/password, hapus akun).</summary>
+    public void ForgetUserSessions(string username)
+    {
+        foreach (var k in _sessionCache.Where(kv => kv.Value.S.Username == username).Select(kv => kv.Key).ToList())
+            _sessionCache.TryRemove(k, out _);
+    }
+
+    /// <summary>Buang sesi kedaluwarsa (paling sering tiap 10 menit) supaya tabel tidak menumpuk selamanya.</summary>
+    public async Task PurgeExpiredSessionsAsync()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var last = Interlocked.Read(ref _lastPurge);
+        if (now - last < 600_000 || Interlocked.CompareExchange(ref _lastPurge, now, last) != last) return;
+        await _db.ExecuteAsync("delete from auth_local.sessions where expires_at < $1", new object?[] { NowSeconds() });
     }
 
     public async Task<string[]> GetPagesForRoleAsync(string role)
@@ -41,7 +84,9 @@ public sealed class AuthService
         if (_rolePagesCache.TryGetValue(role, out var cached)) return cached;
 
         var rows = await _db.QueryAsync("select page_id from auth_local.role_pages where role=$1 order by page_id", new object?[] { role });
-        var pages = rows.Count > 0 ? rows.Select(x => (string)x["page_id"]!).ToArray() : AccessRules.DefaultPagesFor(role);
+        var pages = rows.Count > 0
+            ? rows.Select(x => (string)x["page_id"]!).Where(x => x != NoPagesMarker).ToArray()
+            : AccessRules.DefaultPagesFor(role);
         _rolePagesCache[role] = pages;
         return pages;
     }

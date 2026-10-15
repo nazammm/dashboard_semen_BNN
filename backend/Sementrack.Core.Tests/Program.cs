@@ -87,5 +87,36 @@ Check(ValueNormalizer.Normalize(123L, "int8") is long, "angka tidak diubah");
 // Awal hari lokal -> UTC harus ber-offset 0 (Npgsql menolak offset != 0)
 Check(new DateTimeOffset(DateTime.Today).ToUniversalTime().Offset == TimeSpan.Zero, "batas awal hari dikirim sebagai UTC");
 
+// ---- Regresi keamanan (audit) --------------------------------------------------------------
+// Nama kolom dengan newline di belakang tidak boleh lolos validasi ($ di .NET menerima "\n" akhir).
+var nl = QueryParser.Parse(new[] { new KeyValuePair<string, string>("dist_code\n", "eq.X") });
+Check(nl.Where.Count == 0, "kolom 'dist_code\\n' harus diabaikan");
+try { QueryParser.Parse(new[] { new KeyValuePair<string, string>("order", "cust_code\n.desc") }); Check(false, "order dengan newline harus error"); }
+catch (ArgumentException) { Check(true, "order newline"); }
+Check(AccessRules.KnownPageIds.Contains("tim-sales") && !AccessRules.KnownPageIds.Contains("<script>"), "daftar id halaman dikenal");
+// Pembatas: kunci per akun+IP terpisah; catatan kedaluwarsa; pembatas IP lebih longgar
+long t2 = 5_000_000;
+var th2 = new LoginThrottle(() => t2);
+for (int i = 0; i < 5; i++) th2.RecordFailure("admin|1.1.1.1");
+Check(th2.RemainingMs("admin|1.1.1.1") > 0, "IP penyerang terkunci");
+Check(th2.RemainingMs("admin|2.2.2.2") == 0, "admin dari IP lain TIDAK ikut terkunci");
+t2 += 61 * 60 * 1000;
+th2.RecordFailure("admin|1.1.1.1");
+Check(th2.RemainingMs("admin|1.1.1.1") == 0, "catatan gagal >1 jam dianggap kedaluwarsa");
+var ipT = new IpLoginThrottle().Inner;
+for (int i = 0; i < 39; i++) ipT.RecordFailure("9.9.9.9");
+Check(ipT.RemainingMs("9.9.9.9") == 0, "IP: 39 gagal belum terkunci (kantor dengan 1 IP aman)");
+ipT.RecordFailure("9.9.9.9");
+Check(ipT.RemainingMs("9.9.9.9") > 0, "IP: 40 gagal terkunci");
+var flood = new LoginThrottle();
+for (int i = 0; i < 60000; i++) flood.RecordFailure("u" + i);
+Check(flood.RemainingMs("u59999") >= 0, "banjir nama acak tidak membuat crash / memori tak terbatas");
+
+// Tabel target salesman: hanya admin & Management (mo), walau halaman tim-sales terbuka untuk spv/sales
+Check(AccessRules.ComputeAccess("mo", AccessRules.DefaultPagesFor("mo")).Tables.Contains("distributor_target_salesman"), "mo boleh target salesman");
+Check(AccessRules.ComputeAccess("admin", AccessRules.DefaultPagesFor("admin")).Tables.Contains("distributor_target_salesman"), "admin boleh target salesman");
+Check(!AccessRules.ComputeAccess("spv", AccessRules.DefaultPagesFor("spv")).Tables.Contains("distributor_target_salesman"), "spv TIDAK boleh target salesman");
+Check(!AccessRules.ComputeAccess("sales", new[] { "tim-sales" }).Tables.Contains("distributor_target_salesman"), "sales TIDAK boleh target salesman");
+
 Console.WriteLine($"Lulus: {passed}, Gagal: {failed}");
 return failed == 0 ? 0 : 1;

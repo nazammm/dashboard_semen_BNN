@@ -4,6 +4,7 @@ import { AuthProvider, ROLE_HOME, useAuth } from './lib/auth';
 import Layout from './components/Layout';
 import { PageSkeleton, ErrorBox } from './components/ui';
 import Login from './pages/Login';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const pages: Record<string, ReturnType<typeof lazy>> = {
   beranda: lazy(() => import('./pages/Beranda')),
@@ -36,7 +37,7 @@ function PageGate({ id }: { id: string }) {
     return target ? <Navigate to={'/' + target} replace /> : <ErrorBox error="Akun ini belum diberi akses ke halaman manapun. Hubungi admin." />;
   }
   const Page = pages[id];
-  return <Suspense fallback={<PageSkeleton />}><Page /></Suspense>;
+  return <ErrorBoundary key={id}><Suspense fallback={<PageSkeleton />}><Page /></Suspense></ErrorBoundary>;
 }
 
 function Home() {

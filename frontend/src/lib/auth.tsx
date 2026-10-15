@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { apiLogin, configureApi, type LoginResponse } from './api';
+import { apiLogin, apiLogout, configureApi, type LoginResponse } from './api';
+import { clearDataCache } from './data';
 import type { PagePerm, Role, Session } from './types';
 
 const SESSION_KEY = 'st_session';
@@ -38,7 +39,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback((reason?: string) => {
     try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+    apiLogout(currentToken);   // cabut sesi di server juga (token yang tertinggal tidak berguna lagi)
     currentToken = null;
+    clearDataCache();   // data milik user sebelumnya tidak boleh terbawa ke user berikutnya
     setSession(null);
     if (reason) sessionStorage.setItem('st_logout_reason', reason);
   }, []);
@@ -49,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // logout dari tab lain
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => { if (e.key === SESSION_KEY && !e.newValue) { currentToken = null; setSession(null); } };
+    const onStorage = (e: StorageEvent) => { if (e.key === SESSION_KEY && !e.newValue) { currentToken = null; clearDataCache(); setSession(null); } };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
@@ -82,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!ROLES.includes(d.role as Role)) return { ok: false as const, status: 403, error: 'Akun tidak punya role yang dikenali.' };
       const s: Session = { ...d, role: d.role as Role, pages: d.pages ?? [], pagePermissions: (d.pagePermissions ?? {}) as Record<string, PagePerm> };
       try { localStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+      clearDataCache();
       currentToken = s.access_token;
       setSession(s);
     }

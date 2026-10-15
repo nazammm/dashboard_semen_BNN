@@ -11,8 +11,19 @@ export default function TransaksiDetail() {
   const [params] = useSearchParams();
   const salesman = params.get('salesman');
   const date = params.get('date');
+  const year = +(params.get('year') || 2026), month = +(params.get('month') || 1);
+  const badParams = (salesman && !(Number.isInteger(year) && year >= 2000 && year <= 2100 && Number.isInteger(month) && month >= 1 && month <= 12))
+    || (!salesman && date && !(/^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(date))));
+  if (badParams) {
+    return (
+      <div>
+        <PageHeader title="Parameter tidak valid" />
+        <div className="error-box" role="alert">Tanggal / bulan / tahun pada alamat halaman tidak valid. Buka halaman ini lewat klik dari Rekap Harian atau Tim Sales.</div>
+      </div>
+    );
+  }
   if (salesman) {
-    return <SalesmanMode key={params.toString()} salesman={salesman} year={+(params.get('year') || 2026)} month={+(params.get('month') || 1)} name={params.get('name') || salesman} />;
+    return <SalesmanMode key={params.toString()} salesman={salesman} year={year} month={month} name={params.get('name') || salesman} />;
   }
   if (date) {
     return <DateMode key={params.toString()} date={date} dist={params.get('dist') || 'all'} jenis={params.get('jenis') || 'all'} />;
