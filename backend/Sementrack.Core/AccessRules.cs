@@ -83,7 +83,16 @@ public static class AccessRules
     {
         ["dashboard_toko_monthly_v2"] = "sementrack",
         ["dashboard_top_customers_v2"] = "sementrack",
+        // Overview dengan filter rentang tanggal
+        ["dashboard_period_summary_range"] = "sementrack",
+        ["dashboard_top_customers_range"] = "sementrack",
+        ["dashboard_channel_breakdown_range"] = "sementrack",
+        ["dashboard_payment_breakdown_range"] = "sementrack",
+        ["dashboard_delivery_type_breakdown_range"] = "sementrack",
+        ["dashboard_product_breakdown_range"] = "sementrack",
     };
+
+    private static readonly string[] RangeArgs = { "p_dist_code", "p_start_date", "p_end_date", "p_product_codes" };
 
     // ---- Fungsi (RPC) yang boleh dipanggil + urutan nama argumennya -----------------------------
     public static readonly IReadOnlyDictionary<string, string[]> AllowedFunctions = new Dictionary<string, string[]>
@@ -96,6 +105,12 @@ public static class AccessRules
         ["dashboard_payment_breakdown"] = new[] { "p_dist_code", "p_year", "p_start_month", "p_end_month", "p_product_codes" },
         ["dashboard_toko_monthly_v2"] = new[] { "p_year", "p_month", "p_dist_code" },
         ["dashboard_store_year"] = new[] { "p_customer_code", "p_year" },
+        ["dashboard_period_summary_range"] = RangeArgs,
+        ["dashboard_top_customers_range"] = RangeArgs.Append("p_limit").ToArray(),
+        ["dashboard_channel_breakdown_range"] = RangeArgs,
+        ["dashboard_payment_breakdown_range"] = RangeArgs,
+        ["dashboard_delivery_type_breakdown_range"] = RangeArgs,
+        ["dashboard_product_breakdown_range"] = RangeArgs,
     };
 
     private sealed record PageDep(string[] Tables, string[] Functions);
@@ -104,7 +119,9 @@ public static class AccessRules
     {
         ["beranda"] = new(
             new[] { "v_distributor_summary", "produk", "v_target_dist", "v_toko_agg", "v_transaksi_monthly", "v_dist_monthly_totals" },
-            new[] { "dashboard_period_summary_v2", "dashboard_top_customers_v2", "dashboard_delivery_type_breakdown", "dashboard_channel_breakdown", "dashboard_payment_breakdown" }),
+            new[] { "dashboard_period_summary_v2", "dashboard_top_customers_v2", "dashboard_delivery_type_breakdown", "dashboard_channel_breakdown", "dashboard_payment_breakdown",
+                    "dashboard_period_summary_range", "dashboard_top_customers_range", "dashboard_channel_breakdown_range",
+                    "dashboard_payment_breakdown_range", "dashboard_delivery_type_breakdown_range", "dashboard_product_breakdown_range" }),
         ["performa-daerah"] = new(new[] { "v_cement_targets_ext" }, Array.Empty<string>()),
         ["delivery"] = new(new[] { "v_delivery_ext" }, Array.Empty<string>()),
         ["rekap-harian"] = new(new[] { "v_distributor_summary", "v_monthly_totals", "produk", "v_target_dist" }, new[] { "dashboard_daily_matrix" }),

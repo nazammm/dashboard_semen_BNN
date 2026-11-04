@@ -165,8 +165,6 @@
 
 @layer components{
   .card{ @apply relative overflow-hidden bg-surface border border-line rounded shadow-card px-[22px] py-5; }
-  .card::after{ content:""; @apply absolute top-0 left-0 w-full h-[3px] pointer-events-none opacity-70; background:linear-gradient(90deg,#FF5A1F,transparent 60%); }
-  .card.plain::after{ display:none; }
   .card-title{ @apply font-mono text-[11px] uppercase text-faint font-semibold mb-1; letter-spacing:.08em; }
   .kpi-value{ @apply font-disp font-extrabold text-[38px] leading-[1.05] text-ink flex items-baseline gap-1.5; }
   .kpi-value .unit{ @apply text-sm font-mono text-faint font-medium; }
@@ -234,6 +232,49 @@
   .btn svg{ @apply w-[13px] h-[13px]; }
   .btn-primary{ @apply bg-accent border-accent text-white hover:bg-[#E64F17] hover:border-[#E64F17] hover:text-white; }
 
+  .btn-sm{ @apply px-3 py-1.5 text-[12.5px]; }
+
+  /* ---------- Pemilih rentang tanggal ---------- */
+  .drp-trigger{ @apply inline-flex items-center gap-2 h-9 px-2.5 rounded-sm border border-line-strong bg-surface font-sans text-[13px] text-ink min-w-[236px] max-w-full cursor-pointer transition-colors hover:border-[#8F8874]; }
+  .drp-trigger.is-open{ @apply border-accent; box-shadow:0 0 0 3px rgba(255,90,31,.14); }
+  .drp-panel{ @apply fixed z-[200] flex bg-surface border border-line-strong rounded-md overflow-hidden text-ink;
+    max-width:calc(100vw - 24px); box-shadow:0 22px 44px -14px rgba(33,30,25,.38), 0 2px 6px rgba(33,30,25,.08); animation:drp-in .14s ease-out; }
+  .drp-panel.is-up{ animation-name:drp-in-up; }
+  .drp-presets{ @apply flex flex-col py-2 w-[178px] shrink-0 border-r border-line bg-surface2; }
+  .drp-preset{ @apply text-left px-4 py-[9px] font-sans text-[13px] text-soft bg-transparent border-0 cursor-pointer transition-colors hover:bg-surface3 hover:text-ink; }
+  .drp-preset.is-active{ @apply text-accent-ink font-semibold bg-accent-soft; box-shadow:inset 2px 0 0 #FF5A1F; }
+  .drp-main{ @apply flex flex-col min-w-0; }
+  .drp-months{ @apply flex gap-7 px-5 pt-4 pb-2; }
+  .drp-month{ @apply w-[238px] shrink-0; }
+  .drp-month-head{ @apply grid items-center mb-2; grid-template-columns:28px 1fr 28px; }
+  .drp-month-title{ @apply text-center font-sans text-[13.5px] font-semibold text-ink; }
+  .drp-nav{ @apply w-7 h-7 inline-flex items-center justify-center rounded-sm border-0 bg-transparent text-soft cursor-pointer transition-colors hover:bg-surface3 hover:text-ink disabled:opacity-30 disabled:cursor-default disabled:hover:bg-transparent; }
+  .drp-grid{ @apply grid grid-cols-7; }
+  .drp-wd{ @apply text-center font-mono text-[10px] uppercase text-faint pt-1 pb-2; letter-spacing:.06em; }
+  .drp-cell{ @apply relative h-[34px] flex items-center justify-center; }
+  .drp-cell.in-range{ @apply bg-accent-soft; }
+  .drp-cell.is-start{ background:linear-gradient(to right, transparent 50%, #FFE3D3 50%); }
+  .drp-cell.is-end{ background:linear-gradient(to left, transparent 50%, #FFE3D3 50%); }
+  .drp-cell.is-single{ background:none; }
+  .drp-day{ @apply relative w-8 h-8 rounded-[5px] border-0 bg-transparent font-sans text-[12.5px] text-ink cursor-pointer transition-colors hover:bg-surface3 disabled:text-line-strong disabled:cursor-default disabled:hover:bg-transparent; font-variant-numeric:tabular-nums; }
+  .drp-cell.in-range .drp-day:hover{ @apply bg-[#FFD3BA]; }
+  .drp-cell.is-start .drp-day, .drp-cell.is-end .drp-day{ @apply bg-accent text-white font-semibold hover:bg-[#E64F17]; }
+  .drp-day.is-last::after{ content:''; @apply absolute left-1/2 bottom-[3px] w-1 h-1 -ml-0.5 rounded-full bg-accent; }
+  .drp-cell.is-start .drp-day.is-last::after, .drp-cell.is-end .drp-day.is-last::after{ @apply bg-white; }
+  .drp-foot{ @apply flex items-center justify-between gap-4 px-5 py-3 border-t border-line; }
+  .drp-summary{ @apply font-sans text-[12.5px] text-soft min-w-0; }
+  .drp-summary b{ @apply font-semibold text-ink; }
+  @media (max-width:640px){
+    .drp-panel{ @apply flex-col; }
+    .drp-panel.is-sheet{ @apply left-0 right-0 bottom-0 rounded-b-none border-x-0 border-b-0 overflow-y-auto; top:auto; max-width:none; max-height:88vh; animation-name:drp-sheet; box-shadow:0 -12px 40px rgba(33,30,25,.3); }
+    .drp-presets{ @apply flex-row w-auto gap-1.5 px-3 py-2.5 overflow-x-auto border-r-0 border-b; }
+    .drp-preset{ @apply whitespace-nowrap rounded-full border border-solid border-line-strong px-3 py-1 text-[12px] bg-surface; }
+    .drp-preset.is-active{ box-shadow:none; @apply border-accent; }
+    .drp-months{ @apply px-3 justify-center; }
+    .drp-foot{ @apply flex-col items-stretch px-3; }
+    .drp-foot > div:last-child{ @apply justify-end; }
+  }
+
   .chart-box{ @apply relative h-[280px]; } .chart-box.tall{ @apply h-[340px]; } .chart-box.small{ @apply h-16; }
   .legend{ @apply flex gap-[18px] flex-wrap text-xs text-soft mb-1.5; }
   .legend span{ @apply inline-flex items-center gap-1.5; } .legend i{ @apply w-3 h-3 rounded-[2px] inline-block; }
@@ -244,8 +285,11 @@
   .divider{ @apply h-px bg-line my-[34px] border-0; }
 }
 
+@keyframes drp-in{ from{ opacity:0; transform:translateY(-4px); } to{ opacity:1; transform:none; } }
+@keyframes drp-sheet{ from{ transform:translateY(24px); opacity:0; } to{ transform:none; opacity:1; } }
+@keyframes drp-in-up{ from{ opacity:0; transform:translateY(4px); } to{ opacity:1; transform:none; } }
 @keyframes skel-shimmer{ 0%{ background-position:-300px 0; } 100%{ background-position:300px 0; } }
-@media (prefers-reduced-motion: reduce){ .skel{ animation:none; } .spinner{ animation-duration:1.6s; } }
+@media (prefers-reduced-motion: reduce){ .skel{ animation:none; } .drp-panel{ animation:none; } .spinner{ animation-duration:1.6s; } }
 .leaflet-control-attribution{ font-size:9.5px !important; padding:1px 6px !important; background:rgba(255,255,255,.75) !important; }
 .leaflet-popup-content{ font-family:'IBM Plex Sans',sans-serif; font-size:12.5px; }
 .leaflet-popup-content b{ font-family:'Big Shoulders Display',sans-serif; text-transform:uppercase; font-size:15px; }

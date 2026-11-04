@@ -248,7 +248,7 @@ function addCoverSlide(pptx: Pptx, data: DeckData) {
   } else nextY += 0.1;
   slide.addText(data.periodLabel, { x: 0.6, y: nextY, w: 9, h: 0.4, fontFace: MONO, fontSize: 14, color: C.accent });
   const genLabel = data.generatedAt.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
-  slide.addText(`Disusun otomatis dari data dashboard · ${genLabel}`, { x: 0.6, y: 6.6, w: 9.4, h: 0.4, fontFace: FONT, fontSize: 10.5, color: C.inkFaint });
+  slide.addText(`Diunduh ${genLabel}`, { x: 0.6, y: 6.6, w: 9.4, h: 0.4, fontFace: FONT, fontSize: 10.5, color: C.inkFaint });
 }
 
 function addKpiSlide(pptx: Pptx, data: DeckData) {
@@ -390,11 +390,11 @@ function addClosingSlide(pptx: Pptx, data: DeckData) {
   slideHeader(slide, { kicker: 'Catatan', title: 'Metodologi & Kesegaran Data', scopeLabel: data.scopeLabel });
   const syncWhen = formatSyncWhen(data.sync);
   const notes = [
-    `Data transaksi, tim sales, dan toko aktif mengikuti closing HARIAN — sinkronisasi terakhir ${syncWhen || 'belum tersedia'}.`,
-    data.isAll ? 'Data Sell Out & Sell In mengikuti closing BULANAN — realisasi ditutup s.d. bulan yang tertera pada tiap slide, bukan bulan berjalan.' : null,
-    `Capaian dihitung terhadap target kumulatif Januari–${MONTHS_ID[data.dataMonth]} ${data.year} (bukan target satu tahun penuh), supaya adil dibandingkan dengan realisasi yang baru berjalan sebagian tahun.`,
+    `Transaksi, tim sales, dan toko aktif diperbarui harian. Sinkronisasi terakhir: ${syncWhen || 'belum tersedia'}.`,
+    data.isAll ? 'Sell Out dan Sell In diperbarui bulanan. Realisasinya sampai bulan closing yang tertera di tiap slide.' : null,
+    `Capaian dibandingkan dengan target kumulatif Januari–${MONTHS_ID[data.dataMonth]} ${data.year}, bukan target setahun penuh.`,
     `Pertumbuhan vs ${data.prevYear} membandingkan periode yang sama (Januari–${MONTHS_ID[data.dataMonth]}), bukan tahun penuh.`,
-    'Laporan ini dibuat otomatis dari SEMENTRACK Dashboard dan mencerminkan data pada saat diunduh.',
+    'Angka sesuai data pada saat laporan diunduh.',
   ].filter((n): n is string => !!n);
   let y = 1.8;
   notes.forEach(n => {

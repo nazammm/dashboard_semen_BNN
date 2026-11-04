@@ -299,7 +299,7 @@ export default function KelolaAkses() {
       <Breadcrumb items={['Dashboard', 'Kelola Akses']} />
       <PageHeader
         title="Kelola Akses"
-        desc="Tambah/ubah/hapus akun (username & password masing-masing orang), dan atur halaman mana yang boleh dibuka role Management & Sales. Semua perubahan di sini langsung berlaku begitu orangnya login lagi -- tidak perlu restart server."
+        desc="Kelola akun pengguna dan halaman yang bisa dibuka tiap role. Perubahan berlaku saat pengguna login berikutnya."
       />
 
       <AddUserForm distributors={distributors} onCreated={reload} />
@@ -333,7 +333,7 @@ export default function KelolaAkses() {
       )}
 
       <h2 className="section-title mt-[34px]">Hak Akses Halaman per Role</h2>
-      <p className="text-soft text-[13px] -mt-1 mb-4 max-w-[640px]">Semua akun dengan role yang sama otomatis dapat halaman yang sama (centang di bawah). Role Admin selalu dapat semua halaman + Interaksi Web + Kelola Akses, jadi tidak ditampilkan di sini.</p>
+      <p className="text-soft text-[13px] -mt-1 mb-4 max-w-[640px]">Berlaku untuk semua akun dengan role yang sama. Admin selalu bisa membuka semua halaman, termasuk Interaksi Web dan Kelola Akses.</p>
       <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
         {PERM_ROLES.map(role => (
           <RolePagesCard key={role} role={role} initialPages={rolePages.current?.[role] || []} initialPerms={rolePages.permissions?.[role] || {}} />

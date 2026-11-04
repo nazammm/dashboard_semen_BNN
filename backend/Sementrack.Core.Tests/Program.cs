@@ -58,6 +58,14 @@ Check(!AccessRules.MustForceDistScope("spv", "dashboard_daily_matrix"), "spv: da
 Check(!AccessRules.MustForceDistScope("spv", "dashboard_store_year"), "store_year tidak punya p_dist_code");
 Check(!AccessRules.MustForceDistScope("mo", "dashboard_toko_monthly_v2"), "mo: tidak dipaksa");
 
+// Overview rentang tanggal
+var mo = AccessRules.ComputeAccess("mo", AccessRules.DefaultPagesFor("mo"));
+Check(mo.Functions.Contains("dashboard_period_summary_range") && mo.Functions.Contains("dashboard_product_breakdown_range"), "mo: fungsi range overview");
+Check(!sales.Functions.Contains("dashboard_top_customers_range"), "sales: TIDAK boleh fungsi range overview");
+Check(AccessRules.MustForceDistScope("spv", "dashboard_period_summary_range"), "spv: dist dipaksa utk fungsi range");
+Check(AccessRules.AllowedFunctions["dashboard_top_customers_range"].SequenceEqual(new[] { "p_dist_code", "p_start_date", "p_end_date", "p_product_codes", "p_limit" }), "argumen top_customers_range");
+Check(AccessRules.RpcSchema["dashboard_period_summary_range"] == "sementrack", "fungsi range di schema sementrack");
+
 Check(AccessRules.DefaultPermFor("sales", "daftar-toko") is { CanViewDetail: true, CanDownload: false }, "perm sales daftar-toko");
 Check(AccessRules.DefaultPermFor("spv", "rekap-harian") is { CanViewDetail: false, CanDownload: false }, "perm spv rekap");
 Check(AccessRules.DefaultPermFor("mo", "beranda") is { CanViewDetail: true, CanDownload: true }, "perm default");

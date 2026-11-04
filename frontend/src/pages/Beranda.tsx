@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ChartConfiguration } from 'chart.js';
-import { DataSource, periodSummary, topCustomers, deliveryTypeBreakdown, channelBreakdown, paymentBreakdown } from '../lib/data';
+import { DataSource, rangeSummary, topCustomersRange, deliveryTypeRange, channelRange, paymentRange, productMixRange } from '../lib/data';
+import { MONTHS_FULL, addDays, addMonths, endOfMonth, fmtRange, isISO, sameRangeLastYear, startOfMonth, startOfQuarter, startOfYear, toISO, type DateRange } from '../lib/dates';
+import { DateRangePicker, type RangePreset } from '../components/DateRangePicker';
 import {
-  MONTHS_ID, COLORS, PALETTE, fmt, fmtIDR, fmtIDRCompact, fmtCompact, dailyFreshness, chartSRSummary, groupSum,
+  MONTHS_ID, COLORS, PALETTE, fmt, fmtIDR, fmtIDRCompact, fmtCompact, dailyFreshness, chartSRSummary,
 } from '../lib/format';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
@@ -23,7 +25,8 @@ const NET_NODES = [
   { c: 'PM', x: 400, y: 440 }, { c: 'BKP', x: 195, y: 465 }, { c: 'GMD', x: 770, y: 415 },
   { c: 'PTK', x: 905, y: 520 },
 ];
-const NET_MASK = 'linear-gradient(to right, #000 55%, transparent 88%)';
+// Jaringan hanya tampak di sisi kanan (di belakang panel peringkat), tidak menimpa judul dan angka KPI di kiri.
+const NET_MASK = 'linear-gradient(to right, transparent 38%, #000 72%)';
 
 function HeroNetwork({ svgRef }: { svgRef: React.Ref<SVGSVGElement> }) {
   return (
@@ -74,7 +77,7 @@ function HeroLeaderboard({ ranking, monthLabel }: { ranking: RankItem[]; monthLa
   return (
     <aside className="relative z-[3] flex-none w-[300px] max-[880px]:w-full max-[880px]:basis-full mt-1.5 rounded px-5 py-[18px] border border-white/[.14] backdrop-blur-[8px]"
       style={{ background: 'rgba(14,13,11,.82)', boxShadow: '0 12px 28px rgba(0,0,0,.4)' }}
-      aria-label="Peringkat distributor berdasarkan tonase bulan ini">
+      aria-label={`Peringkat distributor berdasarkan tonase ${monthLabel}`}>
       <div className="font-mono text-[10.5px] uppercase text-[#8F8874] mb-3.5" style={{ letterSpacing: '.07em' }}>Top 5 Tonase · {monthLabel}</div>
       <ol className="list-none m-0 p-0 flex flex-col gap-3">
         {ranking.map((d, i) => (
@@ -154,10 +157,25 @@ function RankedBar({ title, labels, values, axisFmt, tooltipFmt }: {
 }
 
 /* ============================================================================
+   Preset rentang tanggal, relatif terhadap tanggal data terakhir (bukan tanggal hari ini)
+============================================================================ */
+function overviewPresets(last: string): RangePreset[] {
+  const prevMonth = addMonths(startOfMonth(last), -1);
+  return [
+    { label: 'Bulan berjalan (MTD)', range: { from: startOfMonth(last), to: last } },
+    { label: 'Bulan lalu', range: { from: prevMonth, to: endOfMonth(prevMonth) } },
+    { label: '7 hari terakhir', range: { from: addDays(last, -6), to: last } },
+    { label: '30 hari terakhir', range: { from: addDays(last, -29), to: last } },
+    { label: 'Kuartal berjalan (QTD)', range: { from: startOfQuarter(last), to: last } },
+    { label: 'Tahun berjalan (YTD)', range: { from: startOfYear(last), to: last } },
+  ];
+}
+
+/* ============================================================================
    Halaman
 ============================================================================ */
 export default function Beranda() {
-  useDocTitle('Beranda');
+  useDocTitle('Overview');
   const base = useAsync(async () => {
     const [dists, distMonthly, transMonthly, produk, targetDist, freshnessData] = await Promise.all([
       DataSource.distributors(), DataSource.distMonthlyTotals(), DataSource.transaksiMonthly(), DataSource.produk(), DataSource.targetDist(), DataSource.dataFreshness(),
@@ -207,7 +225,15 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
   /* ---------- Filter (saling menyempit berdasar transaksi NYATA) ---------- */
   const [dist, setDist] = useState('all');
   const [jenis, setJenis] = useState('all');
-  const [month, setMonth] = useState(heroMonth);
+  // Periode: default bulan berjalan s.d. tanggal data terakhir (MTD). Dibandingkan dengan tanggal yang sama tahun lalu.
+  const lastDataDay = useMemo(() => {
+    const raw = String(freshnessData?.max_do_date ?? '').slice(0, 10);
+    return isISO(raw) ? raw : endOfMonth(toISO(activeYear, heroMonth, 1));
+  }, [freshnessData, activeYear, heroMonth]);
+  const presets = useMemo(() => overviewPresets(lastDataDay), [lastDataDay]);
+  const [range, setRange] = useState<DateRange>(() => presets[0].range);
+  const prevRange = sameRangeLastYear(range);
+  const minDay = `${prevYear}-01-01`;
   const [topN, setTopN] = useState(10);
 
   const distOptionsFor = (j: string) => {
@@ -234,7 +260,7 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
 
   const productCodes = jenis === 'all' ? null : m.productsByJenis[jenis];
   const distArg = dist === 'all' ? null : dist;
-  const periodLabel = `${MONTHS_ID[month]} ${activeYear}`;
+  const periodLabel = fmtRange(range);
   const jenisSuffix = jenis === 'all' ? '' : ' · ' + jenis;
   const distSuffix = dist === 'all' ? '' : ' · ' + dist;
 
@@ -261,28 +287,28 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [transMonthly, targetDist, dist, jenis, activeYear, prevYear]);
 
-  const prodEntries = useMemo(() => {
-    let rows = transMonthly.filter(r => Number(r.year) === activeYear && Number(r.month) === month && (dist === 'all' || r.dist_code === dist));
-    if (productCodes) rows = rows.filter(r => productCodes.includes(r.product_code));
-    return ([...groupSum(rows, r => String(r.product_name), r => Number(r.total_qty)).entries()] as [string, number][]).sort((a, b) => b[1] - a[1]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transMonthly, activeYear, month, dist, jenis]);
-
   /* ---------- Data async (RPC) per filter ---------- */
   const f = useAsync(async () => {
-    const [cur, prev, totalStores, delivery, top, channel, payment] = await Promise.all([
-      periodSummary(distArg, activeYear, month, month, productCodes),
-      periodSummary(distArg, prevYear, month, month, productCodes),
+    const [cur, prev, totalStores, delivery, channel, payment, product] = await Promise.all([
+      rangeSummary(distArg, range, productCodes),
+      rangeSummary(distArg, prevRange, productCodes),
       DataSource.tokoCount(),
-      deliveryTypeBreakdown(distArg, activeYear, month, month, productCodes),
-      topCustomers(distArg, activeYear, month, month, productCodes, topN),
-      channelBreakdown(distArg, activeYear, month, month, productCodes),
-      paymentBreakdown(distArg, activeYear, month, month, productCodes),
+      deliveryTypeRange(distArg, range, productCodes),
+      channelRange(distArg, range, productCodes),
+      paymentRange(distArg, range, productCodes),
+      productMixRange(distArg, range, productCodes),
     ]);
-    return { cur, prev, totalStores: totalStores as number, delivery, top, channel, payment };
+    return { cur, prev, totalStores: totalStores as number, delivery, channel, payment, product };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dist, jenis, month, topN]);
+  }, [dist, jenis, range.from, range.to]);
+  // Top customer dimuat terpisah: ganti Top 10/25/50 tidak memuat ulang seluruh halaman.
+  const top = useAsync(() => topCustomersRange(distArg, range, productCodes, topN),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dist, jenis, range.from, range.to, topN]);
   const d = f.data;
+  const prodEntries = useMemo(() => (d?.product ?? []).map(r => [String(r.product_name), Number(r.total_qty)] as [string, number]), [d]);
+  // Saat data filter baru dimuat, tampilan lama tetap ada tapi diredupkan (tidak berkedip jadi kosong).
+  const refreshing = f.loading && !!d;
 
   const kpi = useMemo(() => {
     if (!d) return null;
@@ -362,9 +388,9 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
           <div className="flex gap-12 items-start mt-[22px] flex-wrap">
             <div className="flex-[1_1_480px] min-w-0">
               <div className="mb-4"><Badge variant={freshness.statusVariant}><span role="status">{freshness.status}</span></Badge></div>
-              <h1 className="text-white leading-[.96] max-w-[820px]" style={{ fontSize: 'clamp(36px,5.4vw,64px)' }}>{heroTop.dist_code}<br />memimpin bulan ini.</h1>
+              <h1 className="text-white leading-[.96] max-w-[820px]" style={{ fontSize: 'clamp(36px,5.4vw,64px)' }}>{heroTop.dist_code}<br />teratas {MONTHS_FULL[heroMonth]}.</h1>
               <p className="text-[#C9C3B4] max-w-[560px] mt-4 text-[15px] leading-relaxed">
-                {heroTop.dist_name} mencatat tonase tertinggi {MONTHS_ID[heroMonth]} {activeYear}, sebesar {fmt(heroTop.tonase, 1)} ton. Pilih distributor, jenis semen, dan periode di bawah untuk melihat rincian performa keseluruhan.
+                {heroTop.dist_name} mencatat tonase tertinggi di {MONTHS_ID[heroMonth]} {activeYear}: {fmt(heroTop.tonase, 1)} ton.
               </p>
               <div ref={heroFilterRef} className="controls !mt-7 !mb-0">
                 <HeroSelect id="bDist" label="Distributor" value={dist} onChange={onDist} minWidth={190}>
@@ -375,15 +401,14 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
                   <option value="all">Semua Jenis</option>
                   {jenisOpts.map(j => <option key={j} value={j}>{j}</option>)}
                 </HeroSelect>
-                <HeroSelect id="bMonth" label="Bulan" value={month} onChange={v => setMonth(+v)}>
-                  {m.monthsAllActive.map(mo => <option key={mo} value={mo}>{MONTHS_ID[mo]} {activeYear}</option>)}
-                </HeroSelect>
+                <DateRangePicker label="Periode" labelClassName="!text-[#8F8874]" value={range} onChange={setRange}
+                  min={minDay} max={lastDataDay} presets={presets} />
               </div>
-              <div className="flex gap-[38px] max-[880px]:gap-6 flex-wrap mt-10 min-h-[78px]">
+              <div className={cx('flex gap-[38px] max-[880px]:gap-6 flex-wrap mt-10 min-h-[78px] transition-opacity duration-200', refreshing && 'opacity-50')} aria-busy={f.loading}>
                 {d && kpi && (
                   <>
                     <HeroKpi label={`Tonase · ${periodLabel}`}><span className="font-mono">{fmtCompact(d.cur.total_qty)}</span><HeroUnit>ton</HeroUnit></HeroKpi>
-                    <HeroKpi label={`Pertumbuhan vs ${prevYear}`}><span className="font-mono">{growthTxt}</span> <HeroUnit>{kpi.growth == null ? '' : kpi.growth >= 0 ? '▲' : '▼'}</HeroUnit></HeroKpi>
+                    <HeroKpi label={`Pertumbuhan vs ${fmtRange(prevRange)}`}><span className="font-mono">{growthTxt}</span> <HeroUnit>{kpi.growth == null ? '' : kpi.growth >= 0 ? '▲' : '▼'}</HeroUnit></HeroKpi>
                     <HeroKpi label="Delivery Order"><span className="font-mono">{fmt(d.cur.num_do)}</span></HeroKpi>
                     <HeroKpi label="Rata-rata / DO"><span className="font-mono">{kpi.avgPerDO == null ? '–' : kpi.avgPerDO.toFixed(1)}</span><HeroUnit>ton</HeroUnit></HeroKpi>
                   </>
@@ -400,13 +425,14 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
         <div role="group" aria-label="Filter Overview" aria-hidden={!showStickyFilter}
           className={cx('-mx-11 px-11 max-[880px]:-mx-[18px] max-[880px]:px-[18px] py-2.5 bg-bg border-b border-line shadow-[0_6px_10px_-8px_rgba(33,30,25,.35)] transition-[opacity,transform] duration-200',
             showStickyFilter ? 'opacity-100 translate-y-0' : 'invisible opacity-0 -translate-y-2 pointer-events-none')}>
-          <div className="controls !mb-0 [&_.control]:min-w-0 max-[880px]:grid max-[880px]:grid-cols-3 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
+          <div className="controls !mb-0 [&_.control]:min-w-0 max-[880px]:grid max-[880px]:grid-cols-2 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
             <Select label="Distributor" aria-label="Distributor" value={dist} onChange={e => onDist(e.target.value)} style={{ minWidth: 190 }}
               options={[{ value: 'all', label: 'Semua Distributor' }, ...distOpts.map(o => ({ value: String(o.dist_code), label: `${o.dist_code} · ${o.dist_name}` }))]} />
             <Select label="Jenis Semen" aria-label="Jenis Semen" value={jenis} onChange={e => onJenis(e.target.value)}
               options={[{ value: 'all', label: 'Semua Jenis' }, ...jenisOpts.map(j => ({ value: j, label: j }))]} />
-            <Select label="Bulan" aria-label="Bulan" value={month} onChange={e => setMonth(+e.target.value)}
-              options={m.monthsAllActive.map(mo => ({ value: mo, label: `${MONTHS_ID[mo]} ${activeYear}` }))} />
+            <div className="max-[880px]:col-span-2 [&_.drp-trigger]:max-[880px]:w-full">
+              <DateRangePicker label="Periode" value={range} onChange={setRange} min={minDay} max={lastDataDay} presets={presets} />
+            </div>
           </div>
         </div>
       </div>
@@ -421,13 +447,14 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
         </div>
       )}
 
+      <div className={cx('transition-opacity duration-200', refreshing && 'opacity-60')} aria-busy={f.loading}>
       {/* ---------------- KPI sekunder ---------------- */}
-      <div className="grid-kpi" aria-busy={f.loading}>
+      <div className="grid-kpi">
         {d && kpi ? (
           <>
             <Card title={`Toko Aktif · ${periodLabel}`}>
               <div className="kpi-value">{fmt(d.cur.num_active_stores)}</div>
-              <div className="kpi-delta">Transaksi kumulatif di atas Rp200rb bulan ini</div>
+              <div className="kpi-delta">Belanja minimal Rp200 rb dalam sebulan</div>
             </Card>
             <Card title="Cakupan Toko Aktif">
               <div className="kpi-value">{kpi.coverage == null ? '–' : kpi.coverage.toFixed(1) + '%'}</div>
@@ -481,7 +508,7 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
 
           <Card title={`Tren Tonase Target vs Aktual${distSuffix}`} className={flexCard}>
             <div className="legend">
-              <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target (Target Dist)</span>
+              <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target</span>
               <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Aktual</span>
             </div>
             <ChartBox className={chartFlex} label={chartSRSummary(monthsLabels, trend.actual, 'ton aktual')}
@@ -550,13 +577,14 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
             </tr>
           </thead>
           <tbody>
-            {!d && <tr><td colSpan={6} className="text-center text-faint p-5">Memuat…</td></tr>}
-            {d && d.top.length === 0 && <tr><td colSpan={6} className="text-center text-faint p-5">Tidak ada data untuk filter ini.</td></tr>}
-            {d && d.top.map((c, i) => (
+            {top.error && <tr><td colSpan={6} className="text-center text-red p-5">{top.error.message}</td></tr>}
+            {!top.data && !top.error && <tr><td colSpan={6} className="text-center text-faint p-5">Memuat…</td></tr>}
+            {top.data && top.data.length === 0 && <tr><td colSpan={6} className="text-center text-faint p-5">Tidak ada transaksi pada periode ini.</td></tr>}
+            {top.data && top.data.map((c, i) => (
               <tr key={c.customer_code + '-' + i}>
                 <td className="num font-mono">{i + 1}</td>
                 <td><CellLink to={`/toko-detail?code=${encodeURIComponent(c.customer_code)}&from=beranda`}>{c.cust_name || c.customer_code}</CellLink></td>
-                <td><span className="tag-code">{c.dist_code}</span> {c.dist_name || ''}</td>
+                <td>{String(c.dist_code || '').split(', ').filter(Boolean).map(code => <span key={code} className="tag-code mr-1">{code}</span>)} {c.dist_name || ''}</td>
                 <td className="num font-mono">{fmt(c.num_do)}</td>
                 <td className="num font-mono">{fmtIDR(c.net_amount)}</td>
                 <td className="num font-mono">{fmt(c.total_qty)}</td>
@@ -565,6 +593,7 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
           </tbody>
         </table>
       </TableWrap>
+      </div>
     </>
   );
 }

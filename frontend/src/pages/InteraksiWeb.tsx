@@ -58,7 +58,7 @@ export default function InteraksiWeb() {
       <Breadcrumb items={['Dashboard', 'Interaksi Web']} />
       <PageHeader
         title="Interaksi Web"
-        desc="Siapa memakai dashboard ini, halaman mana yang paling sering dibuka, dan siapa mengunduh file Excel. Hanya bisa dilihat akun admin."
+        desc="Login, halaman yang dibuka, dan file yang diunduh pengguna. Hanya terlihat oleh admin."
       />
 
       <div className="grid-kpi">

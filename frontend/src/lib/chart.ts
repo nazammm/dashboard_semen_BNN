@@ -22,24 +22,42 @@ export function applyChartDefaults() {
   d.plugins.tooltip.displayColors = true;
   d.plugins.tooltip.boxPadding = 4;
   (d.elements.bar as any).borderRadius = 3;
+  // Transisi lebih singkat: perubahan filter terasa responsif, tetap halus.
+  (d.animation as any).duration = 450;
+  (d.animation as any).easing = 'easeOutCubic';
 }
 
 /**
- * Pasang satu Chart.js ke <canvas>. `build` dipanggil ulang setiap `deps` berubah
- * (chart lama dihancurkan). Kembalikan null dari build kalau belum ada data.
+ * Pasang satu Chart.js ke <canvas>. `build` dipanggil ulang setiap `deps` berubah.
+ * Chart yang sudah ada DIPERBARUI di tempat (dataset lama diisi nilai baru) supaya batang/garis
+ * bergerak halus ke nilai baru saat filter diganti, bukan menghilang lalu digambar ulang dari nol.
+ * Dibuat ulang hanya kalau jenis grafik / jumlah dataset / plugin inline berubah.
+ * Kembalikan null dari build kalau belum ada data.
  */
 export function useChart(build: () => ChartConfiguration | null, deps: unknown[]) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const chartRef = useRef<Chart | null>(null);
   useEffect(() => {
     applyChartDefaults();
     const canvas = ref.current;
     if (!canvas) return;
     const cfg = build();
-    if (!cfg) return;
-    const chart = new Chart(canvas, cfg);
-    return () => chart.destroy();
+    const cur = chartRef.current;
+    if (!cfg) { cur?.destroy(); chartRef.current = null; return; }
+    const sameShape = cur && cur.canvas === canvas && (cur.config as any).type === cfg.type && !cfg.plugins?.length
+      && cur.data.datasets.length === cfg.data.datasets.length;
+    if (cur && sameShape) {
+      cur.data.labels = cfg.data.labels;
+      cfg.data.datasets.forEach((ds, i) => Object.assign(cur.data.datasets[i], ds));
+      cur.options = cfg.options ?? {};
+      cur.update();
+      return;
+    }
+    cur?.destroy();
+    chartRef.current = new Chart(canvas, cfg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
+  useEffect(() => () => { chartRef.current?.destroy(); chartRef.current = null; }, []);
   return ref;
 }
 

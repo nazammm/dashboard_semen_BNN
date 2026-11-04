@@ -46,7 +46,7 @@ export function useSort<T>(rows: T[], initialKey: string, initialDir: SortDir, g
 
 /** Judul tab. */
 export function useDocTitle(title: string) {
-  useEffect(() => { document.title = `${title} — Dashboard Distribusi`; }, [title]);
+  useEffect(() => { document.title = `${title} · Dashboard Semen`; }, [title]);
 }
 
 /** Nilai terakhir yang stabil (debounce). */

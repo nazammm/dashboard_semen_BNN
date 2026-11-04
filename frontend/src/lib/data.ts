@@ -27,6 +27,34 @@ export function periodSummary(distCode: string | null, year: number, startMonth:
 export const topCustomers = (distCode: string | null, year: number, startMonth: number, endMonth: number, productCodes: string[] | null | undefined, limit: number) =>
   getData<Row[]>(`topcust:${distCode || 'all'}:${year}:${startMonth}:${endMonth}:${pcKey(productCodes)}:${limit}`, () =>
     apiRpc('dashboard_top_customers_v2', { p_dist_code: distCode || null, p_year: year, p_start_month: startMonth, p_end_month: endMonth, p_product_codes: pcArg(productCodes), p_limit: limit }));
+/* ---- Overview: versi rentang tanggal (fungsi sementrack.*_range) ---- */
+export interface DateRangeArg { from: string; to: string }
+const rangeKey = (distCode: string | null, r: DateRangeArg, productCodes?: string[] | null) => `${distCode || 'all'}:${r.from}:${r.to}:${pcKey(productCodes)}`;
+const rangeArgs = (distCode: string | null, r: DateRangeArg, productCodes?: string[] | null) =>
+  ({ p_dist_code: distCode || null, p_start_date: r.from, p_end_date: r.to, p_product_codes: pcArg(productCodes) });
+/** 404 = backend belum mengenal fungsi *_range (belum di-deploy ulang): beri pesan yang jelas. */
+async function rangeRpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
+  try { return await apiRpc<T>(fn, args); }
+  catch (e) {
+    if (e instanceof ApiError && e.status === 404)
+      throw new ApiError('Filter rentang tanggal belum aktif di server: backend dan fungsi database *_range perlu dipasang dulu.', 404);
+    throw e;
+  }
+}
+const EMPTY_SUMMARY: PeriodSummary = { total_qty: 0, order_qty: 0, bonus_qty: 0, num_do: 0, num_active_stores: 0, num_lines: 0, net_amount: 0 };
+export const rangeSummary = (distCode: string | null, r: DateRangeArg, productCodes?: string[] | null): Promise<PeriodSummary> =>
+  getData(`rsum:${rangeKey(distCode, r, productCodes)}`, async () =>
+    ((await rangeRpc<Row[]>('dashboard_period_summary_range', rangeArgs(distCode, r, productCodes)))[0] as PeriodSummary) || EMPTY_SUMMARY);
+export const topCustomersRange = (distCode: string | null, r: DateRangeArg, productCodes: string[] | null | undefined, limit: number) =>
+  getData<Row[]>(`rtop:${rangeKey(distCode, r, productCodes)}:${limit}`, () =>
+    rangeRpc('dashboard_top_customers_range', { ...rangeArgs(distCode, r, productCodes), p_limit: limit }));
+const rangeBreakdown = (fn: string, tag: string) => (distCode: string | null, r: DateRangeArg, productCodes?: string[] | null) =>
+  getData<Row[]>(`${tag}:${rangeKey(distCode, r, productCodes)}`, () => rangeRpc(fn, rangeArgs(distCode, r, productCodes)));
+export const channelRange = rangeBreakdown('dashboard_channel_breakdown_range', 'rch');
+export const paymentRange = rangeBreakdown('dashboard_payment_breakdown_range', 'rpay');
+export const deliveryTypeRange = rangeBreakdown('dashboard_delivery_type_breakdown_range', 'rdel');
+export const productMixRange = rangeBreakdown('dashboard_product_breakdown_range', 'rprod');
+
 export const dailyMatrix = (year: number, month: number, productCodes?: string[] | null) =>
   getData<Row[]>(`daily:${year}:${month}:${pcKey(productCodes)}`, () => apiRpc('dashboard_daily_matrix', { p_year: year, p_month: month, p_product_codes: pcArg(productCodes) }));
 

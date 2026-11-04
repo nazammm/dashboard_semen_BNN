@@ -250,7 +250,7 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
 
   return (
     <div>
-      <PageHeader title="Peta Toko" desc={`Sebaran Geografis · ${MONTHS_ID[month]} ${data.year} (MTD)`} status={freshness.status} statusVariant={freshness.statusVariant} />
+      <PageHeader title="Peta Toko" desc={`Lokasi toko dan status aktif ${MONTHS_ID[month]} ${data.year}`} status={freshness.status} statusVariant={freshness.statusVariant} />
 
       <FilterBar label="Filter Peta Toko">
         <div className="control">
@@ -275,7 +275,7 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
         <div className="card"><div className="card-title">Aktif Bulan Ini</div><div className="kpi-value">{fmt(us.active)}</div><div className="kpi-delta">{activePct}% dari toko ini</div></div>
         <div className="card"><div className="card-title">Nonaktif Bulan Ini</div><div className="kpi-value">{fmt(us.total - us.active)}</div><div className="kpi-delta">Tidak aktif {MONTHS_ID[month]}</div></div>
         <button type="button" className="card cursor-pointer text-left w-full hover:border-accent" aria-expanded={showMissing} onClick={() => setShowMissing(v => !v)}>
-          <div className="card-title">Tanpa Titik Koordinat</div><div className="kpi-value">{fmt(missing.length)}</div><div className="kpi-delta">Klik untuk lihat daftar &darr;</div>
+          <div className="card-title">Tanpa Titik Koordinat</div><div className="kpi-value">{fmt(missing.length)}</div><div className="kpi-delta">Lihat daftar &darr;</div>
         </button>
       </div>
 

@@ -5,6 +5,8 @@ import { useAsync, useDocTitle } from '../lib/hooks';
 import { MONTHS_ID, dailyFreshness, fmt, fmtIDR, relDate, uniqueTokoStats } from '../lib/format';
 import type { Row } from '../lib/types';
 import { Badge, Chip, ErrorBox, ExportButton, FilterBar, Kpi, PageHeader, PageSkeleton, Th } from '../components/ui';
+import { DateRangePicker, type RangePreset } from '../components/DateRangePicker';
+import { addDays, addMonths, endOfMonth, isISO, startOfMonth } from '../lib/dates';
 
 const PAGE_SIZE = 50;
 
@@ -50,7 +52,8 @@ export default function DaftarToko() {
       const s = statsByCode.get(t.cust_code + '|' + t.dist_code);
       return { ...t, total_qty: Number(s?.total_qty || 0), net_amount: Number(s?.net_amount || 0), is_active: !!s?.is_active, last_transaction: s?.last_transaction || null };
     });
-    return { year, month, merged, freshness: dailyFreshness(freshnessData) };
+    const raw = String(freshnessData?.max_do_date ?? '').slice(0, 10);
+    return { year, month, merged, freshness: dailyFreshness(freshnessData), lastDay: isISO(raw) ? raw : '' };
   }, []);
 
   if (load.error) return <ErrorBox error={load.error} />;
@@ -58,7 +61,21 @@ export default function DaftarToko() {
   return <DaftarTokoView {...load.data} />;
 }
 
-function DaftarTokoView({ year, month, merged, freshness }: { year: number; month: number; merged: Row[]; freshness: ReturnType<typeof dailyFreshness> }) {
+/** Preset "Transaksi Terakhir", relatif terhadap tanggal data terakhir. "Lebih dari N bulan lalu" = toko yang lama tidak belanja. */
+function lastTxPresets(last: string, earliest: string): RangePreset[] {
+  const prevMonth = addMonths(startOfMonth(last), -1);
+  return [
+    { label: '7 hari terakhir', range: { from: addDays(last, -6), to: last } },
+    { label: '30 hari terakhir', range: { from: addDays(last, -29), to: last } },
+    { label: 'Bulan berjalan', range: { from: startOfMonth(last), to: last } },
+    { label: 'Bulan lalu', range: { from: prevMonth, to: endOfMonth(prevMonth) } },
+    { label: 'Lebih dari 1 bulan lalu', range: { from: earliest, to: addMonths(last, -1) } },
+    { label: 'Lebih dari 3 bulan lalu', range: { from: earliest, to: addMonths(last, -3) } },
+    { label: 'Lebih dari 6 bulan lalu', range: { from: earliest, to: addMonths(last, -6) } },
+  ].filter(p => p.range.from <= p.range.to);
+}
+
+function DaftarTokoView({ year, month, merged, freshness, lastDay }: { year: number; month: number; merged: Row[]; freshness: ReturnType<typeof dailyFreshness>; lastDay: string }) {
   const [f, setF] = useState<Filters>(EMPTY);
   const [page, setPage] = useState(1);
   const [sortKey, setSortKey] = useState('cust_code');
@@ -78,12 +95,14 @@ function DaftarTokoView({ year, month, merged, freshness }: { year: number; mont
     const dist = f.dist !== 'all' && !distOptionsFor(merged, zona).some(([c]) => c === f.dist) ? 'all' : f.dist;
     set({ zona, dist });
   };
-  // "Dari" tidak boleh lebih besar dari "Sampai": tolak perubahan + beri tahu
-  const onDate = (key: 'dateFrom' | 'dateTo', v: string) => {
-    const from = key === 'dateFrom' ? v : f.dateFrom, to = key === 'dateTo' ? v : f.dateTo;
-    if (from && to && from > to) { alert('Tanggal "Dari" tidak boleh lebih besar dari tanggal "Sampai". Periksa kembali rentang tanggalnya.'); return; }
-    set({ [key]: v } as Partial<Filters>);
-  };
+  // Batas kalender: transaksi terakhir paling lama s.d. tanggal data terakhir
+  const { earliest, latest } = useMemo(() => {
+    let lo = '', hi = '';
+    merged.forEach(t => { const d = String(t.last_transaction || '').slice(0, 10); if (!isISO(d)) return; if (!lo || d < lo) lo = d; if (!hi || d > hi) hi = d; });
+    const last = lastDay || hi || new Date().toISOString().slice(0, 10);
+    return { earliest: lo || addMonths(last, -24), latest: last };
+  }, [merged, lastDay]);
+  const presets = useMemo(() => lastTxPresets(latest, earliest), [latest, earliest]);
 
   const filtered = useMemo(() => {
     const q = f.q.trim().toLowerCase();
@@ -134,7 +153,7 @@ function DaftarTokoView({ year, month, merged, freshness }: { year: number; mont
 
   return (
     <div>
-      <PageHeader title="Daftar Toko" desc={`Operasional · ${MONTHS_ID[month]} ${year}`} status={freshness.status} statusVariant={freshness.statusVariant} />
+      <PageHeader title="Daftar Toko" desc={`Status aktif dan tonase: ${MONTHS_ID[month]} ${year}`} status={freshness.status} statusVariant={freshness.statusVariant} />
 
       <FilterBar label="Filter Daftar Toko" stickyMobile={false}>
         <div className="control flex-[1_1_220px]">
@@ -163,20 +182,8 @@ function DaftarTokoView({ year, month, merged, freshness }: { year: number; mont
             <Chip active={f.status === 'inactive'} onClick={() => set({ status: 'inactive' })}>Nonaktif</Chip>
           </div>
         </div>
-        <div className="control">
-          <label htmlFor="dtDateFrom">Transaksi Terakhir</label>
-          <div className="flex items-center gap-2 px-2 py-[5px] rounded-md border border-line-strong bg-surface2 focus-within:border-accent [&_input]:!border-0 [&_input]:!bg-transparent [&_input]:!px-0.5 [&_input]:!py-0.5 [&_input]:w-[122px] [&_input:focus]:!outline-none">
-            <div className="flex flex-col gap-px">
-              <span className="font-mono text-[9px] uppercase text-faint px-0.5" style={{ letterSpacing: '.07em' }}>Dari</span>
-              <input type="date" id="dtDateFrom" aria-label="Transaksi terakhir dari tanggal" value={f.dateFrom} onChange={e => onDate('dateFrom', e.target.value)} />
-            </div>
-            <span className="text-faint opacity-70 shrink-0 self-end mb-1.5 [&_svg]:w-[13px] [&_svg]:h-[13px] [&_svg]:block" aria-hidden="true">{I('M5 12h14M13 6l6 6-6 6')}</span>
-            <div className="flex flex-col gap-px">
-              <span className="font-mono text-[9px] uppercase text-faint px-0.5" style={{ letterSpacing: '.07em' }}>Sampai</span>
-              <input type="date" id="dtDateTo" aria-label="Transaksi terakhir sampai tanggal" value={f.dateTo} onChange={e => onDate('dateTo', e.target.value)} />
-            </div>
-          </div>
-        </div>
+        <DateRangePicker label="Transaksi Terakhir" value={{ from: f.dateFrom, to: f.dateTo }} placeholder="Semua tanggal" allowClear
+          min={earliest} max={latest} presets={presets} onChange={r => set({ dateFrom: r.from, dateTo: r.to })} />
         <div className="control">
           <span className="control-group-label">&nbsp;</span>
           <div className="flex gap-2">
@@ -187,12 +194,12 @@ function DaftarTokoView({ year, month, merged, freshness }: { year: number; mont
       </FilterBar>
 
       <div className="grid-kpi mt-5 mb-[22px]">
-        <Kpi title={anyFilter ? 'Toko Cocok Filter' : 'Toko Terdaftar'} value={fmt(us.total)} icon={I('M4 10 12 4l8 6M5 9.5V20h14V9.5M9.5 20v-6h5v6')} iconTone="neutral"
+        <Kpi title={anyFilter ? 'Toko Cocok Filter' : 'Toko Terdaftar'} value={fmt(us.total)}
           delta={anyFilter ? `dari ${fmt(totalUnik)} total toko` : undefined} />
-        <Kpi title={`Aktif ${MONTHS_ID[month]} ${year}`} value={fmt(us.active)} icon={I('M20 6.5 10 17 4 11.3')} iconTone="good"
+        <Kpi title={`Aktif ${MONTHS_ID[month]} ${year}`} value={fmt(us.active)}
           delta={`${us.total ? (us.active / us.total * 100).toFixed(1) : '0.0'}% dari toko ini`} />
-        <Kpi title={`Nonaktif ${MONTHS_ID[month]} ${year}`} value={fmt(us.total - us.active)} icon={I('M6 6l12 12M18 6 6 18')} iconTone="bad" />
-        <Kpi title="Tanpa Titik Koordinat" value={fmt(us.noGeo)} icon={I('M12 21s7-6.3 7-12a7 7 0 1 0-14 0c0 5.7 7 12 7 12ZM9 9l6 6M15 9l-6 6')} iconTone="warn" />
+        <Kpi title={`Nonaktif ${MONTHS_ID[month]} ${year}`} value={fmt(us.total - us.active)} />
+        <Kpi title="Tanpa Titik Koordinat" value={fmt(us.noGeo)} />
       </div>
 
       <div className="table-wrap">

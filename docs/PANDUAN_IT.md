@@ -75,3 +75,8 @@ Hasil audit keamanan (v1.2) yang sekarang berlaku:
 - Tabel `distributor_target_salesman` hanya terbaca role `admin` dan `mo` (`AccessRules.RoleOnlyTables`).
 - Menyimpan hak akses sebuah role TANPA halaman sekarang benar-benar tanpa halaman (sebelumnya otomatis kembali ke default).
 - Akun spv/sales hanya boleh dibuat/diubah ke kode distributor yang ada di tabel `distributor`.
+
+## 7. Update Nov 2026: filter rentang tanggal di Overview
+Urutan pasang (keduanya wajib, kalau tidak Overview menampilkan pesan "Filter rentang tanggal belum aktif di server"):
+1. Jalankan `docs/sql/overview_rentang_tanggal.sql` di database `web_semen` (membuat 6 fungsi `sementrack.*_range`; fungsi lama tidak diubah).
+2. Build ulang dan deploy backend + frontend dari branch ini. Backend menambah 6 fungsi itu ke whitelist (`AccessRules.AllowedFunctions`, schema `sementrack`).

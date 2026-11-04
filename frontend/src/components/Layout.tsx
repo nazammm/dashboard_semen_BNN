@@ -28,7 +28,7 @@ export default function Layout() {
   const pageId = loc.pathname.replace(/^\/+|\/+$/g, '') || 'beranda';
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
-    document.title = `${PAGE_LABEL[pageId] || 'Dashboard'} — Dashboard Distribusi`;
+    document.title = `${PAGE_LABEL[pageId] || 'Dashboard'} · Dashboard Semen`;
     void logActivity('page_view', pageId);
   }, [pageId]);
 
