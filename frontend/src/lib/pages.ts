@@ -18,8 +18,8 @@ export const NAV_GROUPS = [
     { id: 'tim-sales', label: 'Tim Sales', icon: ICONS.timsales },
   ] },
   { label: 'Performa Bulanan', items: [
-    { id: 'performa-daerah', label: 'Penjualan Daerah', icon: ICONS.performa },
-    { id: 'delivery', label: 'Delivery', icon: ICONS.delivery },
+    { id: 'performa-daerah', label: 'Sell Out', icon: ICONS.performa },
+    { id: 'delivery', label: 'Sell In', icon: ICONS.delivery },
   ] },
   { label: 'Customer', items: [
     { id: 'daftar-toko', label: 'Daftar Toko', icon: ICONS.daftar },

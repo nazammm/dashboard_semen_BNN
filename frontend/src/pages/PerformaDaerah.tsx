@@ -26,7 +26,7 @@ const optionsFor = (rows: Row[], f: Filters, field: 'region' | 'distributor' | '
 };
 
 export default function PerformaDaerah() {
-  useDocTitle('Penjualan Daerah');
+  useDocTitle('Sell Out');
   const { data: rows, error, loading } = useAsync(() => DataSource.cementTargets(), []);
   if (error) return <ErrorBox error={error} />;
   if (loading || !rows) return <PageSkeleton />;
@@ -134,10 +134,10 @@ function Content({ rows }: { rows: Row[] }) {
 
   return (
     <>
-      <PageHeader title="Penjualan Daerah" status={freshness.status} statusVariant={freshness.statusVariant} />
+      <PageHeader title="Sell Out" status={freshness.status} statusVariant={freshness.statusVariant} />
 
       {/* Bar filter menempel di atas saat halaman di-scroll, supaya filter bisa diganti tanpa kembali ke atas */}
-      <div role="group" aria-label="Filter Penjualan Daerah"
+      <div role="group" aria-label="Filter Sell Out"
         className="sticky top-0 max-[880px]:top-14 z-30 -mx-11 px-11 max-[880px]:-mx-[18px] max-[880px]:px-[18px] py-2.5 mb-5 bg-bg border-b border-line shadow-[0_6px_10px_-8px_rgba(33,30,25,.35)]">
         <div className="controls !mb-0 max-[880px]:grid max-[880px]:grid-cols-3 max-[880px]:gap-2 [&_.control]:min-w-0 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
           <Select label="Region" value={filters.region} onChange={e => change({ region: e.target.value })}
@@ -156,8 +156,8 @@ function Content({ rows }: { rows: Row[] }) {
       </div>
 
       <div className="grid-kpi">
-        <Kpi title={`Realisasi DO ${Y}`} value={fmt(agg.do_cur)} unit="ton" delta={<Capaian actual={agg.do_cur} target={agg.target_do} />} />
         <Kpi title={`Target DO ${Y}`} value={fmt(agg.target_do)} unit="ton" delta="Akumulasi target tahunan" />
+        <Kpi title={`Realisasi DO ${Y}`} value={fmt(agg.do_cur)} unit="ton" delta={<Capaian actual={agg.do_cur} target={agg.target_do} />} />
         <Kpi title={`Pertumbuhan vs ${P}`} value={<span className={growth == null ? '' : growth >= 0 ? 'text-green' : 'text-red'}>{growth == null ? '–' : (growth >= 0 ? '+' : '') + growth.toFixed(1) + '%'}</span>}
           delta={`Jan–${MONTHS_ID[maxDataMonth]} ${Y} vs periode sama ${P}`} />
         <Kpi title={`Toko Aktif ${Y}`} value={fmt(agg.ta_cur)} delta={isAllTypes ? <Capaian actual={agg.ta_cur} target={agg.target_ta} /> : `${filters.type} · tanpa target`} />
@@ -166,16 +166,16 @@ function Content({ rows }: { rows: Row[] }) {
       <div className="grid grid-cols-2 gap-4 mt-3.5 max-[1000px]:grid-cols-1">
         <Card title="Delivery Order per Bulan (Ton)">
           <div className="legend">
-            <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Realisasi {Y}</span>
             <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target {Y}</span>
+            <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Realisasi {Y}</span>
             <span><i style={{ background: COLORS.ink, opacity: .35 }} aria-hidden="true" />Realisasi {P}</span>
           </div>
           <ChartBox className="tall" label={chartSRSummary(labels, do26Series, `ton realisasi ${Y}`)} deps={[byMonth, Y]} build={() => ({
             type: 'bar',
             data: { labels, datasets: [
+              { label: `Target ${Y}`, data: labels.map((_, i) => byMonth[i + 1].tdo), type: 'line', borderColor: COLORS.blueMid, backgroundColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3, order: 1 },
               { label: `Realisasi ${Y}`, data: do26Series, backgroundColor: COLORS.accent, maxBarThickness: 26, order: 2 },
               { label: `Realisasi ${P}`, data: labels.map((_, i) => byMonth[i + 1].do25), backgroundColor: 'rgba(33,30,25,.22)', borderRadius: 3, maxBarThickness: 26, order: 3 },
-              { label: `Target ${Y}`, data: labels.map((_, i) => byMonth[i + 1].tdo), type: 'line', borderColor: COLORS.blueMid, backgroundColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3, order: 1 },
             ] } as any,
             options: { responsive: true, maintainAspectRatio: false,
               scales: { y: { grid: { color: COLORS.line }, ticks: { callback: (v: any) => fmtCompact(v) } }, x: { grid: { display: false } } },
@@ -186,12 +186,13 @@ function Content({ rows }: { rows: Row[] }) {
         <Card title="Toko Aktif per Bulan">
           <div className="legend">
             {isAllTypes
-              ? <><span><i style={{ background: COLORS.accent }} aria-hidden="true" />Realisasi</span><span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target</span></>
+              ? <><span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target</span><span><i style={{ background: COLORS.accent }} aria-hidden="true" />Realisasi</span></>
               : <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Realisasi ({filters.type}, tanpa target)</span>}
           </div>
           <ChartBox className="tall" label={chartSRSummary(labels, ta26Series, 'toko aktif')} deps={[byMonth, isAllTypes]} build={() => {
-            const datasets: any[] = [{ label: 'Realisasi', data: ta26Series, backgroundColor: COLORS.accent, maxBarThickness: 26 }];
-            if (isAllTypes) datasets.push({ label: 'Target', data: labels.map((_, i) => byMonth[i + 1].tta), type: 'line', borderColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3 });
+            const datasets: any[] = [];
+            if (isAllTypes) datasets.push({ label: 'Target', data: labels.map((_, i) => byMonth[i + 1].tta), type: 'line', borderColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3, order: 1 });
+            datasets.push({ label: 'Realisasi', data: ta26Series, backgroundColor: COLORS.accent, maxBarThickness: 26, order: 2 });
             return { type: 'bar', data: { labels, datasets },
               options: { responsive: true, maintainAspectRatio: false, scales: { y: { grid: { color: COLORS.line } }, x: { grid: { display: false } } }, plugins: { tooltip: tooltipLabel } } };
           }} />
@@ -206,11 +207,11 @@ function Content({ rows }: { rows: Row[] }) {
           <thead><tr>
             {th('month_num', 'Bulan')}
             {th('target_do', 'Target DO', true)}
-            {th('capaian_do', 'Capaian DO')}
             {th('do_cur', `DO ${Y} (Ton)`, true)}
+            {th('capaian_do', 'Capaian DO')}
             {th('growth_do', `YoY vs ${P}`, true)}
-            {th('ta_cur', 'Toko Aktif', true)}
             {th('target_ta', 'Target TA', true)}
+            {th('ta_cur', 'Toko Aktif', true)}
             {th('capaian_ta', 'Capaian TA')}
           </tr></thead>
           <tbody>
@@ -222,11 +223,11 @@ function Content({ rows }: { rows: Row[] }) {
                         onToggle={() => setExpandedMonth(expandedMonth === r.month_num ? null : r.month_num)} />
                     : <strong>{MONTHS_ID[r.month_num]}</strong>}</td>
                   <td className="num font-mono">{fmt(r.target_do)}</td>
-                  <td><Capaian actual={r.do_cur} target={r.target_do} /></td>
                   <td className="num font-mono">{fmt(r.do_cur)}</td>
+                  <td><Capaian actual={r.do_cur} target={r.target_do} /></td>
                   <td className={cx('num font-mono', r.growth_do >= 0 ? 'text-green' : 'text-red')}>{fmtGrowth(r.growth_do)}</td>
-                  <td className="num font-mono">{fmt(r.ta_cur)}</td>
                   <td className={cx('num font-mono', !isAllTypes && 'text-faint')}>{isAllTypes ? fmt(r.target_ta) : '–'}</td>
+                  <td className="num font-mono">{fmt(r.ta_cur)}</td>
                   <td><Capaian actual={r.ta_cur} target={r.target_ta} /></td>
                 </tr>
                 {expandedMonth === r.month_num && (

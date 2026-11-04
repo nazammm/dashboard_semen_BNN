@@ -26,7 +26,7 @@ const optionsFor = (rows: Row[], f: Filters, field: 'region' | 'subRegion' | 'ty
 };
 
 export default function Delivery() {
-  useDocTitle('Delivery');
+  useDocTitle('Sell In');
   const { data: rows, error, loading } = useAsync(() => DataSource.delivery(), []);
   if (error) return <ErrorBox error={error} />;
   if (loading || !rows) return <PageSkeleton />;
@@ -124,7 +124,7 @@ function Content({ rows }: { rows: Row[] }) {
 
   return (
     <>
-      <PageHeader title="Delivery" status={freshness.status} statusVariant={freshness.statusVariant}>
+      <PageHeader title="Sell In" status={freshness.status} statusVariant={freshness.statusVariant}>
         <div className="controls !mb-0">
           <Select label="Region" value={filters.region} onChange={e => change({ region: e.target.value })}
             options={[{ value: 'all', label: 'Semua Region' }, ...regionOpts.map(r => ({ value: r, label: r }))]} />
@@ -136,26 +136,26 @@ function Content({ rows }: { rows: Row[] }) {
       </PageHeader>
 
       <div className="grid-kpi">
-        <Kpi title={`Realisasi ${Y}`} value={fmt(agg.cur)} unit="ton" delta={<Capaian actual={agg.cur} target={agg.target} />} />
         <Kpi title={`Target ${Y}`} value={fmt(agg.target)} unit="ton" delta="Akumulasi target tahunan" />
+        <Kpi title={`Realisasi ${Y}`} value={fmt(agg.cur)} unit="ton" delta={<Capaian actual={agg.cur} target={agg.target} />} />
         <Kpi title={`Pertumbuhan vs ${P}`} value={<span className={growth == null ? '' : growth >= 0 ? 'text-green' : 'text-red'}>{growth == null ? '–' : (growth >= 0 ? '+' : '') + growth.toFixed(1) + '%'}</span>}
           delta={`Jan–${MONTHS_ID[maxDataMonth]} ${Y} vs periode sama ${P}`} />
         <Kpi title={`Realisasi ${P}`} value={fmt(agg.prev)} unit="ton" delta="Pembanding" />
       </div>
 
       <div className="mt-3.5">
-        <Card title="Delivery per Bulan (Ton)">
+        <Card title="Sell In per Bulan (Ton)">
           <div className="legend">
-            <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Realisasi {Y}</span>
             <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target {Y}</span>
+            <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Realisasi {Y}</span>
             <span><i style={{ background: COLORS.ink, opacity: .35 }} aria-hidden="true" />Realisasi {P}</span>
           </div>
           <ChartBox className="tall" label={chartSRSummary(labels, r26Series, `ton realisasi ${Y}`)} deps={[byMonth, Y]} build={() => ({
             type: 'bar',
             data: { labels, datasets: [
+              { label: `Target ${Y}`, data: labels.map((_, i) => byMonth[i + 1].t26), type: 'line', borderColor: COLORS.blueMid, backgroundColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3, order: 1 },
               { label: `Realisasi ${Y}`, data: r26Series, backgroundColor: COLORS.accent, maxBarThickness: 26, order: 2 },
               { label: `Realisasi ${P}`, data: labels.map((_, i) => byMonth[i + 1].r25), backgroundColor: 'rgba(33,30,25,.22)', borderRadius: 3, maxBarThickness: 26, order: 3 },
-              { label: `Target ${Y}`, data: labels.map((_, i) => byMonth[i + 1].t26), type: 'line', borderColor: COLORS.blueMid, backgroundColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3, order: 1 },
             ] } as any,
             options: { responsive: true, maintainAspectRatio: false,
               scales: { y: { grid: { color: COLORS.line }, ticks: { callback: (v: any) => fmtCompact(v) } }, x: { grid: { display: false } } },
@@ -168,12 +168,12 @@ function Content({ rows }: { rows: Row[] }) {
       <h2 className="section-title">Rincian per Bulan</h2>
       <TableWrap>
         <table>
-          <caption className="sr-only">Rincian realisasi delivery per bulan terhadap target</caption>
+          <caption className="sr-only">Rincian target dan realisasi sell in per bulan</caption>
           <thead><tr>
             {th('month_num', 'Bulan')}
             {th('target', 'Target', true)}
-            {th('capaian', 'Capaian')}
             {th('real_cur', `Realisasi ${Y} (Ton)`, true)}
+            {th('capaian', 'Capaian')}
             {th('growth', `YoY vs ${P}`, true)}
             {th('real_prev', `Realisasi ${P} (Ton)`, true)}
           </tr></thead>
@@ -186,13 +186,13 @@ function Content({ rows }: { rows: Row[] }) {
                         onToggle={() => setExpandedMonth(expandedMonth === r.month_num ? null : r.month_num)} />
                     : <strong>{MONTHS_ID[r.month_num]}</strong>}</td>
                   <td className="num font-mono">{fmt(r.target)}</td>
-                  <td><Capaian actual={r.real_cur} target={r.target} /></td>
                   <td className="num font-mono">{fmt(r.real_cur)}</td>
+                  <td><Capaian actual={r.real_cur} target={r.target} /></td>
                   <td className={cx('num font-mono', r.growth >= 0 ? 'text-green' : 'text-red')}>{fmtGrowth(r.growth)}</td>
                   <td className="num font-mono">{fmt(r.real_prev)}</td>
                 </tr>
                 {expandedMonth === r.month_num && (
-                  <MonthDetailRow colSpan={6} groups={groups} heading={`Komposisi Delivery ${MONTHS_ID[r.month_num]} ${Y} · per ${grouping.label}`} />
+                  <MonthDetailRow colSpan={6} groups={groups} heading={`Komposisi Sell In ${MONTHS_ID[r.month_num]} ${Y} · per ${grouping.label}`} />
                 )}
               </Fragment>
             ))}

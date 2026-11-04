@@ -138,8 +138,8 @@ function SalesmanMode({ salesman, year, month, name }: { salesman: string; year:
   const trendChart = (actual: number[], target: (number | null)[], tonase: boolean) => () => ({
     type: 'bar',
     data: { labels, datasets: [
-      { label: 'Aktual', data: actual, backgroundColor: COLORS.accent, maxBarThickness: 26 },
-      { label: 'Target', data: target, type: 'line', borderColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: 0.3 },
+      { label: 'Target', data: target, type: 'line', borderColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: 0.3, order: 1 },
+      { label: 'Aktual', data: actual, backgroundColor: COLORS.accent, maxBarThickness: 26, order: 2 },
     ] },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -163,12 +163,12 @@ function SalesmanMode({ salesman, year, month, name }: { salesman: string; year:
       <div className="grid grid-cols-2 max-lg:grid-cols-1 gap-4 mt-5">
         <Card>
           <h2 className="card-title">Tren Toko Aktif per Bulan · Seluruh Toko Pegangan</h2>
-          <div className="legend"><span><i style={{ background: COLORS.accent }} aria-hidden="true" />Aktual</span><span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target</span></div>
+          <div className="legend"><span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target</span><span><i style={{ background: COLORS.accent }} aria-hidden="true" />Aktual</span></div>
           <ChartBox label={chartSRSummary(labels, trend.actualTA, 'toko aktif')} deps={[trend]} build={trendChart(trend.actualTA, trend.targetTA, false)} />
         </Card>
         <Card>
           <h2 className="card-title">Tren Tonase per Bulan · Seluruh Toko Pegangan</h2>
-          <div className="legend"><span><i style={{ background: COLORS.accent }} aria-hidden="true" />Aktual</span><span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target</span></div>
+          <div className="legend"><span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target</span><span><i style={{ background: COLORS.accent }} aria-hidden="true" />Aktual</span></div>
           <ChartBox label={chartSRSummary(labels, trend.actualTonase, 'ton')} deps={[trend]} build={trendChart(trend.actualTonase, trend.targetTonase, true)} />
         </Card>
       </div>

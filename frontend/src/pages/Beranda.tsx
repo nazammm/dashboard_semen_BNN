@@ -452,10 +452,10 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
             <p className="sr-only">{chartSRSummary(monthsLabels, trend.active as number[], `ton (${activeYear})`)}</p>
           </Card>
 
-          <Card title={`Tren Tonase Aktual vs Target${distSuffix}`} className={flexCard}>
+          <Card title={`Tren Tonase Target vs Aktual${distSuffix}`} className={flexCard}>
             <div className="legend">
-              <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Aktual</span>
               <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target (Target Dist)</span>
+              <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Aktual</span>
             </div>
             <ChartBox className={chartFlex} label={chartSRSummary(monthsLabels, trend.actual, 'ton aktual')}
               deps={[trend]}
@@ -463,8 +463,8 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
                 type: 'bar',
                 data: {
                   labels: monthsLabels, datasets: [
-                    { label: 'Aktual', data: trend.actual, backgroundColor: COLORS.accent, borderRadius: 3, maxBarThickness: 26, order: 2 },
                     { label: 'Target', data: trend.target, type: 'line', borderColor: COLORS.blueMid, borderDash: [5, 4], borderWidth: 2.5, pointRadius: 2.5, fill: false, tension: .3, order: 1 },
+                    { label: 'Aktual', data: trend.actual, backgroundColor: COLORS.accent, borderRadius: 3, maxBarThickness: 26, order: 2 },
                   ],
                 },
                 options: {

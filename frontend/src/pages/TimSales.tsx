@@ -124,11 +124,11 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
             {hdr('salesman_name', 'Salesman')}
             {hdr('dist_code', 'Distributor')}
             {hdr('capaian_avg', 'Point')}
-            {hdr('actual_ta', 'TA Aktual', true)}
             {hdr('target_ta', 'Target TA', true)}
+            {hdr('actual_ta', 'TA Aktual', true)}
             {hdr('capaian_ta', 'Capaian TA')}
-            {hdr('actual_tonase', 'Tonase Aktual', true)}
             {hdr('target_tonase', 'Target Tonase', true)}
+            {hdr('actual_tonase', 'Tonase Aktual', true)}
             {hdr('capaian_tonase', 'Capaian Tonase')}
           </tr></thead>
           <tbody>
@@ -140,11 +140,11 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
                   <td><CellLink to={`/transaksi-detail?salesman=${encodeURIComponent(r.salesman_code)}&year=2026&month=${month}&name=${encodeURIComponent(r.salesman_name)}`}>{r.salesman_name}</CellLink></td>
                   <td><span className="tag-code">{r.dist_code}</span></td>
                   <td><CapaianAvg p={r.capaian_avg} /></td>
-                  <td className="num font-mono">{fmt(r.actual_ta)}</td>
                   <td className="num font-mono">{r.target_ta ? fmt(r.target_ta) : '–'}</td>
+                  <td className="num font-mono">{fmt(r.actual_ta)}</td>
                   <td><Capaian actual={r.actual_ta} target={r.target_ta} /></td>
-                  <td className="num font-mono">{fmt(r.actual_tonase)}</td>
                   <td className="num font-mono">{r.target_tonase ? fmt(r.target_tonase) : '–'}</td>
+                  <td className="num font-mono">{fmt(r.actual_tonase)}</td>
                   <td><Capaian actual={r.actual_tonase} target={r.target_tonase} /></td>
                 </tr>
               ))}
@@ -204,7 +204,7 @@ function SalesmanVsTarget({ rows, targets, month, dist, lead }: { rows: Row[]; t
     <section aria-label="Salesman vs Target" className="grid grid-cols-[0.9fr_1fr_1.25fr] max-[1360px]:grid-cols-2 max-lg:grid-cols-1 gap-4 mt-3.5">
       {lead}
       <div className="card">
-        <h2 className="card-title">Salesman per Bulan vs Target</h2>
+        <h2 className="card-title">Target vs Salesman per Bulan</h2>
         <ChartBox className="!h-[480px]" label={chartSRSummary(labels, monthly.map(v => v ?? 0), 'salesman per bulan; target ' + targetTotal)}
           deps={[monthly, targetTotal, month]}
           build={() => ({
@@ -212,8 +212,8 @@ function SalesmanVsTarget({ rows, targets, month, dist, lead }: { rows: Row[]; t
             data: {
               labels,
               datasets: [
-                { type: 'bar', label: 'Salesman', data: monthly, backgroundColor: monthly.map((_, i) => (i + 1 === month ? COLORS.accent : COLORS.blueMid)), maxBarThickness: 30, order: 2 },
                 { type: 'line', label: 'Target', data: labels.map(() => (targetTotal > 0 ? targetTotal : null)), borderColor: COLORS.red, borderDash: [6, 4], borderWidth: 2, pointRadius: 0, fill: false, order: 1 },
+                { type: 'bar', label: 'Salesman', data: monthly, backgroundColor: monthly.map((_, i) => (i + 1 === month ? COLORS.accent : COLORS.blueMid)), maxBarThickness: 30, order: 2 },
               ],
             },
             options: {
@@ -227,7 +227,7 @@ function SalesmanVsTarget({ rows, targets, month, dist, lead }: { rows: Row[]; t
           } as any)} />
       </div>
       <div className="card max-[1360px]:col-span-2 max-lg:col-span-1">
-        <h2 className="card-title">Per Distributor · {MONTHS_ID[month]} 2026 · Salesman / Target</h2>
+        <h2 className="card-title">Per Distributor · {MONTHS_ID[month]} 2026 · Salesman Target / Aktual</h2>
         <TableWrap>
           <table className="tbl-dense" style={{ minWidth: 0 }}>
             <caption className="sr-only">Jumlah salesman dibanding target per distributor</caption>
@@ -241,7 +241,7 @@ function SalesmanVsTarget({ rows, targets, month, dist, lead }: { rows: Row[]; t
               {sorted.map(r => (
                 <tr key={r.dist} style={dist === r.dist ? { background: 'rgba(255,90,31,.08)' } : undefined}>
                   <td><span className="tag-code">{r.dist}</span></td>
-                  <td className="num font-mono whitespace-nowrap">{r.real == null ? '–' : fmt(r.real)}<span className="text-faint"> / {r.target > 0 ? fmt(r.target) : '–'}</span></td>
+                  <td className="num font-mono whitespace-nowrap"><span className="text-faint">{r.target > 0 ? fmt(r.target) : '–'} / </span>{r.real == null ? '–' : fmt(r.real)}</td>
                   <td className="num font-mono" style={{ color: r.selisih == null ? undefined : r.selisih >= 0 ? COLORS.green : COLORS.red }}>{r.selisih == null ? '–' : signed(r.selisih)}</td>
                   <td className="num font-mono font-semibold" style={{ color: r.p == null ? undefined : ({ good: COLORS.green, warn: COLORS.amber, bad: COLORS.red, neutral: undefined } as Record<string, string | undefined>)[capaianClass(r.p)] }}>{r.p == null ? '–' : r.p.toFixed(0) + '%'}</td>
                 </tr>

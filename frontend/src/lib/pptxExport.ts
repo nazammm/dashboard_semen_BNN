@@ -5,9 +5,9 @@
    tidak membengkak). Semua data diambil lewat DataSource + periodSummary yang sama
    dengan dashboard, jadi angkanya konsisten.
 
-   CATATAN cakupan per distributor: cement_targets & delivery (Performa Daerah &
-   Delivery) granularitasnya BUKAN per dist_code, jadi slide Performa Regional &
-   Delivery Regional HANYA masuk laporan "Semua Distributor". Kalau satu distributor
+   CATATAN cakupan per distributor: cement_targets & delivery (Sell Out &
+   Sell In) granularitasnya BUKAN per dist_code, jadi slide Sell Out Regional &
+   Sell In Regional HANYA masuk laporan "Semua Distributor". Kalau satu distributor
    dipilih, laporan fokus ke angka yang bisa dipertanggungjawabkan di level itu.
 ========================================================================== */
 import { DataSource, periodSummary } from './data';
@@ -276,17 +276,17 @@ function addKpiSlide(pptx: Pptx, data: DeckData) {
 
 function addTrendSlide(pptx: Pptx, data: DeckData) {
   const slide = pptx.addSlide({ masterName: 'SEM_CONTENT' });
-  slideHeader(slide, { kicker: 'Tren Bulanan', title: 'Realisasi vs Target Tonase', scopeLabel: data.scopeLabel });
+  slideHeader(slide, { kicker: 'Tren Bulanan', title: 'Target vs Realisasi Tonase', scopeLabel: data.scopeLabel });
   const t = data.trend;
   slide.addChart(pptx.ChartType.line, [
-    { name: `Realisasi ${data.year}`, labels: t.labels, values: t.realisasi },
     { name: `Target ${data.year}`, labels: t.labels, values: t.target },
+    { name: `Realisasi ${data.year}`, labels: t.labels, values: t.realisasi },
     { name: `Realisasi ${data.prevYear}`, labels: t.labels, values: t.realisasiPrev },
   ], {
     x: 0.6, y: 1.65, w: 12.13, h: 5.05,
-    chartColors: [C.accent, C.blue, C.inkFaint],
+    chartColors: [C.blue, C.accent, C.inkFaint],
     lineSize: 2.5, lineDataSymbol: 'circle', lineDataSymbolSize: 6,
-    lineDashType: ['solid', 'dash', 'solid'],
+    lineDashType: ['dash', 'solid', 'solid'],
     showLegend: true, legendPos: 'b', legendFontFace: FONT, legendFontSize: 11, legendColor: C.inkSoft,
     catAxisLabelFontFace: FONT, catAxisLabelFontSize: 11, catAxisLabelColor: C.inkSoft, catAxisLineColor: C.line,
     valAxisLabelFontFace: MONO, valAxisLabelFontSize: 10, valAxisLabelColor: C.inkFaint,
@@ -300,12 +300,12 @@ function addDistributorRankingSlide(pptx: Pptx, data: DeckData) {
   const slide = pptx.addSlide({ masterName: 'SEM_CONTENT' });
   slideHeader(slide, { kicker: 'Peringkat Distributor', title: 'Realisasi Tonase per Distributor', scopeLabel: data.periodLabel });
   const rows = data.distributorRanking || [];
-  const header = [th('Distributor'), th('Wilayah'), th('Realisasi (ton)', true), th('Target (ton)', true), th('Capaian', true)];
+  const header = [th('Distributor'), th('Wilayah'), th('Target (ton)', true), th('Realisasi (ton)', true), th('Capaian', true)];
   const body = rows.slice(0, 14).map((r, i) => ([
     { text: `${i + 1}. ${r.dist_name}`, options: { fontFace: FONT, fontSize: 10, color: C.ink, fill: zebra(i) } },
     { text: r.wilayah || '–', options: { fontFace: FONT, fontSize: 10, color: C.inkSoft, fill: zebra(i) } },
-    { text: pFmt(r.tonase, 1), options: { fontFace: MONO, fontSize: 10, color: C.ink, align: 'right', fill: zebra(i) } },
     { text: pFmt(r.target, 1), options: { fontFace: MONO, fontSize: 10, color: C.inkSoft, align: 'right', fill: zebra(i) } },
+    { text: pFmt(r.tonase, 1), options: { fontFace: MONO, fontSize: 10, color: C.ink, align: 'right', fill: zebra(i) } },
     { text: r.capaian != null ? pFmt(r.capaian, 0) + '%' : '–', options: { fontFace: MONO, fontSize: 10, bold: true, color: capaianColor(r.capaian), align: 'right', fill: zebra(i) } },
   ]));
   slide.addTable([header, ...body], {
@@ -324,11 +324,11 @@ function addRegionalSlide(pptx: Pptx, { title, kicker, rows, monthLabel, scopeLa
   slide.addText(`Closing s.d. ${monthLabel}`, { x: 0.6, y: 1.5, w: 6, h: 0.32, fontFace: FONT, fontSize: 11, italic: true, color: C.inkFaint });
   const top = rows.slice(0, 10);
   slide.addChart(pptx.ChartType.bar, [
-    { name: 'Realisasi', labels: top.map(r => r.region), values: top.map(r => Math.round(r.realisasi * 10) / 10) },
     { name: 'Target', labels: top.map(r => r.region), values: top.map(r => Math.round(r.target * 10) / 10) },
+    { name: 'Realisasi', labels: top.map(r => r.region), values: top.map(r => Math.round(r.realisasi * 10) / 10) },
   ], {
     x: 0.6, y: 1.9, w: 12.13, h: 4.75, barDir: 'col', barGapWidthPct: 35,
-    chartColors: [C.accent, C.blue],
+    chartColors: [C.blue, C.accent],
     showLegend: true, legendPos: 'b', legendFontFace: FONT, legendFontSize: 11, legendColor: C.inkSoft,
     catAxisLabelFontFace: FONT, catAxisLabelFontSize: 10.5, catAxisLabelColor: C.inkSoft, catAxisLineColor: C.line,
     valAxisLabelFontFace: MONO, valAxisLabelFontSize: 10, valAxisLabelColor: C.inkFaint, valAxisLabelFormatCode: '#,##0',
@@ -345,12 +345,12 @@ function addTimSalesSlide(pptx: Pptx, data: DeckData) {
     return;
   }
   const showDist = data.isAll;
-  const header = [th('Salesman'), ...(showDist ? [th('Distributor')] : []), th('Tonase', true), th('Target', true), th('Capaian', true), th('Toko Aktif', true)];
+  const header = [th('Salesman'), ...(showDist ? [th('Distributor')] : []), th('Target', true), th('Tonase', true), th('Capaian', true), th('Toko Aktif', true)];
   const body = data.timSales.map((r, i) => ([
     { text: `${i + 1}. ${r.name}`, options: { fontFace: FONT, fontSize: 10, color: C.ink, fill: zebra(i) } },
     ...(showDist ? [{ text: r.dist_code, options: { fontFace: MONO, fontSize: 10, color: C.inkSoft, fill: zebra(i) } }] : []),
-    { text: pFmt(r.tonase, 1), options: { fontFace: MONO, fontSize: 10, color: C.ink, align: 'right', fill: zebra(i) } },
     { text: pFmt(r.targetTonase, 1), options: { fontFace: MONO, fontSize: 10, color: C.inkSoft, align: 'right', fill: zebra(i) } },
+    { text: pFmt(r.tonase, 1), options: { fontFace: MONO, fontSize: 10, color: C.ink, align: 'right', fill: zebra(i) } },
     { text: r.capaian != null ? pFmt(r.capaian, 0) + '%' : '–', options: { fontFace: MONO, fontSize: 10, bold: true, color: capaianColor(r.capaian), align: 'right', fill: zebra(i) } },
     { text: pFmt(r.ta), options: { fontFace: MONO, fontSize: 10, color: C.inkSoft, align: 'right', fill: zebra(i) } },
   ]));
@@ -391,7 +391,7 @@ function addClosingSlide(pptx: Pptx, data: DeckData) {
   const syncWhen = formatSyncWhen(data.sync);
   const notes = [
     `Data transaksi, tim sales, dan toko aktif mengikuti closing HARIAN — sinkronisasi terakhir ${syncWhen || 'belum tersedia'}.`,
-    data.isAll ? 'Data Performa Daerah & Delivery mengikuti closing BULANAN — realisasi ditutup s.d. bulan yang tertera pada tiap slide, bukan bulan berjalan.' : null,
+    data.isAll ? 'Data Sell Out & Sell In mengikuti closing BULANAN — realisasi ditutup s.d. bulan yang tertera pada tiap slide, bukan bulan berjalan.' : null,
     `Capaian dihitung terhadap target kumulatif Januari–${MONTHS_ID[data.dataMonth]} ${data.year} (bukan target satu tahun penuh), supaya adil dibandingkan dengan realisasi yang baru berjalan sebagian tahun.`,
     `Pertumbuhan vs ${data.prevYear} membandingkan periode yang sama (Januari–${MONTHS_ID[data.dataMonth]}), bukan tahun penuh.`,
     'Laporan ini dibuat otomatis dari SEMENTRACK Dashboard dan mencerminkan data pada saat diunduh.',
@@ -420,8 +420,8 @@ export async function exportBerandaPPTX(distCode: string, onProgress?: (step: st
   addTrendSlide(pptx, data);
   if (data.isAll && data.distributorRanking) addDistributorRankingSlide(pptx, data);
   if (data.isAll && data.regional) {
-    addRegionalSlide(pptx, { title: 'Performa Regional', kicker: 'Performa Daerah', rows: data.regional.performa, monthLabel: data.regional.cementMonth ? `${MONTHS_ID[data.regional.cementMonth]} ${data.year}` : '–', scopeLabel: 'Update Bulanan' });
-    addRegionalSlide(pptx, { title: 'Delivery Regional', kicker: 'Delivery', rows: data.regional.delivery, monthLabel: data.regional.deliveryMonth ? `${MONTHS_ID[data.regional.deliveryMonth]} ${data.year}` : '–', scopeLabel: 'Update Bulanan' });
+    addRegionalSlide(pptx, { title: 'Sell Out Regional', kicker: 'Sell Out', rows: data.regional.performa, monthLabel: data.regional.cementMonth ? `${MONTHS_ID[data.regional.cementMonth]} ${data.year}` : '–', scopeLabel: 'Update Bulanan' });
+    addRegionalSlide(pptx, { title: 'Sell In Regional', kicker: 'Sell In', rows: data.regional.delivery, monthLabel: data.regional.deliveryMonth ? `${MONTHS_ID[data.regional.deliveryMonth]} ${data.year}` : '–', scopeLabel: 'Update Bulanan' });
   }
   addTimSalesSlide(pptx, data);
   addTokoSlide(pptx, data);

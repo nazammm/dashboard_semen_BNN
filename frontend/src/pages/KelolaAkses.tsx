@@ -12,7 +12,7 @@ const ROLE_BADGE_VARIANT: Record<string, 'online' | 'good' | 'neutral'> = { admi
 const USER_RE = /^[a-z0-9_.-]{3,32}$/;
 
 const TOGGLEABLE_PAGE_LABELS: [string, string][] = [
-  ['beranda', 'Overview'], ['performa-daerah', 'Penjualan Daerah'], ['delivery', 'Delivery'],
+  ['beranda', 'Overview'], ['performa-daerah', 'Sell Out'], ['delivery', 'Sell In'],
   ['rekap-harian', 'Rekap Harian'], ['tim-sales', 'Tim Sales'], ['peta-toko', 'Peta Toko'], ['daftar-toko', 'Daftar Toko'],
   ['transaksi-detail', 'Detail Transaksi'], ['toko-detail', 'Detail Toko'],
 ];
