@@ -4,7 +4,7 @@ import { DataSource } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { MONTHS_ID, dailyFreshness, fmt, fmtIDR, relDate, uniqueTokoStats } from '../lib/format';
 import type { Row } from '../lib/types';
-import { Badge, Chip, ErrorBox, ExportButton, Kpi, PageHeader, PageSkeleton, Th } from '../components/ui';
+import { Badge, Chip, ErrorBox, ExportButton, FilterBar, Kpi, PageHeader, PageSkeleton, Th } from '../components/ui';
 
 const PAGE_SIZE = 50;
 
@@ -134,57 +134,57 @@ function DaftarTokoView({ year, month, merged, freshness }: { year: number; mont
 
   return (
     <div>
-      <PageHeader title="Daftar Toko" desc={`Operasional · ${MONTHS_ID[month]} ${year}`} status={freshness.status} statusVariant={freshness.statusVariant}>
-        <div className="controls !mb-0">
-          <div className="control flex-[1_1_220px]">
-            <label htmlFor="dtSearch">Cari Toko</label>
-            <input type="text" id="dtSearch" placeholder="Nama atau kode toko…" autoComplete="off" value={f.q} onChange={e => set({ q: e.target.value })} />
+      <PageHeader title="Daftar Toko" desc={`Operasional · ${MONTHS_ID[month]} ${year}`} status={freshness.status} statusVariant={freshness.statusVariant} />
+
+      <FilterBar label="Filter Daftar Toko" stickyMobile={false}>
+        <div className="control flex-[1_1_220px]">
+          <label htmlFor="dtSearch">Cari Toko</label>
+          <input type="text" id="dtSearch" placeholder="Nama atau kode toko…" autoComplete="off" value={f.q} onChange={e => set({ q: e.target.value })} />
+        </div>
+        <div className="control">
+          <label htmlFor="dtDist">Distributor</label>
+          <select id="dtDist" aria-label="Filter distributor" value={f.dist} onChange={e => onDist(e.target.value)}>
+            <option value="all">Semua Distributor</option>
+            {distOpts.map(([code, name]) => <option key={code} value={code}>{name || code}</option>)}
+          </select>
+        </div>
+        <div className="control">
+          <label htmlFor="dtZona">Wilayah</label>
+          <select id="dtZona" aria-label="Filter wilayah/zona" value={f.zona} onChange={e => onZona(e.target.value)}>
+            <option value="all">Semua Wilayah</option>
+            {zonaOpts.map(z => <option key={z} value={z}>{z}</option>)}
+          </select>
+        </div>
+        <div className="control">
+          <span id="dtStatusLabel" className="control-group-label">Status</span>
+          <div className="pill-row" role="group" aria-labelledby="dtStatusLabel">
+            <Chip active={f.status === 'all'} onClick={() => set({ status: 'all' })}>Semua</Chip>
+            <Chip active={f.status === 'active'} onClick={() => set({ status: 'active' })}>Aktif</Chip>
+            <Chip active={f.status === 'inactive'} onClick={() => set({ status: 'inactive' })}>Nonaktif</Chip>
           </div>
-          <div className="control">
-            <label htmlFor="dtDist">Distributor</label>
-            <select id="dtDist" aria-label="Filter distributor" value={f.dist} onChange={e => onDist(e.target.value)}>
-              <option value="all">Semua Distributor</option>
-              {distOpts.map(([code, name]) => <option key={code} value={code}>{name || code}</option>)}
-            </select>
-          </div>
-          <div className="control">
-            <label htmlFor="dtZona">Wilayah</label>
-            <select id="dtZona" aria-label="Filter wilayah/zona" value={f.zona} onChange={e => onZona(e.target.value)}>
-              <option value="all">Semua Wilayah</option>
-              {zonaOpts.map(z => <option key={z} value={z}>{z}</option>)}
-            </select>
-          </div>
-          <div className="control">
-            <span id="dtStatusLabel" className="control-group-label">Status</span>
-            <div className="pill-row" role="group" aria-labelledby="dtStatusLabel">
-              <Chip active={f.status === 'all'} onClick={() => set({ status: 'all' })}>Semua</Chip>
-              <Chip active={f.status === 'active'} onClick={() => set({ status: 'active' })}>Aktif</Chip>
-              <Chip active={f.status === 'inactive'} onClick={() => set({ status: 'inactive' })}>Nonaktif</Chip>
+        </div>
+        <div className="control">
+          <label htmlFor="dtDateFrom">Transaksi Terakhir</label>
+          <div className="flex items-center gap-2 px-2 py-[5px] rounded-md border border-line-strong bg-surface2 focus-within:border-accent [&_input]:!border-0 [&_input]:!bg-transparent [&_input]:!px-0.5 [&_input]:!py-0.5 [&_input]:w-[122px] [&_input:focus]:!outline-none">
+            <div className="flex flex-col gap-px">
+              <span className="font-mono text-[9px] uppercase text-faint px-0.5" style={{ letterSpacing: '.07em' }}>Dari</span>
+              <input type="date" id="dtDateFrom" aria-label="Transaksi terakhir dari tanggal" value={f.dateFrom} onChange={e => onDate('dateFrom', e.target.value)} />
             </div>
-          </div>
-          <div className="control">
-            <label htmlFor="dtDateFrom">Transaksi Terakhir</label>
-            <div className="flex items-center gap-2 px-2 py-[5px] rounded-md border border-line-strong bg-surface2 focus-within:border-accent [&_input]:!border-0 [&_input]:!bg-transparent [&_input]:!px-0.5 [&_input]:!py-0.5 [&_input]:w-[122px] [&_input:focus]:!outline-none">
-              <div className="flex flex-col gap-px">
-                <span className="font-mono text-[9px] uppercase text-faint px-0.5" style={{ letterSpacing: '.07em' }}>Dari</span>
-                <input type="date" id="dtDateFrom" aria-label="Transaksi terakhir dari tanggal" value={f.dateFrom} onChange={e => onDate('dateFrom', e.target.value)} />
-              </div>
-              <span className="text-faint opacity-70 shrink-0 self-end mb-1.5 [&_svg]:w-[13px] [&_svg]:h-[13px] [&_svg]:block" aria-hidden="true">{I('M5 12h14M13 6l6 6-6 6')}</span>
-              <div className="flex flex-col gap-px">
-                <span className="font-mono text-[9px] uppercase text-faint px-0.5" style={{ letterSpacing: '.07em' }}>Sampai</span>
-                <input type="date" id="dtDateTo" aria-label="Transaksi terakhir sampai tanggal" value={f.dateTo} onChange={e => onDate('dateTo', e.target.value)} />
-              </div>
-            </div>
-          </div>
-          <div className="control">
-            <span className="control-group-label">&nbsp;</span>
-            <div className="flex gap-2">
-              <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: '12.5px' }} onClick={() => { setF(EMPTY); setPage(1); }}>Reset Filter</button>
-              <ExportButton pageId="daftar-toko" filename={`daftar-toko-${MONTHS_ID[month]}-${year}.xlsx`} getTables={() => [{ name: 'Daftar Toko', el: buildExportTable() }]} />
+            <span className="text-faint opacity-70 shrink-0 self-end mb-1.5 [&_svg]:w-[13px] [&_svg]:h-[13px] [&_svg]:block" aria-hidden="true">{I('M5 12h14M13 6l6 6-6 6')}</span>
+            <div className="flex flex-col gap-px">
+              <span className="font-mono text-[9px] uppercase text-faint px-0.5" style={{ letterSpacing: '.07em' }}>Sampai</span>
+              <input type="date" id="dtDateTo" aria-label="Transaksi terakhir sampai tanggal" value={f.dateTo} onChange={e => onDate('dateTo', e.target.value)} />
             </div>
           </div>
         </div>
-      </PageHeader>
+        <div className="control">
+          <span className="control-group-label">&nbsp;</span>
+          <div className="flex gap-2">
+            <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: '12.5px' }} onClick={() => { setF(EMPTY); setPage(1); }}>Reset Filter</button>
+            <ExportButton pageId="daftar-toko" filename={`daftar-toko-${MONTHS_ID[month]}-${year}.xlsx`} getTables={() => [{ name: 'Daftar Toko', el: buildExportTable() }]} />
+          </div>
+        </div>
+      </FilterBar>
 
       <div className="grid-kpi mt-5 mb-[22px]">
         <Kpi title={anyFilter ? 'Toko Cocok Filter' : 'Toko Terdaftar'} value={fmt(us.total)} icon={I('M4 10 12 4l8 6M5 9.5V20h14V9.5M9.5 20v-6h5v6')} iconTone="neutral"

@@ -1,13 +1,12 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { DataSource } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
-import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, groupSum, monthlyFreshness, pct } from '../lib/format';
+import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, groupSum, monthlyFreshness } from '../lib/format';
 import type { Row } from '../lib/types';
-import { Capaian, Card, ChartBox, ErrorBox, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th, cx } from '../components/ui';
-import { MonthDetailRow, MonthToggle, NO_GROWTH, fmtGrowth } from '../components/RegionalDetail';
+import { Capaian, Card, ChartBox, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select } from '../components/ui';
+import { GrowthTable } from '../components/GrowthTable';
 
 type Filters = { region: string; distributor: string; type: string };
-interface MonthAgg { month_num: number; do_cur: number; target_do: number; do_prev: number; ta_cur: number; target_ta: number; capaian_do: number; capaian_ta: number; growth_do: number }
 
 /** Tahun data terbaru dari nama kolom do_YYYY (kolom view memuat tahun di namanya). */
 function detectYear(rows: Row[]): number {
@@ -39,9 +38,6 @@ function Content({ rows }: { rows: Row[] }) {
   const freshness = useMemo(() => monthlyFreshness(rows, kDo, Y), [rows, kDo, Y]);
 
   const [filters, setFilters] = useState<Filters>({ region: 'all', distributor: 'all', type: 'all' });
-  const [sortKey, setSortKey] = useState<keyof MonthAgg>('month_num');
-  const [sortDir, setSortDir] = useState<1 | -1>(1);
-  const [expandedMonth, setExpandedMonth] = useState<number | null>(null);
   const canDrillDown = filters.distributor === 'all';
 
   const regionOpts = optionsFor(rows, filters, 'region');
@@ -91,69 +87,52 @@ function Content({ rows }: { rows: Row[] }) {
   const do26Series = labels.map((_, i) => byMonth[i + 1].do26);
   const ta26Series = labels.map((_, i) => byMonth[i + 1].ta26);
 
-  const monthRows = useMemo(() => {
-    const agg: Record<number, { month_num: number; do_cur: number; target_do: number; do_prev: number; ta_cur: number; target_ta: number }> = {};
+  // Tabel rincian: hanya bulan yang sudah ada realisasi DO tahun berjalan.
+  // TA tahun lalu mengikuti jenis TA tahun ini: semua tipe -> ta_distinct_YYYY, per tipe -> ta_YYYY.
+  const kTaP = isAllTypes ? `ta_distinct_${P}` : `ta_${P}`;
+  const { doRows, taRows } = useMemo(() => {
+    const b: Record<number, { do_cur: number; target_do: number; do_prev: number; ta_cur: number; target_ta: number; ta_prev: number }> = {};
     filtered.forEach(r => {
       const m = Number(r.month_num);
-      const b = agg[m] || (agg[m] = { month_num: m, do_cur: 0, target_do: 0, do_prev: 0, ta_cur: 0, target_ta: 0 });
-      b.do_cur += Number(r[kDo] || 0); b.target_do += Number(r[kTdo] || 0); b.do_prev += Number(r[kDoP] || 0);
-      b.ta_cur += Number(r[taField] || 0); b.target_ta += isAllTypes ? Number(r[kTta] || 0) : 0;
+      const x = b[m] || (b[m] = { do_cur: 0, target_do: 0, do_prev: 0, ta_cur: 0, target_ta: 0, ta_prev: 0 });
+      x.do_cur += Number(r[kDo] || 0); x.target_do += Number(r[kTdo] || 0); x.do_prev += Number(r[kDoP] || 0);
+      x.ta_cur += Number(r[taField] || 0); x.target_ta += isAllTypes ? Number(r[kTta] || 0) : 0; x.ta_prev += Number(r[kTaP] || 0);
     });
-    const list: MonthAgg[] = Object.values(agg).filter(b => b.do_cur > 0).map(b => ({
-      ...b,
-      capaian_do: pct(b.do_cur, b.target_do) ?? -1,
-      capaian_ta: pct(b.ta_cur, b.target_ta) ?? -1,
-      growth_do: b.do_prev > 0 ? (b.do_cur - b.do_prev) / b.do_prev * 100 : NO_GROWTH,
-    }));
-    list.sort((a, b) => sortDir * ((a[sortKey] - b[sortKey]) || (a.month_num - b.month_num)));
-    return list;
-  }, [filtered, sortKey, sortDir, kDo, kTdo, kDoP, taField, isAllTypes, kTta]);
-
-  // Tutup bulan yang dibuka kalau sudah tidak relevan (filter Distributor aktif / bulan hilang dari tabel)
-  useEffect(() => {
-    if (expandedMonth != null && (!canDrillDown || !monthRows.some(r => r.month_num === expandedMonth))) setExpandedMonth(null);
-  }, [canDrillDown, monthRows, expandedMonth]);
-
-  const sortBy = (k: keyof MonthAgg) => {
-    if (k === sortKey) setSortDir(d => (d === 1 ? -1 : 1)); else { setSortKey(k); setSortDir(-1); }
-  };
-  const ariaSort = (k: keyof MonthAgg) => (k === sortKey ? (sortDir === 1 ? 'ascending' : 'descending') as 'ascending' | 'descending' : undefined);
+    const months = Object.keys(b).map(Number).filter(m => m >= 1 && m <= 12 && b[m].do_cur > 0);
+    return {
+      doRows: months.map(m => ({ month_num: m, target: b[m].target_do, prev: b[m].do_prev, cur: b[m].do_cur })),
+      taRows: months.map(m => ({ month_num: m, target: b[m].target_ta, prev: b[m].ta_prev, cur: b[m].ta_cur })),
+    };
+  }, [filtered, kDo, kTdo, kDoP, taField, kTta, kTaP, isAllTypes]);
 
   // Region "Semua" -> pecah per wilayah; region tertentu -> per distributor/sub-dist
   const grouping = filters.region === 'all' ? { field: 'region', label: 'Wilayah' } : { field: 'distributor', label: 'Distributor/Sub-Dist' };
-  const groups = useMemo(() => {
-    if (expandedMonth == null) return [];
-    const ents = filtered.filter(r => Number(r.month_num) === expandedMonth);
-    const sums = groupSum(ents, r => r[grouping.field] || '(tidak diketahui)', r => Number(r[kDo] || 0));
+  const groupsFor = (month: number, field: string) => {
+    const ents = filtered.filter(r => Number(r.month_num) === month);
+    const sums = groupSum(ents, r => r[grouping.field] || '(tidak diketahui)', r => Number(r[field] || 0));
     return [...sums.entries()].map(([label, value]) => ({ label: String(label), value })).filter(g => g.value > 0).sort((a, b) => b.value - a.value);
-  }, [filtered, expandedMonth, grouping.field, kDo]);
+  };
 
   const tooltipLabel = { callbacks: { label: (c: any) => ` ${c.dataset.label}: ${fmt(c.parsed.y)}` } };
-  const th = (k: keyof MonthAgg, label: string, num?: boolean) =>
-    <Th sortable num={num} ariaSort={ariaSort(k)} onSort={() => sortBy(k)} role="button">{label}</Th>;
 
   return (
     <>
       <PageHeader title="Sell Out" status={freshness.status} statusVariant={freshness.statusVariant} />
 
-      {/* Bar filter menempel di atas saat halaman di-scroll, supaya filter bisa diganti tanpa kembali ke atas */}
-      <div role="group" aria-label="Filter Sell Out"
-        className="sticky top-0 max-[880px]:top-14 z-30 -mx-11 px-11 max-[880px]:-mx-[18px] max-[880px]:px-[18px] py-2.5 mb-5 bg-bg border-b border-line shadow-[0_6px_10px_-8px_rgba(33,30,25,.35)]">
-        <div className="controls !mb-0 max-[880px]:grid max-[880px]:grid-cols-3 max-[880px]:gap-2 [&_.control]:min-w-0 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
-          <Select label="Region" value={filters.region} onChange={e => change({ region: e.target.value })}
-            options={[{ value: 'all', label: 'Semua Region' }, ...regionOpts.map(r => ({ value: r, label: r }))]} />
-          <Select label="Distributor" value={filters.distributor} onChange={e => change({ distributor: e.target.value })}
-            options={[{ value: 'all', label: 'Semua Distributor' }, ...distOpts.map(r => ({ value: r, label: r }))]} />
-          <Select label="Tipe Semen" value={filters.type} onChange={e => change({ type: e.target.value })}
-            options={[{ value: 'all', label: 'Semua Tipe' }, ...typeOpts.map(r => ({ value: r, label: r }))]} />
-          {filterActive && (
-            <button type="button" className="btn max-[880px]:col-span-3 max-[880px]:justify-center max-[880px]:!py-1.5 max-[880px]:!text-xs"
-              onClick={() => { setFilters({ region: 'all', distributor: 'all', type: 'all' }); setExpandedMonth(null); }}>
-              Reset filter
-            </button>
-          )}
-        </div>
-      </div>
+      <FilterBar label="Filter Sell Out" className="max-[880px]:grid max-[880px]:grid-cols-3 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
+        <Select label="Region" value={filters.region} onChange={e => change({ region: e.target.value })}
+          options={[{ value: 'all', label: 'Semua Region' }, ...regionOpts.map(r => ({ value: r, label: r }))]} />
+        <Select label="Distributor" value={filters.distributor} onChange={e => change({ distributor: e.target.value })}
+          options={[{ value: 'all', label: 'Semua Distributor' }, ...distOpts.map(r => ({ value: r, label: r }))]} />
+        <Select label="Tipe Semen" value={filters.type} onChange={e => change({ type: e.target.value })}
+          options={[{ value: 'all', label: 'Semua Tipe' }, ...typeOpts.map(r => ({ value: r, label: r }))]} />
+        {filterActive && (
+          <button type="button" className="btn max-[880px]:col-span-3 max-[880px]:justify-center max-[880px]:!py-1.5 max-[880px]:!text-xs"
+            onClick={() => setFilters({ region: 'all', distributor: 'all', type: 'all' })}>
+            Reset filter
+          </button>
+        )}
+      </FilterBar>
 
       <div className="grid-kpi">
         <Kpi title={`Target DO ${Y}`} value={fmt(agg.target_do)} unit="ton" delta="Akumulasi target tahunan" />
@@ -200,45 +179,20 @@ function Content({ rows }: { rows: Row[] }) {
         </Card>
       </div>
 
-      <h2 className="section-title">Rincian per Bulan</h2>
-      <TableWrap>
-        <table>
-          <caption className="sr-only">Rincian capaian DO dan Toko Aktif per bulan terhadap target</caption>
-          <thead><tr>
-            {th('month_num', 'Bulan')}
-            {th('target_do', 'Target DO', true)}
-            {th('do_cur', `DO ${Y} (Ton)`, true)}
-            {th('capaian_do', 'Capaian DO')}
-            {th('growth_do', `YoY vs ${P}`, true)}
-            {th('target_ta', 'Target TA', true)}
-            {th('ta_cur', 'Toko Aktif', true)}
-            {th('capaian_ta', 'Capaian TA')}
-          </tr></thead>
-          <tbody>
-            {monthRows.map(r => (
-              <Fragment key={r.month_num}>
-                <tr>
-                  <td>{canDrillDown
-                    ? <MonthToggle month={r.month_num} expanded={expandedMonth === r.month_num} title={`Lihat komposisi penjualan ${MONTHS_ID[r.month_num]}`}
-                        onToggle={() => setExpandedMonth(expandedMonth === r.month_num ? null : r.month_num)} />
-                    : <strong>{MONTHS_ID[r.month_num]}</strong>}</td>
-                  <td className="num font-mono">{fmt(r.target_do)}</td>
-                  <td className="num font-mono">{fmt(r.do_cur)}</td>
-                  <td><Capaian actual={r.do_cur} target={r.target_do} /></td>
-                  <td className={cx('num font-mono', r.growth_do >= 0 ? 'text-green' : 'text-red')}>{fmtGrowth(r.growth_do)}</td>
-                  <td className={cx('num font-mono', !isAllTypes && 'text-faint')}>{isAllTypes ? fmt(r.target_ta) : '–'}</td>
-                  <td className="num font-mono">{fmt(r.ta_cur)}</td>
-                  <td><Capaian actual={r.ta_cur} target={r.target_ta} /></td>
-                </tr>
-                {expandedMonth === r.month_num && (
-                  <MonthDetailRow colSpan={8} groups={groups} heading={`Komposisi Penjualan ${MONTHS_ID[r.month_num]} ${Y} · per ${grouping.label}`} />
-                )}
-              </Fragment>
-            ))}
-            {monthRows.length === 0 && <tr><td colSpan={8} className="!text-center !text-faint !p-6">Tidak ada data untuk filter ini.</td></tr>}
-          </tbody>
-        </table>
-      </TableWrap>
+      <h2 className="section-title">Rincian per Bulan · DO (Ton)</h2>
+      <GrowthTable caption={`Rincian DO per bulan: target, realisasi ${P} dan ${Y}, pertumbuhan, capaian`}
+        rows={doRows} Y={Y} P={P} labels={{ target: 'Target DO', value: 'DO', capaian: 'Capaian DO' }}
+        drill={{ enabled: canDrillDown, groupsFor: m => groupsFor(m, kDo),
+          heading: m => `Komposisi Penjualan ${MONTHS_ID[m]} ${Y} · per ${grouping.label}`,
+          title: m => `Lihat komposisi penjualan ${MONTHS_ID[m]}` }} />
+
+      <h2 className="section-title">Rincian per Bulan · Toko Aktif</h2>
+      {!isAllTypes && <p className="text-xs text-faint -mt-2 mb-3">Tipe {filters.type}: toko aktif per tipe semen, tanpa target (target TA hanya ada di level semua tipe).</p>}
+      <GrowthTable caption={`Rincian toko aktif per bulan: target, realisasi ${P} dan ${Y}, pertumbuhan, capaian`}
+        rows={taRows} Y={Y} P={P} labels={{ target: 'Target TA', value: 'TA', capaian: 'Capaian TA' }} hasTarget={isAllTypes}
+        drill={{ enabled: canDrillDown, groupsFor: m => groupsFor(m, taField), unit: 'toko',
+          heading: m => `Komposisi Toko Aktif ${MONTHS_ID[m]} ${Y} · per ${grouping.label}`,
+          title: m => `Lihat komposisi toko aktif ${MONTHS_ID[m]}` }} />
     </>
   );
 }

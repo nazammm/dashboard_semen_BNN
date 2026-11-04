@@ -1,13 +1,12 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { DataSource } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
-import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, groupSum, monthlyFreshness, pct } from '../lib/format';
+import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, groupSum, monthlyFreshness } from '../lib/format';
 import type { Row } from '../lib/types';
-import { Capaian, Card, ChartBox, ErrorBox, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th, cx } from '../components/ui';
-import { MonthDetailRow, MonthToggle, NO_GROWTH, fmtGrowth } from '../components/RegionalDetail';
+import { Capaian, Card, ChartBox, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select } from '../components/ui';
+import { GrowthTable } from '../components/GrowthTable';
 
 type Filters = { region: string; subRegion: string; type: string };
-interface MonthAgg { month_num: number; real_cur: number; target: number; real_prev: number; capaian: number; growth: number }
 
 /** Tahun data terbaru dari nama kolom realisasi_YYYY. */
 function detectYear(rows: Row[]): number {
@@ -39,9 +38,6 @@ function Content({ rows }: { rows: Row[] }) {
   const freshness = useMemo(() => monthlyFreshness(rows, kReal, Y), [rows, kReal, Y]);
 
   const [filters, setFilters] = useState<Filters>({ region: 'all', subRegion: 'all', type: 'all' });
-  const [sortKey, setSortKey] = useState<keyof MonthAgg>('month_num');
-  const [sortDir, setSortDir] = useState<1 | -1>(1);
-  const [expandedMonth, setExpandedMonth] = useState<number | null>(null);
   const canDrillDown = filters.subRegion === 'all';
 
   const regionOpts = optionsFor(rows, filters, 'region');
@@ -84,56 +80,44 @@ function Content({ rows }: { rows: Row[] }) {
   }, [filtered, kReal, kTgt, kRealP]);
   const r26Series = labels.map((_, i) => byMonth[i + 1].r26);
 
+  // Tabel rincian: hanya bulan yang sudah ada realisasi tahun berjalan.
   const monthRows = useMemo(() => {
-    const agg: Record<number, { month_num: number; real_cur: number; target: number; real_prev: number }> = {};
+    const b: Record<number, { target: number; prev: number; cur: number }> = {};
     filtered.forEach(r => {
       const m = Number(r.month_num);
-      const b = agg[m] || (agg[m] = { month_num: m, real_cur: 0, target: 0, real_prev: 0 });
-      b.real_cur += Number(r[kReal] || 0); b.target += Number(r[kTgt] || 0); b.real_prev += Number(r[kRealP] || 0);
+      const x = b[m] || (b[m] = { target: 0, prev: 0, cur: 0 });
+      x.cur += Number(r[kReal] || 0); x.target += Number(r[kTgt] || 0); x.prev += Number(r[kRealP] || 0);
     });
-    const list: MonthAgg[] = Object.values(agg).filter(b => b.real_cur > 0).map(b => ({
-      ...b,
-      capaian: pct(b.real_cur, b.target) ?? -1,
-      growth: b.real_prev > 0 ? (b.real_cur - b.real_prev) / b.real_prev * 100 : NO_GROWTH,
-    }));
-    list.sort((a, b) => sortDir * ((a[sortKey] - b[sortKey]) || (a.month_num - b.month_num)));
-    return list;
-  }, [filtered, sortKey, sortDir, kReal, kTgt, kRealP]);
-
-  // Tutup bulan yang dibuka kalau sudah tidak relevan (filter Sub Region aktif / bulan hilang dari tabel)
-  useEffect(() => {
-    if (expandedMonth != null && (!canDrillDown || !monthRows.some(r => r.month_num === expandedMonth))) setExpandedMonth(null);
-  }, [canDrillDown, monthRows, expandedMonth]);
-
-  const sortBy = (k: keyof MonthAgg) => {
-    if (k === sortKey) setSortDir(d => (d === 1 ? -1 : 1)); else { setSortKey(k); setSortDir(-1); }
-  };
-  const ariaSort = (k: keyof MonthAgg) => (k === sortKey ? (sortDir === 1 ? 'ascending' : 'descending') as 'ascending' | 'descending' : undefined);
+    return Object.keys(b).map(Number).filter(m => m >= 1 && m <= 12 && b[m].cur > 0).map(m => ({ month_num: m, ...b[m] }));
+  }, [filtered, kReal, kTgt, kRealP]);
 
   // Region "Semua" -> pecah per wilayah; region tertentu -> per sub region
   const grouping = filters.region === 'all' ? { field: 'region', label: 'Wilayah' } : { field: 'sub_region', label: 'Sub Region' };
-  const groups = useMemo(() => {
-    if (expandedMonth == null) return [];
-    const ents = filtered.filter(r => Number(r.month_num) === expandedMonth);
+  const groupsFor = (month: number) => {
+    const ents = filtered.filter(r => Number(r.month_num) === month);
     const sums = groupSum(ents, r => r[grouping.field] || '(tidak diketahui)', r => Number(r[kReal] || 0));
     return [...sums.entries()].map(([label, value]) => ({ label: String(label), value })).filter(g => g.value > 0).sort((a, b) => b.value - a.value);
-  }, [filtered, expandedMonth, grouping.field, kReal]);
-
-  const th = (k: keyof MonthAgg, label: string, num?: boolean) =>
-    <Th sortable num={num} ariaSort={ariaSort(k)} onSort={() => sortBy(k)} role="button">{label}</Th>;
+  };
+  const filterActive = filters.region !== 'all' || filters.subRegion !== 'all' || filters.type !== 'all';
 
   return (
     <>
-      <PageHeader title="Sell In" status={freshness.status} statusVariant={freshness.statusVariant}>
-        <div className="controls !mb-0">
-          <Select label="Region" value={filters.region} onChange={e => change({ region: e.target.value })}
-            options={[{ value: 'all', label: 'Semua Region' }, ...regionOpts.map(r => ({ value: r, label: r }))]} />
-          <Select label="Sub Region" value={filters.subRegion} onChange={e => change({ subRegion: e.target.value })}
-            options={[{ value: 'all', label: 'Semua Sub Region' }, ...subOpts.map(r => ({ value: r, label: r }))]} />
-          <Select label="Tipe Semen" value={filters.type} onChange={e => change({ type: e.target.value })}
-            options={[{ value: 'all', label: 'Semua Tipe' }, ...typeOpts.map(r => ({ value: r, label: r }))]} />
-        </div>
-      </PageHeader>
+      <PageHeader title="Sell In" status={freshness.status} statusVariant={freshness.statusVariant} />
+
+      <FilterBar label="Filter Sell In" className="max-[880px]:grid max-[880px]:grid-cols-3 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
+        <Select label="Region" value={filters.region} onChange={e => change({ region: e.target.value })}
+          options={[{ value: 'all', label: 'Semua Region' }, ...regionOpts.map(r => ({ value: r, label: r }))]} />
+        <Select label="Sub Region" value={filters.subRegion} onChange={e => change({ subRegion: e.target.value })}
+          options={[{ value: 'all', label: 'Semua Sub Region' }, ...subOpts.map(r => ({ value: r, label: r }))]} />
+        <Select label="Tipe Semen" value={filters.type} onChange={e => change({ type: e.target.value })}
+          options={[{ value: 'all', label: 'Semua Tipe' }, ...typeOpts.map(r => ({ value: r, label: r }))]} />
+        {filterActive && (
+          <button type="button" className="btn max-[880px]:col-span-3 max-[880px]:justify-center max-[880px]:!py-1.5 max-[880px]:!text-xs"
+            onClick={() => setFilters({ region: 'all', subRegion: 'all', type: 'all' })}>
+            Reset filter
+          </button>
+        )}
+      </FilterBar>
 
       <div className="grid-kpi">
         <Kpi title={`Target ${Y}`} value={fmt(agg.target)} unit="ton" delta="Akumulasi target tahunan" />
@@ -165,41 +149,12 @@ function Content({ rows }: { rows: Row[] }) {
         </Card>
       </div>
 
-      <h2 className="section-title">Rincian per Bulan</h2>
-      <TableWrap>
-        <table>
-          <caption className="sr-only">Rincian target dan realisasi sell in per bulan</caption>
-          <thead><tr>
-            {th('month_num', 'Bulan')}
-            {th('target', 'Target', true)}
-            {th('real_cur', `Realisasi ${Y} (Ton)`, true)}
-            {th('capaian', 'Capaian')}
-            {th('growth', `YoY vs ${P}`, true)}
-            {th('real_prev', `Realisasi ${P} (Ton)`, true)}
-          </tr></thead>
-          <tbody>
-            {monthRows.map(r => (
-              <Fragment key={r.month_num}>
-                <tr>
-                  <td>{canDrillDown
-                    ? <MonthToggle month={r.month_num} expanded={expandedMonth === r.month_num} title={`Lihat komposisi delivery ${MONTHS_ID[r.month_num]}`}
-                        onToggle={() => setExpandedMonth(expandedMonth === r.month_num ? null : r.month_num)} />
-                    : <strong>{MONTHS_ID[r.month_num]}</strong>}</td>
-                  <td className="num font-mono">{fmt(r.target)}</td>
-                  <td className="num font-mono">{fmt(r.real_cur)}</td>
-                  <td><Capaian actual={r.real_cur} target={r.target} /></td>
-                  <td className={cx('num font-mono', r.growth >= 0 ? 'text-green' : 'text-red')}>{fmtGrowth(r.growth)}</td>
-                  <td className="num font-mono">{fmt(r.real_prev)}</td>
-                </tr>
-                {expandedMonth === r.month_num && (
-                  <MonthDetailRow colSpan={6} groups={groups} heading={`Komposisi Sell In ${MONTHS_ID[r.month_num]} ${Y} · per ${grouping.label}`} />
-                )}
-              </Fragment>
-            ))}
-            {monthRows.length === 0 && <tr><td colSpan={6} className="!text-center !text-faint !p-6">Tidak ada data untuk filter ini.</td></tr>}
-          </tbody>
-        </table>
-      </TableWrap>
+      <h2 className="section-title">Rincian per Bulan · Sell In (Ton)</h2>
+      <GrowthTable caption={`Rincian sell in per bulan: target, realisasi ${P} dan ${Y}, pertumbuhan, capaian`}
+        rows={monthRows} Y={Y} P={P} labels={{ target: 'Target', value: 'Sell In', capaian: 'Capaian' }}
+        drill={{ enabled: canDrillDown, groupsFor,
+          heading: m => `Komposisi Sell In ${MONTHS_ID[m]} ${Y} · per ${grouping.label}`,
+          title: m => `Lihat komposisi sell in ${MONTHS_ID[m]}` }} />
     </>
   );
 }

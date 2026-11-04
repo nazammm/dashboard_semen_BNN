@@ -26,6 +26,21 @@ export function PageHeader({ title, desc, status, statusVariant = 'good', childr
   );
 }
 
+/**
+ * Bar filter yang menempel di atas saat halaman di-scroll (pola halaman Sell Out),
+ * supaya filter bisa diganti tanpa kembali ke atas. Di layar sempit menempel di bawah topbar (56px).
+ * stickyMobile=false: di HP tidak menempel (untuk set filter yang tinggi, supaya layar tidak tertutup).
+ */
+export function FilterBar({ label, children, className, stickyMobile = true }: { label: string; children: ReactNode; className?: string; stickyMobile?: boolean }) {
+  return (
+    <div role="group" aria-label={label}
+      className={cx('sticky top-0 z-30 -mx-11 px-11 max-[880px]:-mx-[18px] max-[880px]:px-[18px] py-2.5 mb-5 bg-bg border-b border-line shadow-[0_6px_10px_-8px_rgba(33,30,25,.35)]',
+        stickyMobile ? 'max-[880px]:top-14' : 'max-[880px]:static')}>
+      <div className={cx('controls !mb-0 [&_.control]:min-w-0', className)}>{children}</div>
+    </div>
+  );
+}
+
 export function Badge({ variant = 'neutral', children, className, title }: { variant?: 'good' | 'warn' | 'bad' | 'neutral' | 'online'; children: ReactNode; className?: string; title?: string }) {
   return <span className={cx('badge', variant, className)} title={title}><span className="dot" aria-hidden="true" />{children}</span>;
 }

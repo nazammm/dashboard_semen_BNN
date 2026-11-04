@@ -21,7 +21,7 @@ export function MonthToggle({ month, expanded, title, onToggle }: { month: numbe
 }
 
 /** Baris komposisi (bar horizontal) yang disisipkan di bawah baris bulan. */
-export function MonthDetailRow({ colSpan, heading, groups }: { colSpan: number; heading: string; groups: { label: string; value: number }[] }) {
+export function MonthDetailRow({ colSpan, heading, groups, unit = 'ton' }: { colSpan: number; heading: string; groups: { label: string; value: number }[]; unit?: string }) {
   const total = groups.reduce((a, g) => a + g.value, 0);
   const height = Math.max(140, Math.min(480, groups.length * 32 + 40));
   const ref = useChart(() => ({
@@ -32,21 +32,21 @@ export function MonthDetailRow({ colSpan, heading, groups }: { colSpan: number; 
       scales: { x: { grid: { color: COLORS.line }, ticks: { callback: (v: any) => fmtCompact(v) } }, y: { grid: { display: false } } },
       plugins: { tooltip: { callbacks: { label: (c: any) => {
         const p = total > 0 ? (c.parsed.x / total * 100) : 0;
-        return ` ${fmt(c.parsed.x)} ton (${p.toFixed(1)}% dari total)`;
+        return ` ${fmt(c.parsed.x)} ${unit} (${p.toFixed(1)}% dari total)`;
       } } } },
     },
-  }), [groups]);
+  }), [groups, unit]);
   return (
     <tr className="detail-row">
       <td colSpan={colSpan} className="!bg-surface2 !px-4 !pt-[18px] !pb-5">
         <div className="flex justify-between items-baseline flex-wrap gap-2 mb-2.5">
           <h3 className="text-[13px] font-bold text-ink font-sans normal-case">{heading}</h3>
-          <span className="font-mono text-[11px] text-faint">Total {fmt(total)} ton</span>
+          <span className="font-mono text-[11px] text-faint">Total {fmt(total)} {unit}</span>
         </div>
         <div className="chart-box" style={{ height }}>
           <canvas ref={ref} role="img" aria-label={heading} />
         </div>
-        <p className="sr-only">{chartSRSummary(groups.map(g => g.label), groups.map(g => g.value), 'ton')}</p>
+        <p className="sr-only">{chartSRSummary(groups.map(g => g.label), groups.map(g => g.value), unit)}</p>
       </td>
     </tr>
   );

@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth';
 import { useAsync, useDocTitle, useSort } from '../lib/hooks';
 import { COLORS, MONTHS_ID, capaianClass, chartSRSummary, dailyFreshness, fmt, pct } from '../lib/format';
 import type { Row } from '../lib/types';
-import { Capaian, CapaianAvg, CellLink, Chip, ChartBox, ErrorBox, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th } from '../components/ui';
+import { Capaian, CapaianAvg, CellLink, ChartBox, Chip, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th } from '../components/ui';
 
 type Sales = Row & { capaian_ta: number; capaian_tonase: number; capaian_avg: number };
 
@@ -90,14 +90,14 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
 
   return (
     <div>
-      <PageHeader title="Tim Sales" status={freshness.status} statusVariant={freshness.statusVariant}>
-        <div className="controls !mb-0">
-          <Select label="Distributor" value={dist} onChange={e => setDist(e.target.value)}
-            options={[{ value: 'all', label: 'Semua Distributor' }, ...dists.map(d => ({ value: d, label: d }))]} />
-          <Select label="Bulan" value={month} onChange={e => setMonth(+e.target.value)}
-            options={MONTHS_ID.slice(1).map((m, i) => ({ value: i + 1, label: `${m} 2026` }))} />
-        </div>
-      </PageHeader>
+      <PageHeader title="Tim Sales" status={freshness.status} statusVariant={freshness.statusVariant} />
+
+      <FilterBar label="Filter Tim Sales">
+        <Select label="Distributor" value={dist} onChange={e => setDist(e.target.value)}
+          options={[{ value: 'all', label: 'Semua Distributor' }, ...dists.map(d => ({ value: d, label: d }))]} />
+        <Select label="Bulan" value={month} onChange={e => setMonth(+e.target.value)}
+          options={MONTHS_ID.slice(1).map((m, i) => ({ value: i + 1, label: `${m} 2026` }))} />
+      </FilterBar>
 
       <div className="grid-kpi">
         <Kpi title="Salesman Ditampilkan" value={fmt(list.length)} delta={`${MONTHS_ID[month]} 2026 · status aktif`} />

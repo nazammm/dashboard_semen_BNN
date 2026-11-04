@@ -9,7 +9,7 @@ import { useAuth } from '../lib/auth';
 import { useChart, donutPercentPlugins } from '../lib/chart';
 import { exportBerandaPPTX } from '../lib/pptxExport';
 import {
-  Badge, Card, Chip, CellLink, ChartBox, ErrorBox, FileIcon, PageSkeleton, TableWrap, Th, cx,
+  Badge, Card, Chip, CellLink, ChartBox, ErrorBox, FileIcon, PageSkeleton, Select, TableWrap, Th, cx,
 } from '../components/ui';
 import type { Row } from '../lib/types';
 
@@ -320,6 +320,17 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
   const netRef = useRef<SVGSVGElement>(null);
   useParallax(gridRef, netRef);
 
+  /* ---------- Bar filter menempel: muncul setelah filter di hero ter-scroll keluar layar ---------- */
+  const heroFilterRef = useRef<HTMLDivElement>(null);
+  const [showStickyFilter, setShowStickyFilter] = useState(false);
+  useEffect(() => {
+    const el = heroFilterRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(([e]) => setShowStickyFilter(!e.isIntersecting && e.boundingClientRect.top < 0), { rootMargin: '-56px 0px 0px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
   /* ---------- Unduh PPT ---------- */
   const [pptLabel, setPptLabel] = useState('Unduh Laporan PPT');
   const [pptBusy, setPptBusy] = useState(false);
@@ -355,7 +366,7 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
               <p className="text-[#C9C3B4] max-w-[560px] mt-4 text-[15px] leading-relaxed">
                 {heroTop.dist_name} mencatat tonase tertinggi {MONTHS_ID[heroMonth]} {activeYear}, sebesar {fmt(heroTop.tonase, 1)} ton. Pilih distributor, jenis semen, dan periode di bawah untuk melihat rincian performa keseluruhan.
               </p>
-              <div className="controls !mt-7 !mb-0">
+              <div ref={heroFilterRef} className="controls !mt-7 !mb-0">
                 <HeroSelect id="bDist" label="Distributor" value={dist} onChange={onDist} minWidth={190}>
                   <option value="all">Semua Distributor</option>
                   {distOpts.map(o => <option key={o.dist_code} value={o.dist_code}>{o.dist_code} · {o.dist_name}</option>)}
@@ -383,6 +394,22 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
           </div>
         </div>
       </section>
+
+      {/* Tinggi 0: bar menimpa konten saat muncul, tidak menggeser tata letak. Tersembunyi (invisible) selama filter hero masih terlihat. */}
+      <div className="sticky top-0 max-[880px]:top-14 z-30 h-0">
+        <div role="group" aria-label="Filter Overview" aria-hidden={!showStickyFilter}
+          className={cx('-mx-11 px-11 max-[880px]:-mx-[18px] max-[880px]:px-[18px] py-2.5 bg-bg border-b border-line shadow-[0_6px_10px_-8px_rgba(33,30,25,.35)] transition-[opacity,transform] duration-200',
+            showStickyFilter ? 'opacity-100 translate-y-0' : 'invisible opacity-0 -translate-y-2 pointer-events-none')}>
+          <div className="controls !mb-0 [&_.control]:min-w-0 max-[880px]:grid max-[880px]:grid-cols-3 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
+            <Select label="Distributor" aria-label="Distributor" value={dist} onChange={e => onDist(e.target.value)} style={{ minWidth: 190 }}
+              options={[{ value: 'all', label: 'Semua Distributor' }, ...distOpts.map(o => ({ value: String(o.dist_code), label: `${o.dist_code} · ${o.dist_name}` }))]} />
+            <Select label="Jenis Semen" aria-label="Jenis Semen" value={jenis} onChange={e => onJenis(e.target.value)}
+              options={[{ value: 'all', label: 'Semua Jenis' }, ...jenisOpts.map(j => ({ value: j, label: j }))]} />
+            <Select label="Bulan" aria-label="Bulan" value={month} onChange={e => setMonth(+e.target.value)}
+              options={m.monthsAllActive.map(mo => ({ value: mo, label: `${MONTHS_ID[mo]} ${activeYear}` }))} />
+          </div>
+        </div>
+      </div>
 
       {f.error && <div className="mb-4"><ErrorBox error={f.error} /></div>}
 

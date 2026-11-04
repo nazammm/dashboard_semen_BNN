@@ -193,6 +193,14 @@
   tbody tr{ @apply transition-colors hover:bg-surface2; }
   tbody tr:last-child td{ @apply border-b-0; }
   tfoot td{ @apply px-3.5 py-2.5 align-middle; border-top:2px solid #AFA790; }
+  /* Tabel angka padat (Rekap Harian): Plex Sans, angkanya sudah sama lebar jadi kolom tetap rata; lebih mudah dibaca daripada mono. */
+  .tbl-num{ @apply font-sans text-[13.5px] font-medium; font-variant-numeric:tabular-nums lining-nums; }
+  .tbl-num tbody td:first-child, .tbl-num tfoot td:first-child{ @apply font-mono text-[12px]; }
+  /* Angka yang bisa diklik: warna tinta biasa + garis putus-putus; panah hanya muncul saat baris disorot (tabel tidak ramai). */
+  .tbl-num .cell-link{ @apply text-ink font-medium; border-bottom-color:rgba(33,30,25,.28); }
+  .tbl-num .cell-link:hover{ @apply text-accent-ink; }
+  .tbl-num .cell-link::after{ opacity:0; transition:opacity .15s; }
+  .tbl-num tr:hover .cell-link::after, .tbl-num .cell-link:focus-visible::after{ opacity:.55; }
   .tbl-dense td, .tbl-dense th{ @apply px-2.5 py-[7px] text-xs whitespace-nowrap; }
   .tag-code{ @apply font-mono text-[11px] font-semibold text-blue bg-blue-soft px-[7px] py-0.5 rounded-[3px]; letter-spacing:.02em; }
   .cell-link{ @apply text-accent-ink no-underline cursor-pointer font-semibold pb-px transition-colors hover:text-accent hover:bg-accent-soft; border-bottom:1px dashed rgba(179,63,22,.45); }

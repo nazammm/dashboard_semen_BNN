@@ -4,7 +4,7 @@ import { useAsync, useDocTitle } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { COLORS, MONTHS_ID, dailyFreshness, fmt, isWorkingDay, weekBucketsForMonth } from '../lib/format';
 import type { Row } from '../lib/types';
-import { CellLink, ErrorBox, ExportButton, PageHeader, PageSkeleton, Select, TableWrap } from '../components/ui';
+import { CellLink, ErrorBox, ExportButton, FilterBar, PageHeader, PageSkeleton, Select, TableWrap } from '../components/ui';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const Dash = () => <span className="text-faint">–</span>;
@@ -151,28 +151,28 @@ function RekapBody({ base }: { base: Base }) {
 
   return (
     <div>
-      <PageHeader title="Rekap Harian" status={freshness.status} statusVariant={freshness.statusVariant}>
-        <div className="controls !mb-0">
-          <Select label="Bulan" value={period} onChange={e => setPeriod(e.target.value)}
-            options={periods.map(p => ({ value: `${p.year}-${p.month}`, label: `${MONTHS_ID[p.month]} ${p.year}` }))} />
-          <Select label="Jenis Semen" value={jenis} onChange={e => setJenis(e.target.value)}
-            options={[{ value: 'all', label: 'Semua Jenis' }, ...jenisList.map(j => ({ value: j, label: j }))]} />
-          <div className="ml-auto">
-            <ExportButton pageId="rekap-harian" filename={() => `Rekap_Harian_${label}.xlsx`}
-              getTables={() => [
-                { name: 'Rekap Mingguan', el: wRef.current },
-                { name: 'Mingguan vs Target', el: pRef.current },
-                { name: 'Rekap Harian', el: rRef.current },
-              ]} />
-          </div>
+      <PageHeader title="Rekap Harian" status={freshness.status} statusVariant={freshness.statusVariant} />
+
+      <FilterBar label="Filter Rekap Harian">
+        <Select label="Bulan" value={period} onChange={e => setPeriod(e.target.value)}
+          options={periods.map(p => ({ value: `${p.year}-${p.month}`, label: `${MONTHS_ID[p.month]} ${p.year}` }))} />
+        <Select label="Jenis Semen" value={jenis} onChange={e => setJenis(e.target.value)}
+          options={[{ value: 'all', label: 'Semua Jenis' }, ...jenisList.map(j => ({ value: j, label: j }))]} />
+        <div className="ml-auto">
+          <ExportButton pageId="rekap-harian" filename={() => `Rekap_Harian_${label}.xlsx`}
+            getTables={() => [
+              { name: 'Rekap Mingguan', el: wRef.current },
+              { name: 'Mingguan vs Target', el: pRef.current },
+              { name: 'Rekap Harian', el: rRef.current },
+            ]} />
         </div>
-      </PageHeader>
+      </FilterBar>
 
       {loadErr && <ErrorBox error={loadErr} />}
 
       <h2 className="section-title">Rekap Mingguan</h2>
       <TableWrap>
-        <table ref={wRef} className="font-mono">
+        <table ref={wRef} className="tbl-num">
           <thead><tr>
             <th style={{ minWidth: 70 }}>Minggu</th>
             {distCodes.map(c => <th key={c} className="num">{c}</th>)}
@@ -208,7 +208,7 @@ function RekapBody({ base }: { base: Base }) {
         <span><i style={{ background: COLORS.red }} aria-hidden="true" />Di bawah ambang</span>
       </div>
       <TableWrap>
-        <table ref={pRef} className="font-mono">
+        <table ref={pRef} className="tbl-num">
           <thead><tr>
             <th style={{ minWidth: 120 }}>Minggu</th>
             {distCodes.map(c => <th key={c} className="num">{c}</th>)}
@@ -230,7 +230,7 @@ function RekapBody({ base }: { base: Base }) {
 
       <h2 className="section-title !mt-[34px]">Rekap Harian</h2>
       <TableWrap>
-        <table ref={rRef} className="font-mono">
+        <table ref={rRef} className="tbl-num">
           <thead><tr>
             <th style={{ minWidth: 80 }}>Tanggal</th>
             {distCodes.map(c => <th key={c} className="num">{c}</th>)}

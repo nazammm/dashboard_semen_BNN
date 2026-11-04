@@ -8,7 +8,7 @@ import {
   COLORS, MONTHS_ID, dailyFreshness, fmt, fmtIDR, relDate, uniqueTokoStats,
 } from '../lib/format';
 import type { Row } from '../lib/types';
-import { Chip, ErrorBox, PageHeader, PageSkeleton, cx } from '../components/ui';
+import { Chip, cx, ErrorBox, FilterBar, PageHeader, PageSkeleton } from '../components/ui';
 
 /* ---------- Konfigurasi basemap ---------- */
 // CARTO hanya dipakai kalau key terisi (kebijakan CARTO: tanpa key tile diganti watermark total).
@@ -250,25 +250,25 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
 
   return (
     <div>
-      <PageHeader title="Peta Toko" desc={`Sebaran Geografis · ${MONTHS_ID[month]} ${data.year} (MTD)`} status={freshness.status} statusVariant={freshness.statusVariant}>
-        <div className="controls !mb-0">
-          <div className="control">
-            <label htmlFor="mDist">Distributor</label>
-            <select id="mDist" value={dist} onChange={e => setDist(e.target.value)}>
-              <option value="all">Semua Distributor</option>
-              {dists.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-          <div className="control">
-            <span id="mShowLabel" className="control-group-label">Tampilkan</span>
-            <div className="pill-row" role="group" aria-labelledby="mShowLabel">
-              <Chip active={show === 'all'} onClick={() => setShow('all')}>Semua Toko</Chip>
-              <Chip active={show === 'active'} onClick={() => setShow('active')}>Aktif Bulan Ini</Chip>
-              <Chip active={show === 'inactive'} onClick={() => setShow('inactive')}>Nonaktif Bulan Ini</Chip>
-            </div>
+      <PageHeader title="Peta Toko" desc={`Sebaran Geografis · ${MONTHS_ID[month]} ${data.year} (MTD)`} status={freshness.status} statusVariant={freshness.statusVariant} />
+
+      <FilterBar label="Filter Peta Toko">
+        <div className="control">
+          <label htmlFor="mDist">Distributor</label>
+          <select id="mDist" value={dist} onChange={e => setDist(e.target.value)}>
+            <option value="all">Semua Distributor</option>
+            {dists.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+        <div className="control">
+          <span id="mShowLabel" className="control-group-label">Tampilkan</span>
+          <div className="pill-row" role="group" aria-labelledby="mShowLabel">
+            <Chip active={show === 'all'} onClick={() => setShow('all')}>Semua Toko</Chip>
+            <Chip active={show === 'active'} onClick={() => setShow('active')}>Aktif Bulan Ini</Chip>
+            <Chip active={show === 'inactive'} onClick={() => setShow('inactive')}>Nonaktif Bulan Ini</Chip>
           </div>
         </div>
-      </PageHeader>
+      </FilterBar>
 
       <div className="grid-kpi">
         <div className="card"><div className="card-title">Total Toko{dist === 'all' ? ' Terdaftar' : ' · ' + dist}</div><div className="kpi-value">{fmt(us.total)}</div></div>
@@ -279,7 +279,8 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
         </button>
       </div>
 
-      <div className="relative mt-4">
+      {/* isolate: kontrol peta (z-1001) dan panel Leaflet (z-400) tidak menimpa bar filter yang menempel */}
+      <div className="relative isolate mt-4">
         <div ref={searchBox} className="absolute top-3.5 left-3.5 z-[1001] w-[280px] max-w-[calc(100%-28px)]">
           <input
             type="text" value={query} autoComplete="off" placeholder="Cari nama atau kode toko…" aria-label="Cari toko berdasarkan nama atau kode"
