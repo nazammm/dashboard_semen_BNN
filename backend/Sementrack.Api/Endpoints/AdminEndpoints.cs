@@ -10,7 +10,7 @@ internal static class AdminEndpoints
 {
     private static readonly Regex UserRe = new("^[a-z0-9_.-]{3,32}$", RegexOptions.Compiled);
 
-    private static async Task<(SessionInfo? S, IResult? Fail)> AdminAsync(HttpContext ctx, AuthService auth)
+    internal static async Task<(SessionInfo? S, IResult? Fail)> AdminAsync(HttpContext ctx, AuthService auth)
     {
         var (s, st, err) = await auth.GetSessionAsync(ctx);
         if (s is null) return (null, Helpers.Error(st, err!));

@@ -8,11 +8,11 @@ public static class AccessRules
 {
     public static readonly string[] DashboardPages =
     {
-        "beranda", "performa-daerah", "delivery", "rekap-harian", "tim-sales",
+        "beranda", "performa-daerah", "delivery", "sell-in-bnn", "rekap-harian", "tim-sales",
         "peta-toko", "daftar-toko", "transaksi-detail", "toko-detail",
     };
 
-    public static readonly string[] AdminOnlyPages = { "interaksi-web", "kelola-akses" };
+    public static readonly string[] AdminOnlyPages = { "interaksi-web", "kelola-akses", "upload-sell-in" };
 
     public static readonly HashSet<string> KnownPageIds = new(DashboardPages.Concat(AdminOnlyPages));
 
@@ -59,7 +59,7 @@ public static class AccessRules
         "v_salesman_performance", "v_toko_agg", "v_yearly_totals", "v_monthly_totals",
         "v_dist_monthly_totals", "produk", "v_target_dist", "v_delivery_ext",
         "v_transaksi_detail", "v_toko_pegangan_sales", "status_sync", "toko",
-        "distributor_target_salesman",
+        "distributor_target_salesman", "v_sellin_bnn_daily", "v_sellin_bnn_info",
     };
 
     /// <summary>Tabel di atas yang punya kolom dist_code -> filter distributor DIPAKSA server untuk spv/sales.</summary>
@@ -76,6 +76,8 @@ public static class AccessRules
         ["toko"] = "sementrack.v_toko_multi",
         ["v_toko_agg"] = "sementrack.v_toko_agg",
         ["distributor_target_salesman"] = "sementrack.distributor_target_salesman",
+        ["v_sellin_bnn_daily"] = "sementrack.v_sellin_bnn_daily",
+        ["v_sellin_bnn_info"] = "sementrack.v_sellin_bnn_info",
     };
 
     /// <summary>Fungsi yang versi barunya ada di schema sementrack.</summary>
@@ -124,6 +126,7 @@ public static class AccessRules
                     "dashboard_payment_breakdown_range", "dashboard_delivery_type_breakdown_range", "dashboard_product_breakdown_range" }),
         ["performa-daerah"] = new(new[] { "v_cement_targets_ext" }, Array.Empty<string>()),
         ["delivery"] = new(new[] { "v_delivery_ext" }, Array.Empty<string>()),
+        ["sell-in-bnn"] = new(new[] { "v_sellin_bnn_daily", "v_sellin_bnn_info" }, Array.Empty<string>()),
         ["rekap-harian"] = new(new[] { "v_distributor_summary", "v_monthly_totals", "produk", "v_target_dist" }, new[] { "dashboard_daily_matrix" }),
         ["tim-sales"] = new(new[] { "v_salesman_performance", "distributor_target_salesman" }, Array.Empty<string>()),
         ["peta-toko"] = new(new[] { "v_monthly_totals" }, new[] { "dashboard_toko_monthly_v2" }),

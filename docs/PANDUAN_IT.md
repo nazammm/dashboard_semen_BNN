@@ -80,3 +80,11 @@ Hasil audit keamanan (v1.2) yang sekarang berlaku:
 Urutan pasang (keduanya wajib, kalau tidak Overview menampilkan pesan "Filter rentang tanggal belum aktif di server"):
 1. Jalankan `docs/sql/overview_rentang_tanggal.sql` di database `web_semen` (membuat 6 fungsi `sementrack.*_range`; fungsi lama tidak diubah).
 2. Build ulang dan deploy backend + frontend dari branch ini. Backend menambah 6 fungsi itu ke whitelist (`AccessRules.AllowedFunctions`, schema `sementrack`).
+
+## 8. Update Nov 2026: Sell In BNN + Upload Sell In
+1. Jalankan `docs/sql/sell_in_bnn.sql` di `web_semen` (tabel `sementrack.sellin_bnn*`, peta region, fungsi upload, view). Aman dijalankan ulang.
+   Fungsi upload memakai SECURITY DEFINER: jalankan skrip sebagai pemilik tabel (nazamudin) supaya backend bisa menulis lewat fungsi itu.
+2. Deploy ulang backend + frontend. Endpoint baru: `/api/admin/sellin/*` (khusus admin). Endpoint `stage` menerima body s.d. 12 MB
+   (diatur per endpoint di kode). Kalau IIS `requestFiltering/maxAllowedContentLength` diset < 12 MB, frontend otomatis memperkecil paket.
+3. Halaman baru: `sell-in-bnn` (admin & Management) dan `upload-sell-in` (admin). Kalau hak akses role Management pernah diubah di
+   Kelola Akses, centang "Sell In BNN" untuk role itu. Akun yang sedang login perlu login ulang agar menu baru muncul.

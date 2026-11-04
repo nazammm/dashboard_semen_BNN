@@ -275,6 +275,66 @@
     .drp-foot > div:last-child{ @apply justify-end; }
   }
 
+  /* ---------- Daftar peringkat (Sell In BNN) ---------- */
+  .rank-list{ @apply list-none m-0 p-0 flex flex-col; }
+  .rank-row, .rank-legend{ @apply grid items-center gap-3 w-full; grid-template-columns:minmax(96px,1.15fr) minmax(60px,1fr) 64px 46px 52px; }
+  .rank-row{ @apply px-2 py-[7px] -mx-2 rounded-sm border-0 bg-transparent text-left cursor-pointer transition-colors hover:bg-surface2; width:calc(100% + 16px); }
+  .rank-row.is-on{ @apply bg-accent-soft; }
+  .rank-row.is-dim{ @apply opacity-55 hover:opacity-100; }
+  .rank-name{ @apply font-sans text-[13px] text-ink truncate; }
+  .rank-row.is-on .rank-name{ @apply font-semibold text-accent-ink; }
+  .rank-track{ @apply h-2 rounded-full bg-surface3 overflow-hidden; }
+  .rank-track i{ @apply block h-full rounded-full bg-accent; transition:width .35s ease-out; }
+  .rank-row.is-dim .rank-track i{ @apply bg-line-strong; }
+  .rank-val, .rank-share, .rank-delta{ @apply text-right font-sans text-[12.5px]; font-variant-numeric:tabular-nums; }
+  .rank-val{ @apply font-semibold text-ink; }
+  .rank-share{ @apply text-soft; }
+  .rank-legend{ @apply font-mono text-[9.5px] uppercase text-faint pb-1.5 mb-0.5 border-b border-line; letter-spacing:.06em; }
+  .rank-legend span{ @apply text-right; }
+  @media (max-width:520px){
+    .rank-row, .rank-legend{ grid-template-columns:minmax(80px,1fr) 58px 42px 46px; }
+    .rank-track, .rank-legend span:nth-child(2){ display:none; }
+  }
+
+  /* ---------- Upload Sell In ---------- */
+  .upl-steps{ @apply list-none p-0 m-0 mb-5 flex gap-2 flex-wrap; }
+  .upl-steps li{ @apply flex items-center gap-2 font-sans text-[12.5px] text-faint pr-3; }
+  .upl-steps li span{ @apply w-[22px] h-[22px] rounded-full border border-line-strong inline-flex items-center justify-center font-mono text-[11px] bg-surface; }
+  .upl-steps li.is-current{ @apply text-ink font-semibold; }
+  .upl-steps li.is-current span{ @apply bg-ink text-white border-ink; }
+  .upl-steps li.is-done{ @apply text-soft; }
+  .upl-steps li.is-done span{ @apply bg-green-soft text-green; border-color:rgba(63,122,82,.35); }
+  .upl-steps li + li::before{ content:''; @apply w-6 h-px bg-line-strong mr-1; }
+
+  .seg{ @apply flex border-b border-line px-3 pt-3 gap-1 bg-surface2/60; }
+  .seg-btn{ @apply inline-flex items-center gap-2 px-3.5 py-2.5 -mb-px border border-transparent rounded-t-sm bg-transparent font-sans text-[13px] font-medium text-soft cursor-pointer transition-colors hover:text-ink disabled:opacity-50 disabled:cursor-default; }
+  .seg-btn.is-active{ @apply bg-surface text-ink font-semibold border-line border-b-surface; }
+
+  .upl-drop{ @apply flex flex-col items-center justify-center text-center px-6 py-10 rounded border-[1.5px] border-dashed border-line-strong bg-surface2/50 transition-colors; }
+  .upl-drop.is-drag{ @apply border-accent bg-accent-soft/50; }
+  .upl-paste{ @apply w-full h-[220px] p-3 rounded-sm border border-line-strong bg-surface font-mono text-[11.5px] leading-relaxed text-ink resize-y whitespace-pre; }
+  .upl-paste:focus{ @apply outline-none border-accent; }
+  .upl-bar{ @apply h-2 rounded-full bg-surface3 overflow-hidden; }
+  .upl-bar i{ @apply block h-full bg-accent rounded-full; transition:width .25s ease-out; }
+  .upl-bar.is-busy i{ background:repeating-linear-gradient(45deg,#FF5A1F 0 10px,#FF7B47 10px 20px); background-size:28px 28px; animation:upl-stripe .8s linear infinite; }
+
+  .upl-facts{ @apply grid gap-0 border-b border-line mb-5; grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .upl-facts > div{ @apply px-[22px] py-4 border-r border-line last:border-r-0; }
+  .upl-fact{ @apply font-disp font-extrabold text-[26px] leading-tight text-ink; }
+  .upl-of{ @apply font-sans text-[12.5px] font-medium text-faint normal-case; }
+  .upl-sub{ @apply text-[12px] text-soft mt-1 leading-snug; }
+  @media (max-width:960px){ .upl-facts{ grid-template-columns:repeat(2,minmax(0,1fr)); } .upl-facts > div:nth-child(2){ @apply border-r-0; } .upl-facts > div:nth-child(-n+2){ @apply border-b border-line; } }
+  @media (max-width:520px){ .upl-facts{ grid-template-columns:1fr; } .upl-facts > div{ @apply border-r-0 border-b border-line last:border-b-0; } }
+
+  .upl-note{ @apply flex gap-2.5 items-start px-3.5 py-3 rounded border text-[13px] leading-relaxed; }
+  .upl-note b{ @apply font-semibold; }
+  .upl-note.is-info{ @apply bg-blue-soft text-blue; border-color:rgba(32,74,99,.22); }
+  .upl-note.is-warn{ @apply bg-amber-soft text-[#7A4F0E]; border-color:rgba(184,121,26,.35); }
+  .upl-note.is-bad{ @apply bg-red-soft text-[#8A2C22]; border-color:rgba(178,59,46,.3); }
+  .upl-note input{ @apply bg-surface; }
+  .upl-done{ @apply border-l-[3px]; border-left-color:#3F7A52; }
+  .upl-check{ @apply w-8 h-8 rounded-full bg-green-soft text-green inline-flex items-center justify-center shrink-0 mt-0.5; }
+
   .chart-box{ @apply relative h-[280px]; } .chart-box.tall{ @apply h-[340px]; } .chart-box.small{ @apply h-16; }
   .legend{ @apply flex gap-[18px] flex-wrap text-xs text-soft mb-1.5; }
   .legend span{ @apply inline-flex items-center gap-1.5; } .legend i{ @apply w-3 h-3 rounded-[2px] inline-block; }
@@ -288,6 +348,7 @@
 @keyframes drp-in{ from{ opacity:0; transform:translateY(-4px); } to{ opacity:1; transform:none; } }
 @keyframes drp-sheet{ from{ transform:translateY(24px); opacity:0; } to{ transform:none; opacity:1; } }
 @keyframes drp-in-up{ from{ opacity:0; transform:translateY(4px); } to{ opacity:1; transform:none; } }
+@keyframes upl-stripe{ from{ background-position:0 0; } to{ background-position:28px 0; } }
 @keyframes skel-shimmer{ 0%{ background-position:-300px 0; } 100%{ background-position:300px 0; } }
 @media (prefers-reduced-motion: reduce){ .skel{ animation:none; } .drp-panel{ animation:none; } .spinner{ animation-duration:1.6s; } }
 .leaflet-control-attribution{ font-size:9.5px !important; padding:1px 6px !important; background:rgba(255,255,255,.75) !important; }

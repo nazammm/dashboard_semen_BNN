@@ -64,6 +64,7 @@ var api = app.MapGroup("/api");
 api.MapGet("/", () => Results.Json(new { ok = true, message = "SEMENTRACK API jalan.", version = "v11-aspnet" }));
 LoginEndpoint.Map(api);
 AdminEndpoints.Map(api);
+SellinEndpoints.Map(api);
 DataEndpoints.Map(api); // berisi GET /{table}: harus didaftarkan setelah route statis
 
 // Frontend (hasil build React) disajikan dari wwwroot; SPA fallback ke index.html.

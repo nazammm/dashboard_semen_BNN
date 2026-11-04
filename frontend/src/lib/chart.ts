@@ -47,6 +47,9 @@ export function useChart(build: () => ChartConfiguration | null, deps: unknown[]
     const sameShape = cur && cur.canvas === canvas && (cur.config as any).type === cfg.type && !cfg.plugins?.length
       && cur.data.datasets.length === cfg.data.datasets.length;
     if (cur && sameShape) {
+      // jumlah kategori berubah (mis. harian -> bulanan): tumbuh dari dasar, bukan bergeser dari posisi lama
+      const relabel = (cur.data.labels?.length ?? 0) !== (cfg.data.labels?.length ?? 0);
+      if (relabel) cur.reset();
       cur.data.labels = cfg.data.labels;
       cfg.data.datasets.forEach((ds, i) => Object.assign(cur.data.datasets[i], ds));
       cur.options = cfg.options ?? {};

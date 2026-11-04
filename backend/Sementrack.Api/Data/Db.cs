@@ -88,6 +88,9 @@ public sealed class Db
         if (total > MaxCachedRowsTotal) _cache.Clear();   // batas memori: lebih baik hitung ulang daripada membengkak
     }
 
+    /// <summary>Kosongkan cache bacaan (dipanggil setelah data diganti lewat upload).</summary>
+    public void ClearCache() => _cache.Clear();
+
     public async Task<int> ExecuteAsync(string sql, IEnumerable<object?>? pars = null, CancellationToken ct = default)
     {
         await using var conn = await _ds.OpenConnectionAsync(ct);

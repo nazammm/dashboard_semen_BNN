@@ -18,6 +18,8 @@ const pages: Record<string, ReturnType<typeof lazy>> = {
   'toko-detail': lazy(() => import('./pages/TokoDetail')),
   'interaksi-web': lazy(() => import('./pages/InteraksiWeb')),
   'kelola-akses': lazy(() => import('./pages/KelolaAkses')),
+  'sell-in-bnn': lazy(() => import('./pages/SellInBnn')),
+  'upload-sell-in': lazy(() => import('./pages/UploadSellIn')),
 };
 
 function Guard() {

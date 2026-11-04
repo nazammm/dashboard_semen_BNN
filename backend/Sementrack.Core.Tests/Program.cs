@@ -66,6 +66,12 @@ Check(AccessRules.MustForceDistScope("spv", "dashboard_period_summary_range"), "
 Check(AccessRules.AllowedFunctions["dashboard_top_customers_range"].SequenceEqual(new[] { "p_dist_code", "p_start_date", "p_end_date", "p_product_codes", "p_limit" }), "argumen top_customers_range");
 Check(AccessRules.RpcSchema["dashboard_period_summary_range"] == "sementrack", "fungsi range di schema sementrack");
 
+// Sell In BNN
+Check(mo.Tables.Contains("v_sellin_bnn_daily") && mo.Tables.Contains("v_sellin_bnn_info"), "mo: data sell in BNN");
+Check(!sales.Tables.Contains("v_sellin_bnn_daily"), "sales: TIDAK boleh sell in BNN");
+Check(AccessRules.DefaultPagesFor("admin").Contains("upload-sell-in") && !AccessRules.DefaultPagesFor("mo").Contains("upload-sell-in"), "upload sell in khusus admin");
+Check(AccessRules.ReadAlias["v_sellin_bnn_daily"] == "sementrack.v_sellin_bnn_daily", "view sell in di schema sementrack");
+
 Check(AccessRules.DefaultPermFor("sales", "daftar-toko") is { CanViewDetail: true, CanDownload: false }, "perm sales daftar-toko");
 Check(AccessRules.DefaultPermFor("spv", "rekap-harian") is { CanViewDetail: false, CanDownload: false }, "perm spv rekap");
 Check(AccessRules.DefaultPermFor("mo", "beranda") is { CanViewDetail: true, CanDownload: true }, "perm default");

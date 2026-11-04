@@ -9,6 +9,8 @@ export function getData<T>(key: string, loader: () => Promise<T>): Promise<T> {
   return p as Promise<T>;
 }
 export const clearDataCache = () => cache.clear();
+/** Buang cache untuk kunci berawalan tertentu (mis. setelah upload data baru). */
+export const forgetData = (prefix: string) => { [...cache.keys()].filter(k => k.startsWith(prefix)).forEach(k => cache.delete(k)); };
 
 const pcArg = (codes?: string[] | null) => (codes && codes.length ? codes : null);
 const pcKey = (codes?: string[] | null) => (codes && codes.length ? codes.slice().sort().join(',') : 'all');
@@ -97,6 +99,9 @@ export const DataSource = {
   targetSalesman: () => getData('targetSalesman', () => apiGetAll('distributor_target_salesman', '?select=*&order=dist_code.asc')),
   targetDist: () => getData('targetDist', () => apiGetAll('v_target_dist', '?select=*')),
   delivery: () => getData('delivery', () => apiGetAll('v_delivery_ext', '?select=*')),
+  /** Sell In BNN: ringkasan harian (tanggal x region x produk x tipe pesanan). Urutan lengkap supaya paging stabil. */
+  sellinDaily: () => getData('sellin:daily', () => apiGetAll('v_sellin_bnn_daily', '?select=*&order=tanggal.asc,region.asc,produk.asc,tipe_pesanan.asc,loco_franco.asc')),
+  sellinInfo: () => getData<Row | null>('sellin:info', async () => (await apiGet<Row[]>('v_sellin_bnn_info?select=*'))[0] || null),
   transaksiDetail: (date: string, distCode?: string | null, productCodes?: string[] | null) => {
     const distFilter = distCode && distCode !== 'all' ? `&dist_code=eq.${enc(distCode)}` : '';
     const prodFilter = productCodes && productCodes.length ? `&product_code=in.(${productCodes.join(',')})` : '';
