@@ -28,8 +28,12 @@ interface AuthCtx {
 }
 const Ctx = createContext<AuthCtx | null>(null);
 
-// token terkini untuk lapisan api.ts (di luar React)
+// token terkini untuk lapisan api.ts (di luar React).
+// Dipasang saat modul dimuat, bukan di useEffect: efek komponen anak (mis. sidebar) berjalan
+// lebih dulu daripada efek AuthProvider, sehingga permintaan pertama sempat terkirim tanpa token.
 let currentToken: string | null = null;
+let onUnauthorized: () => void = () => {};
+configureApi({ getToken: () => currentToken, onUnauthorized: () => onUnauthorized() });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(() => readSession());
@@ -47,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    configureApi({ getToken: () => currentToken, onUnauthorized: () => logout('expired') });
+    onUnauthorized = () => logout('expired');
   }, [logout]);
 
   // logout dari tab lain

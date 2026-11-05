@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
+import { DataBadge } from '../components/DataStatus';
 import { DataSource, dailyMatrix } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
-import { COLORS, MONTHS_ID, dailyFreshness, fmt, isWorkingDay, weekBucketsForMonth } from '../lib/format';
+import { COLORS, MONTHS_ID, fmt, isWorkingDay, weekBucketsForMonth } from '../lib/format';
 import type { Row } from '../lib/types';
 import { CellLink, ErrorBox, ExportButton, FilterBar, PageHeader, PageSkeleton, Select, TableWrap } from '../components/ui';
 
@@ -27,7 +28,6 @@ export default function RekapHarian() {
 function RekapBody({ base }: { base: Base }) {
   const { canViewDetail } = useAuth();
   const { monthly, dists, produk, targetDist, freshnessData } = base;
-  const freshness = dailyFreshness(freshnessData);
 
   const distCodes = useMemo(() => dists.filter(d => d.tag === 'Distributor').map(d => String(d.dist_code)).sort(), [dists]);
   const jenisList = useMemo(() => [...new Set(produk.map(p => String(p.jenis)))].sort(), [produk]);
@@ -151,7 +151,7 @@ function RekapBody({ base }: { base: Base }) {
 
   return (
     <div>
-      <PageHeader title="Rekap Harian" status={freshness.status} statusVariant={freshness.statusVariant} />
+      <PageHeader title="Rekap Harian" status={<DataBadge source="transaksi" />} />
 
       <FilterBar label="Filter Rekap Harian">
         <Select label="Bulan" value={period} onChange={e => setPeriod(e.target.value)}

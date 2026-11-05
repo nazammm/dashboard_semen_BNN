@@ -4,14 +4,13 @@ import { DataSource, rangeSummary, topCustomersRange, deliveryTypeRange, channel
 import { MONTHS_FULL, addDays, addMonths, endOfMonth, fmtRange, isISO, sameRangeLastYear, startOfMonth, startOfQuarter, startOfYear, toISO, type DateRange } from '../lib/dates';
 import { DateRangePicker, type RangePreset } from '../components/DateRangePicker';
 import {
-  MONTHS_ID, COLORS, PALETTE, fmt, fmtIDR, fmtIDRCompact, fmtCompact, dailyFreshness, chartSRSummary,
+  MONTHS_ID, COLORS, PALETTE, fmt, fmtIDR, fmtIDRCompact, fmtCompact, chartSRSummary,
 } from '../lib/format';
 import { useAsync, useDocTitle } from '../lib/hooks';
-import { useAuth } from '../lib/auth';
+import { DataBadge } from '../components/DataStatus';
 import { useChart, donutPercentPlugins } from '../lib/chart';
-import { exportBerandaPPTX } from '../lib/pptxExport';
 import {
-  Badge, Card, Chip, CellLink, ChartBox, ErrorBox, FileIcon, PageSkeleton, Select, TableWrap, Th, cx,
+  Card, Chip, CellLink, ChartBox, ErrorBox, PageSkeleton, Select, TableWrap, Th, cx,
 } from '../components/ui';
 import type { Row } from '../lib/types';
 
@@ -191,8 +190,6 @@ export default function Beranda() {
 interface BodyProps { dists: Row[]; distMonthly: Row[]; transMonthly: Row[]; produk: Row[]; targetDist: Row[]; freshnessData: Row }
 
 function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, freshnessData }: BodyProps) {
-  const { canDownload } = useAuth();
-  const freshness = dailyFreshness(freshnessData);
 
   /* ---------- Master / turunan data (dihitung sekali) ---------- */
   const m = useMemo(() => {
@@ -357,21 +354,6 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
     return () => io.disconnect();
   }, []);
 
-  /* ---------- Unduh PPT ---------- */
-  const [pptLabel, setPptLabel] = useState('Unduh Laporan PPT');
-  const [pptBusy, setPptBusy] = useState(false);
-  const onDownloadPpt = async () => {
-    setPptBusy(true);
-    try {
-      await exportBerandaPPTX(dist, step => setPptLabel(step), 'beranda');
-    } catch (err) {
-      console.error('[export pptx]', err);
-      alert('Gagal membuat laporan PPT: ' + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setPptLabel('Unduh Laporan PPT');
-      setPptBusy(false);
-    }
-  };
 
   const growthTxt = kpi?.growth == null ? '–' : (kpi.growth >= 0 ? '+' : '') + kpi.growth.toFixed(1) + '%';
   const flexCard = 'flex flex-col flex-1';
@@ -387,7 +369,7 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
         <div className="relative z-[2]">
           <div className="flex gap-12 items-start mt-[22px] flex-wrap">
             <div className="flex-[1_1_480px] min-w-0">
-              <div className="mb-4"><Badge variant={freshness.statusVariant}><span role="status">{freshness.status}</span></Badge></div>
+              <div className="mb-4"><DataBadge source="transaksi" dark /></div>
               <h1 className="text-white leading-[.96] max-w-[820px]" style={{ fontSize: 'clamp(36px,5.4vw,64px)' }}>{heroTop.dist_code}<br />teratas {MONTHS_FULL[heroMonth]}.</h1>
               <p className="text-[#C9C3B4] max-w-[560px] mt-4 text-[15px] leading-relaxed">
                 {heroTop.dist_name} mencatat tonase tertinggi di {MONTHS_ID[heroMonth]} {activeYear}: {fmt(heroTop.tonase, 1)} ton.
@@ -439,13 +421,6 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
 
       {f.error && <div className="mb-4"><ErrorBox error={f.error} /></div>}
 
-      {canDownload('beranda') && (
-        <div className="my-[22px] flex items-center justify-end">
-          <button type="button" className="btn btn-primary" disabled={pptBusy} onClick={onDownloadPpt}>
-            <FileIcon kind="pptx" /><span>{pptLabel}</span>
-          </button>
-        </div>
-      )}
 
       <div className={cx('transition-opacity duration-200', refreshing && 'opacity-60')} aria-busy={f.loading}>
       {/* ---------------- KPI sekunder ---------------- */}

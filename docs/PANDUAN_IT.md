@@ -86,5 +86,20 @@ Urutan pasang (keduanya wajib, kalau tidak Overview menampilkan pesan "Filter re
    Fungsi upload memakai SECURITY DEFINER: jalankan skrip sebagai pemilik tabel (nazamudin) supaya backend bisa menulis lewat fungsi itu.
 2. Deploy ulang backend + frontend. Endpoint baru: `/api/admin/sellin/*` (khusus admin). Endpoint `stage` menerima body s.d. 12 MB
    (diatur per endpoint di kode). Kalau IIS `requestFiltering/maxAllowedContentLength` diset < 12 MB, frontend otomatis memperkecil paket.
-3. Halaman baru: `sell-in-bnn` (admin & Management) dan `upload-sell-in` (admin). Kalau hak akses role Management pernah diubah di
+3. Halaman baru: `sell-in-bnn` (admin & Management) dan `upload-sell-in` (admin; sejak bagian 9 menjadi `kelola-data`). Kalau hak akses role Management pernah diubah di
    Kelola Akses, centang "Sell In BNN" untuk role itu. Akun yang sedang login perlu login ulang agar menu baru muncul.
+
+## 9. Update Nov 2026: Kelola Data, status data, Sell In BNN tanpa mortar
+1. Jalankan `docs/sql/kelola_data.sql` di `web_semen` SETELAH `sell_in_bnn.sql`, sebagai pemilik tabel (nazamudin). Aman dijalankan ulang.
+   Isinya:
+   - fungsi upload transaksi `sementrack.transaksi_*` (ganti data per rentang tanggal × distributor yang ada di file);
+   - fungsi hapus `sementrack.kelola_hapus*`, log `sementrack.kelola_log`, view riwayat `sementrack.v_kelola_riwayat`;
+   - view `sementrack.v_data_status` untuk badge "Data s.d." dan panel Status Data di sidebar;
+   - aturan Sell In BNN: WHITE MORTAR dan TR-15 THINBED tidak dihitung lagi (data lama ikut tersaring lewat view).
+2. Deploy ulang backend + frontend.
+   - Endpoint baru (khusus admin): `/api/admin/transaksi/*` dan `/api/admin/data/*`.
+   - Simpan transaksi memicu refresh materialized view (±10 detik di uji lokal, bisa lebih lama di server).
+     Backend memberi batas 300 detik untuk query simpan/hapus. Hosting in-process (bagian 4) tidak punya batas waktu IIS;
+     kalau memakai out-of-process, naikkan `requestTimeout` di `web.config` (aspNetCore) ke minimal `00:05:00`.
+3. Menu `Upload Sell In` berganti menjadi `Kelola Data` (`/kelola-data`, khusus admin). Akun admin yang sedang login perlu login ulang.
+4. Fitur unduh PPT di Overview dihapus (paket `pptxgenjs` ikut dibuang dari frontend).

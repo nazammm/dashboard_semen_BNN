@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
+import { DataBadge } from '../components/DataStatus';
 import { Link } from 'react-router-dom';
 import { DataSource } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
-import { MONTHS_ID, dailyFreshness, fmt, fmtIDR, relDate, uniqueTokoStats } from '../lib/format';
+import { MONTHS_ID, fmt, fmtIDR, relDate, uniqueTokoStats } from '../lib/format';
 import type { Row } from '../lib/types';
 import { Badge, Chip, ErrorBox, ExportButton, FilterBar, Kpi, PageHeader, PageSkeleton, Th } from '../components/ui';
 import { DateRangePicker, type RangePreset } from '../components/DateRangePicker';
@@ -53,7 +54,7 @@ export default function DaftarToko() {
       return { ...t, total_qty: Number(s?.total_qty || 0), net_amount: Number(s?.net_amount || 0), is_active: !!s?.is_active, last_transaction: s?.last_transaction || null };
     });
     const raw = String(freshnessData?.max_do_date ?? '').slice(0, 10);
-    return { year, month, merged, freshness: dailyFreshness(freshnessData), lastDay: isISO(raw) ? raw : '' };
+    return { year, month, merged, lastDay: isISO(raw) ? raw : '' };
   }, []);
 
   if (load.error) return <ErrorBox error={load.error} />;
@@ -75,7 +76,7 @@ function lastTxPresets(last: string, earliest: string): RangePreset[] {
   ].filter(p => p.range.from <= p.range.to);
 }
 
-function DaftarTokoView({ year, month, merged, freshness, lastDay }: { year: number; month: number; merged: Row[]; freshness: ReturnType<typeof dailyFreshness>; lastDay: string }) {
+function DaftarTokoView({ year, month, merged, lastDay }: { year: number; month: number; merged: Row[]; lastDay: string }) {
   const [f, setF] = useState<Filters>(EMPTY);
   const [page, setPage] = useState(1);
   const [sortKey, setSortKey] = useState('cust_code');
@@ -153,7 +154,7 @@ function DaftarTokoView({ year, month, merged, freshness, lastDay }: { year: num
 
   return (
     <div>
-      <PageHeader title="Daftar Toko" desc={`Status aktif dan tonase: ${MONTHS_ID[month]} ${year}`} status={freshness.status} statusVariant={freshness.statusVariant} />
+      <PageHeader title="Daftar Toko" desc={`Status aktif dan tonase: ${MONTHS_ID[month]} ${year}`} status={<DataBadge source="transaksi" />} />
 
       <FilterBar label="Filter Daftar Toko" stickyMobile={false}>
         <div className="control flex-[1_1_220px]">

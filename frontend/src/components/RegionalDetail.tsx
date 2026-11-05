@@ -7,7 +7,7 @@ export const NO_GROWTH = -9999;
 export const fmtGrowth = (g: number) => (g === NO_GROWTH ? '–' : (g >= 0 ? '+' : '') + g.toFixed(1) + '%');
 
 /** Tombol buka/tutup komposisi sebuah bulan (expand/collapse di tempat, bukan navigasi). */
-export function MonthToggle({ month, expanded, title, onToggle }: { month: number; expanded: boolean; title: string; onToggle: () => void }) {
+export function MonthToggle({ month, expanded, title, onToggle, label }: { month: number; expanded: boolean; title: string; onToggle: () => void; label?: string }) {
   return (
     <button type="button" aria-expanded={expanded} title={title} onClick={onToggle}
       className={cx('inline-flex items-center gap-1.5 bg-transparent border-0 p-0 font-bold cursor-pointer hover:text-accent-ink', expanded ? 'text-accent-ink' : 'text-ink')}>
@@ -15,7 +15,7 @@ export function MonthToggle({ month, expanded, title, onToggle }: { month: numbe
         className={cx('w-[9px] h-[9px] shrink-0 transition-transform', expanded ? 'rotate-90 opacity-100' : 'opacity-55')}>
         <polyline points="9 6 15 12 9 18" />
       </svg>
-      {MONTHS_ID[month]}
+      {label ?? MONTHS_ID[month]}
     </button>
   );
 }

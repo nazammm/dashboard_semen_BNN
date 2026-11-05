@@ -12,7 +12,7 @@ public static class AccessRules
         "peta-toko", "daftar-toko", "transaksi-detail", "toko-detail",
     };
 
-    public static readonly string[] AdminOnlyPages = { "interaksi-web", "kelola-akses", "upload-sell-in" };
+    public static readonly string[] AdminOnlyPages = { "interaksi-web", "kelola-akses", "kelola-data" };
 
     public static readonly HashSet<string> KnownPageIds = new(DashboardPages.Concat(AdminOnlyPages));
 
@@ -59,7 +59,7 @@ public static class AccessRules
         "v_salesman_performance", "v_toko_agg", "v_yearly_totals", "v_monthly_totals",
         "v_dist_monthly_totals", "produk", "v_target_dist", "v_delivery_ext",
         "v_transaksi_detail", "v_toko_pegangan_sales", "status_sync", "toko",
-        "distributor_target_salesman", "v_sellin_bnn_daily", "v_sellin_bnn_info",
+        "distributor_target_salesman", "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_data_status",
     };
 
     /// <summary>Tabel di atas yang punya kolom dist_code -> filter distributor DIPAKSA server untuk spv/sales.</summary>
@@ -78,6 +78,7 @@ public static class AccessRules
         ["distributor_target_salesman"] = "sementrack.distributor_target_salesman",
         ["v_sellin_bnn_daily"] = "sementrack.v_sellin_bnn_daily",
         ["v_sellin_bnn_info"] = "sementrack.v_sellin_bnn_info",
+        ["v_data_status"] = "sementrack.v_data_status",
     };
 
     /// <summary>Fungsi yang versi barunya ada di schema sementrack.</summary>
@@ -141,7 +142,7 @@ public static class AccessRules
         ["distributor_target_salesman"] = new[] { "admin", "mo" },
     };
 
-    private static readonly string[] AlwaysTables = { "status_sync" };
+    private static readonly string[] AlwaysTables = { "status_sync", "v_data_status" };
 
     public sealed record Access(HashSet<string> Tables, HashSet<string> Functions);
 

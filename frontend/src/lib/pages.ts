@@ -9,7 +9,7 @@ const ICONS = {
   interaksi: '<path d="M4 4h16v12H8l-4 4Z"/><path d="M8 9h8M8 12.5h5"/>',
   kelola: '<circle cx="12" cy="8" r="3.2"/><path d="M4.5 20c.6-4 3.5-6.5 7.5-6.5s6.9 2.5 7.5 6.5"/><path d="M18.5 5.5l1.2 1.2M19.7 4.3l-1.2 1.2" stroke-width="1.3"/>',
   sellin: '<rect x="3.5" y="12.5" width="7.5" height="7" rx=".6"/><rect x="13" y="12.5" width="7.5" height="7" rx=".6"/><rect x="8.25" y="4.5" width="7.5" height="7" rx=".6"/><path d="M7.25 12.5v2M16.75 12.5v2M12 4.5v2"/>',
-  upload: '<path d="M12 15V4"/><path d="m7.5 8.5 4.5-4.5 4.5 4.5"/><path d="M4 14v4.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V14"/>',
+  database: '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v6.5c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V5.5"/><path d="M4.5 12v6.5c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V12"/>',
   daftar: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01" stroke-width="2.6"/>',
 };
 
@@ -31,7 +31,7 @@ export const NAV_GROUPS = [
   { label: 'Administrasi', items: [
     { id: 'interaksi-web', label: 'Interaksi Web', icon: ICONS.interaksi },
     { id: 'kelola-akses', label: 'Kelola Akses', icon: ICONS.kelola },
-    { id: 'upload-sell-in', label: 'Upload Sell In', icon: ICONS.upload },
+    { id: 'kelola-data', label: 'Kelola Data', icon: ICONS.database },
   ] },
 ];
 

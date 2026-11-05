@@ -100,7 +100,10 @@ export function toNumber(v: unknown): number | null {
 
 /* ---------------- aturan & tonase ---------------- */
 const low = (v: unknown) => String(v ?? '').trim().toLowerCase();
-export function passesRule(tipe: unknown, distributor: unknown, asal: unknown) {
+/** WHITE MORTAR & TR-15 THINBED tidak dipakai (Sell In BNN cukup STR, RJW, CWC). */
+export const isMortar = (produk: unknown) => /MORTAR|THINBED/i.test(String(produk ?? ''));
+export function passesRule(tipe: unknown, distributor: unknown, asal: unknown, produk?: unknown) {
+  if (produk !== undefined && isMortar(produk)) return false;
   const t = low(tipe);
   if (t === 'gudang') return true;
   return /permata multi niaga/i.test(String(distributor ?? '')) && (t === 'toko' || t === 'project') && low(asal) === 'itp-palembang terminal';
@@ -119,6 +122,7 @@ export interface SellinStats {
   usedPmTokoProject: number;
   skippedTokoProject: number;      // toko/project selain PM (atau PM bukan dari ITP-Palembang)
   skippedOther: number;            // tipe pesanan lain / kosong
+  skippedMortar: number;           // white mortar / thinbed
   invalid: number;
   issues: SellinIssue[];           // contoh baris bermasalah (maks 20)
   dateFrom: string | null;
@@ -131,7 +135,7 @@ export interface SellinStats {
 export interface SellinParseResult { ok: boolean; error?: string; missing?: string[]; rows: SellinRow[]; stats: SellinStats }
 
 export function newStats(): SellinStats {
-  return { rowsRead: 0, rowsUsed: 0, usedGudang: 0, usedPmTokoProject: 0, skippedTokoProject: 0, skippedOther: 0, invalid: 0, issues: [],
+  return { rowsRead: 0, rowsUsed: 0, usedGudang: 0, usedPmTokoProject: 0, skippedTokoProject: 0, skippedOther: 0, skippedMortar: 0, invalid: 0, issues: [],
     dateFrom: null, dateTo: null, ton: 0, byMonth: {}, byTipe: {}, customers: {} };
 }
 
@@ -139,7 +143,7 @@ export function newStats(): SellinStats {
  * Pengolah baris bertahap: panggil header() sekali dengan baris judul, lalu push() per baris data.
  * Hanya baris yang lolos aturan disimpan (dalam urutan SELLIN_FIELDS).
  */
-export class SellinCollector {
+export class SellinCollector implements RowCollector<SellinParseResult> {
   rows: SellinRow[] = [];
   stats = newStats();
   cols: number[] = [];
@@ -167,6 +171,7 @@ export class SellinCollector {
       if (t === 'toko' || t === 'project') st.skippedTokoProject++; else st.skippedOther++;
       return;
     }
+    if (isMortar(get('tipe_produk'))) { st.skippedMortar++; return; }
 
     const tanggal = toISODate(get('tanggal'));
     const qty = toNumber(get('delivery_qty'));
@@ -249,8 +254,11 @@ export function parseDelimited(text: string, onRow: (cells: string[], lineNo: nu
   return delim;
 }
 
-export function parseSellinText(text: string): SellinParseResult {
-  const col = new SellinCollector();
+/** Pengolah baris bertahap yang dipakai pembaca xlsx/teks (Sell In, Transaksi, ...). */
+export interface RowCollector<R> { header(cells: unknown[]): boolean; push(cells: unknown[], rowNumber: number): void; result(): R }
+
+export function parseSellinText(text: string): SellinParseResult { return parseTextWith(text, new SellinCollector()); }
+export function parseTextWith<R>(text: string, col: RowCollector<R>): R {
   let headerDone = false;
   parseDelimited(text, (cells, lineNo) => {
     if (!headerDone) {
@@ -355,7 +363,10 @@ async function firstSheetName(buf: Uint8Array, entries: ZipEntry[]) {
 /**
  * Baca .xlsx (sheet pertama) secara bertahap. onProgress(0..1) berdasarkan byte terkompresi yang sudah diproses.
  */
-export async function parseSellinXlsx(data: ArrayBuffer, onProgress?: (p: number) => void): Promise<SellinParseResult> {
+export function parseSellinXlsx(data: ArrayBuffer, onProgress?: (p: number) => void): Promise<SellinParseResult> {
+  return parseXlsxWith(data, new SellinCollector(), onProgress);
+}
+export async function parseXlsxWith<R>(data: ArrayBuffer, col: RowCollector<R>, onProgress?: (p: number) => void): Promise<R> {
   const buf = new Uint8Array(data);
   if (buf[0] !== 0x50 || buf[1] !== 0x4b) throw new Error('File ini bukan .xlsx (mungkin .xls lama). Simpan ulang sebagai .xlsx atau .csv.');
   const entries = readZipEntries(buf);
@@ -364,7 +375,6 @@ export async function parseSellinXlsx(data: ArrayBuffer, onProgress?: (p: number
   const shared = ssEntry ? parseSharedStrings(await entryText(buf, ssEntry)) : [];
   const sheetEntry = byName.get(await firstSheetName(buf, entries))!;
 
-  const col = new SellinCollector();
   let headerDone = false, rowNo = 0;
   let readBytes = 0, lastReport = 0;
   const reader = entryStream(buf, sheetEntry, n => {

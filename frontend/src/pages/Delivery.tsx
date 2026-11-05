@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
+import { DataBadge } from '../components/DataStatus';
 import { DataSource } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
-import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, groupSum, monthlyFreshness } from '../lib/format';
+import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, groupSum } from '../lib/format';
 import type { Row } from '../lib/types';
 import { Capaian, Card, ChartBox, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select } from '../components/ui';
 import { GrowthTable } from '../components/GrowthTable';
@@ -35,7 +36,6 @@ export default function Delivery() {
 function Content({ rows }: { rows: Row[] }) {
   const Y = detectYear(rows), P = Y - 1;
   const kReal = `realisasi_${Y}`, kTgt = `target_${Y}`, kRealP = `realisasi_${P}`;
-  const freshness = useMemo(() => monthlyFreshness(rows, kReal, Y), [rows, kReal, Y]);
 
   const [filters, setFilters] = useState<Filters>({ region: 'all', subRegion: 'all', type: 'all' });
   const canDrillDown = filters.subRegion === 'all';
@@ -102,7 +102,7 @@ function Content({ rows }: { rows: Row[] }) {
 
   return (
     <>
-      <PageHeader title="Sell In" status={freshness.status} statusVariant={freshness.statusVariant} />
+      <PageHeader title="Sell In" status={<DataBadge source="sellin_bulanan" />} />
 
       <FilterBar label="Filter Sell In" className="max-[880px]:grid max-[880px]:grid-cols-3 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
         <Select label="Region" value={filters.region} onChange={e => change({ region: e.target.value })}

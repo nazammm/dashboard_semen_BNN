@@ -9,8 +9,9 @@ import type { ChartConfiguration } from 'chart.js';
 export const cx = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).join(' ');
 
 /* ---------- Header halaman ---------- */
+/** `status`: teks badge biasa, atau elemen sendiri (mis. <DataBadge/> untuk kesegaran data). */
 export function PageHeader({ title, desc, status, statusVariant = 'good', children }: {
-  title: string; desc?: string; status?: string; statusVariant?: StatusVariant; children?: ReactNode;
+  title: string; desc?: string; status?: ReactNode; statusVariant?: StatusVariant; children?: ReactNode;
 }) {
   return (
     <div className="mb-7">
@@ -19,7 +20,7 @@ export function PageHeader({ title, desc, status, statusVariant = 'good', childr
           <h1 className="text-[clamp(30px,4vw,46px)]">{title}</h1>
           {desc && <p className="text-soft text-[14.5px] max-w-[640px] mt-2.5 leading-relaxed">{desc}</p>}
         </div>
-        {status && <Badge variant={statusVariant} className="shrink-0"><span role="status">{status}</span></Badge>}
+        {typeof status === 'string' ? <Badge variant={statusVariant} className="shrink-0"><span role="status">{status}</span></Badge> : status}
       </div>
       {children && <div className="mt-4">{children}</div>}
     </div>
@@ -153,17 +154,14 @@ export function ChartBox({ build, deps, className, label }: { build: () => Chart
   return <div className={cx('chart-box', className)}><canvas ref={ref} role="img" aria-label={label} /></div>;
 }
 
-/* ---------- Ikon format file & tombol export ---------- */
-export function FileIcon({ kind }: { kind: 'xlsx' | 'pptx' }) {
-  const c = kind === 'xlsx' ? { fill: '#E4F3E8', stroke: '#1D7A46', body: '#1D7A46' } : { fill: '#FBE9E4', stroke: '#C6471F', body: '#C6471F' };
+/* ---------- Ikon file Excel & tombol export ---------- */
+export function FileIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M5 2.5h9l5 5V21a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z" fill={c.fill} stroke={c.stroke} strokeWidth="1.2" />
-      <path d="M14 2.5V7a1 1 0 0 0 1 1h4.5" fill="none" stroke={c.stroke} strokeWidth="1.2" />
-      <rect x="6.2" y="11.3" width="11.6" height="7.6" rx="1" fill={c.body} />
-      {kind === 'xlsx'
-        ? <><path d="m8.5 13 2.4 4.2m0-4.2-2.4 4.2" stroke="#fff" strokeWidth="1.1" strokeLinecap="round" /><path d="M13.7 13v4.2h2.5" stroke="#fff" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" fill="none" /></>
-        : <><path d="M9.3 13v4.2" stroke="#fff" strokeWidth="1.1" strokeLinecap="round" /><path d="M9.3 13h1.8a1.4 1.4 0 0 1 0 2.8H9.3" fill="none" stroke="#fff" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" /></>}
+      <path d="M5 2.5h9l5 5V21a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z" fill="#E4F3E8" stroke="#1D7A46" strokeWidth="1.2" />
+      <path d="M14 2.5V7a1 1 0 0 0 1 1h4.5" fill="none" stroke="#1D7A46" strokeWidth="1.2" />
+      <rect x="6.2" y="11.3" width="11.6" height="7.6" rx="1" fill="#1D7A46" />
+      <path d="m8.5 13 2.4 4.2m0-4.2-2.4 4.2" stroke="#fff" strokeWidth="1.1" strokeLinecap="round" /><path d="M13.7 13v4.2h2.5" stroke="#fff" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
     </svg>
   );
 }
@@ -184,7 +182,7 @@ export function ExportButton({ pageId, filename, getTables, label = 'Export ke E
       busy.current = true;
       try { exportTablesToExcel(getTables(), typeof filename === 'function' ? filename() : filename, pageId); } finally { busy.current = false; }
     }}>
-      <FileIcon kind="xlsx" />{label}
+      <FileIcon />{label}
     </button>
   );
 }

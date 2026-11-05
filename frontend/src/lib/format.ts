@@ -52,30 +52,7 @@ export function groupSum<T>(arr: T[], keyFn: (r: T) => string | number, valFn: (
 }
 
 /** Format status_sync -> "24 Sep 2026, 10:00". */
-export function formatSyncWhen(sync?: Row | null) {
-  if (!sync || !sync.tanggal_update) return null;
-  const d = new Date(sync.tanggal_update + 'T00:00:00');
-  const tanggal = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-  const jam = String(sync.jam_update || '').slice(0, 5);
-  return `${tanggal}${jam ? ', ' + jam : ''}`;
-}
-
 export type StatusVariant = 'good' | 'warn' | 'bad' | 'neutral';
-/** Badge "Update Harian": dari MAX(do_date) transaksi sebenarnya. */
-export function dailyFreshness(freshness?: Row | null): { status: string; statusVariant: StatusVariant } {
-  const maxDate = freshness?.max_do_date as string | undefined;
-  const tanggal = maxDate ? new Date(maxDate.slice(0, 10) + 'T00:00:00').toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
-  return { status: tanggal ? `Update Harian · Data s.d. ${tanggal}` : 'Update Harian', statusVariant: 'good' };
-}
-/** Bulan terakhir (1-12) yang sudah closing (ada nilai > 0). */
-export function lastClosedMonth(rows: Row[], valueKey: string): number | null {
-  const months = rows.filter(r => Number(r[valueKey]) > 0).map(r => Number(r.month_num));
-  return months.length ? Math.max(...months) : null;
-}
-export function monthlyFreshness(rows: Row[], valueKey: string, year: number): { status: string; statusVariant: StatusVariant } {
-  const m = lastClosedMonth(rows, valueKey);
-  return { status: m ? `Update Bulanan · Data s.d. ${MONTHS_ID[m]} ${year} (closing)` : 'Update Bulanan · Belum ada data closing', statusVariant: 'warn' };
-}
 
 export function chartSRSummary(labels: string[], values: number[], unit?: string) {
   if (!labels?.length) return '';

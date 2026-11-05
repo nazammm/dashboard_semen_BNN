@@ -53,7 +53,7 @@ export interface GrowthDrill {
   unit?: string;
 }
 
-export function GrowthTable({ caption, rows: input, Y, P, labels, hasTarget = true, drill }: {
+export function GrowthTable({ caption, rows: input, Y, P, labels, hasTarget = true, drill, monthLabel = m => MONTHS_ID[m] }: {
   caption: string;
   rows: GrowthInput[];
   Y: number; P: number;
@@ -61,6 +61,8 @@ export function GrowthTable({ caption, rows: input, Y, P, labels, hasTarget = tr
   labels: { target: string; value: string; capaian: string };
   hasTarget?: boolean;
   drill?: GrowthDrill;
+  /** Label bulan, mis. "Nov (1–3)" untuk bulan yang belum penuh. */
+  monthLabel?: (month: number) => string;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>('month_num');
   const [sortDir, setSortDir] = useState<1 | -1>(1);
@@ -112,8 +114,8 @@ export function GrowthTable({ caption, rows: input, Y, P, labels, hasTarget = tr
               <tr>
                 <td>{canDrill
                   ? <MonthToggle month={r.month_num} expanded={expanded === r.month_num} title={drill!.title(r.month_num)}
-                      onToggle={() => setExpanded(expanded === r.month_num ? null : r.month_num)} />
-                  : <strong>{MONTHS_ID[r.month_num]}</strong>}</td>
+                      onToggle={() => setExpanded(expanded === r.month_num ? null : r.month_num)} label={monthLabel(r.month_num)} />
+                  : <strong>{monthLabel(r.month_num)}</strong>}</td>
                 <td className={cx('num font-mono', !hasTarget && 'text-faint')}>{hasTarget ? fmt(r.target) : '–'}</td>
                 <td className="num font-mono">{fmt(r.prev)}</td>
                 <td className="num font-mono font-semibold">{fmt(r.cur)}</td>

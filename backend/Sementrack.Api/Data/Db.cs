@@ -28,10 +28,13 @@ public sealed class Db
         foreach (var p in pars) cmd.Parameters.Add(ToParam(p));
     }
 
-    public async Task<List<Dictionary<string, object?>>> QueryAsync(string sql, IEnumerable<object?>? pars = null, CancellationToken ct = default)
+    /// <param name="timeoutSeconds">Batas waktu query; default Npgsql 30 detik. Simpan/hapus data besar (memicu refresh
+    /// materialized view) memakai batas lebih panjang.</param>
+    public async Task<List<Dictionary<string, object?>>> QueryAsync(string sql, IEnumerable<object?>? pars = null, CancellationToken ct = default, int? timeoutSeconds = null)
     {
         await using var conn = await _ds.OpenConnectionAsync(ct);
         await using var cmd = new NpgsqlCommand(sql, conn);
+        if (timeoutSeconds is int t) cmd.CommandTimeout = t;
         if (pars != null) AddParams(cmd, pars);
         await using var rd = await cmd.ExecuteReaderAsync(ct);
         var rows = new List<Dictionary<string, object?>>();

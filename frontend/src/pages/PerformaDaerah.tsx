@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
+import { DataBadge } from '../components/DataStatus';
 import { DataSource } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
-import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, groupSum, monthlyFreshness } from '../lib/format';
+import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, groupSum } from '../lib/format';
 import type { Row } from '../lib/types';
 import { Capaian, Card, ChartBox, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select } from '../components/ui';
 import { GrowthTable } from '../components/GrowthTable';
@@ -35,7 +36,6 @@ export default function PerformaDaerah() {
 function Content({ rows }: { rows: Row[] }) {
   const Y = detectYear(rows), P = Y - 1;
   const kDo = `do_${Y}`, kTdo = `target_do_${Y}`, kDoP = `do_${P}`, kTaD = `ta_distinct_${Y}`, kTa = `ta_${Y}`, kTta = `target_ta_${Y}`;
-  const freshness = useMemo(() => monthlyFreshness(rows, kDo, Y), [rows, kDo, Y]);
 
   const [filters, setFilters] = useState<Filters>({ region: 'all', distributor: 'all', type: 'all' });
   const canDrillDown = filters.distributor === 'all';
@@ -117,7 +117,7 @@ function Content({ rows }: { rows: Row[] }) {
 
   return (
     <>
-      <PageHeader title="Sell Out" status={freshness.status} statusVariant={freshness.statusVariant} />
+      <PageHeader title="Sell Out" status={<DataBadge source="sellout_bulanan" />} />
 
       <FilterBar label="Filter Sell Out" className="max-[880px]:grid max-[880px]:grid-cols-3 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
         <Select label="Region" value={filters.region} onChange={e => change({ region: e.target.value })}

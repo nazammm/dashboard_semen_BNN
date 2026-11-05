@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { DataBadge } from '../components/DataStatus';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import L from 'leaflet';
 import { DataSource } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import {
-  COLORS, MONTHS_ID, dailyFreshness, fmt, fmtIDR, relDate, uniqueTokoStats,
+  COLORS, MONTHS_ID, fmt, fmtIDR, relDate, uniqueTokoStats,
 } from '../lib/format';
 import type { Row } from '../lib/types';
 import { Chip, cx, ErrorBox, FilterBar, PageHeader, PageSkeleton } from '../components/ui';
@@ -107,8 +108,8 @@ export default function PetaToko() {
     const monthly = await DataSource.monthlyTotals();
     const months2026 = monthly.filter(r => r.year === 2026).map(r => Number(r.month));
     const year = 2026, month = months2026.length ? Math.max(...months2026) : 8;
-    const [tokoAll, freshnessData] = await Promise.all([DataSource.tokoMonthly(year, month), DataSource.dataFreshness()]);
-    return { year, month, tokoAll, freshness: dailyFreshness(freshnessData) };
+    const tokoAll = await DataSource.tokoMonthly(year, month);
+    return { year, month, tokoAll };
   }, []);
 
   if (load.error) return <ErrorBox error={load.error} />;
@@ -117,10 +118,10 @@ export default function PetaToko() {
 }
 
 function PetaTokoView({ data, focusCode, navigate, canView }: {
-  data: { year: number; month: number; tokoAll: Row[]; freshness: ReturnType<typeof dailyFreshness> };
+  data: { year: number; month: number; tokoAll: Row[] };
   focusCode: string | null; navigate: (to: string) => void; canView: boolean;
 }) {
-  const { month, tokoAll, freshness } = data;
+  const { month, tokoAll } = data;
   const [dist, setDist] = useState('all');
   const [show, setShow] = useState<Show>('all');
   const [query, setQuery] = useState(() => {
@@ -250,7 +251,7 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
 
   return (
     <div>
-      <PageHeader title="Peta Toko" desc={`Lokasi toko dan status aktif ${MONTHS_ID[month]} ${data.year}`} status={freshness.status} statusVariant={freshness.statusVariant} />
+      <PageHeader title="Peta Toko" desc={`Lokasi toko dan status aktif ${MONTHS_ID[month]} ${data.year}`} status={<DataBadge source="transaksi" />} />
 
       <FilterBar label="Filter Peta Toko">
         <div className="control">

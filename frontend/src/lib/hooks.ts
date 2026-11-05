@@ -41,7 +41,8 @@ export function useSort<T>(rows: T[], initialKey: string, initialDir: SortDir, g
     else { setKey(k); setDir('desc'); }
   };
   const ariaSort = (k: string) => (k === key ? (dir === 'asc' ? 'ascending' : 'descending') as 'ascending' | 'descending' : undefined);
-  return { sorted, sortKey: key, sortDir: dir, toggle, ariaSort };
+  const setSort = (k: string, d: SortDir) => { setKey(k); setDir(d); };
+  return { sorted, sortKey: key, sortDir: dir, toggle, ariaSort, setSort };
 }
 
 /** Judul tab. */

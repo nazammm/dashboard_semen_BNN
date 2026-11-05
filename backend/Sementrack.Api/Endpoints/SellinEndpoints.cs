@@ -75,7 +75,7 @@ internal static class SellinEndpoints
         g.MapPost("/commit", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) => Run(ctx, auth, log, "commit", async _ =>
         {
             var b = await Helpers.ReadBodyAsync(ctx.Request);
-            var rows = await db.QueryAsync("select * from sementrack.sellin_bnn_commit($1::bigint)", new object?[] { b.GetString("upload_id") });
+            var rows = await db.QueryAsync("select * from sementrack.sellin_bnn_commit($1::bigint)", new object?[] { b.GetString("upload_id") }, timeoutSeconds: KelolaEndpoints.LongQuery);
             db.ClearCache();   // halaman Sell In BNN langsung membaca data baru
             return Helpers.Json(rows[0]);
         }));
@@ -89,7 +89,7 @@ internal static class SellinEndpoints
     }
 
     /// <summary>Cek admin + tangani error seragam. Pesan dari fungsi database (kode 22xxx) aman ditampilkan ke admin.</summary>
-    private static async Task<IResult> Run(HttpContext ctx, AuthService auth, ILogger log, string name, Func<SessionInfo, Task<IResult>> body)
+    internal static async Task<IResult> Run(HttpContext ctx, AuthService auth, ILogger log, string name, Func<SessionInfo, Task<IResult>> body)
     {
         var (s, fail) = await AdminEndpoints.AdminAsync(ctx, auth);
         if (fail != null) return fail;
@@ -97,6 +97,11 @@ internal static class SellinEndpoints
         catch (PostgresException e) when (e.SqlState.StartsWith("22", StringComparison.Ordinal))
         {
             return Helpers.Error(400, e.MessageText);
+        }
+        catch (PostgresException e) when (e.SqlState.StartsWith("23", StringComparison.Ordinal))
+        {
+            // pelanggaran aturan tabel (mis. foreign key): tampilkan detailnya, tanpa data sensitif
+            return Helpers.Error(400, "Data ditolak database: " + (e.Detail ?? e.MessageText));
         }
         catch (BadHttpRequestException e) when (e.StatusCode == StatusCodes.Status413PayloadTooLarge)
         {

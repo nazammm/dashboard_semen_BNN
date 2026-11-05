@@ -1,8 +1,9 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { DataBadge } from '../components/DataStatus';
 import { DataSource } from '../lib/data';
 import { useAuth } from '../lib/auth';
-import { useAsync, useDocTitle, useSort } from '../lib/hooks';
-import { COLORS, MONTHS_ID, capaianClass, chartSRSummary, dailyFreshness, fmt, pct } from '../lib/format';
+import { useAsync, useDebounced, useDocTitle, useSort } from '../lib/hooks';
+import { COLORS, MONTHS_ID, capaianClass, chartSRSummary, fmt, pct } from '../lib/format';
 import type { Row } from '../lib/types';
 import { Capaian, CapaianAvg, CellLink, ChartBox, Chip, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th } from '../components/ui';
 
@@ -25,7 +26,6 @@ export default function TimSales() {
 }
 
 function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshnessData: Row; targets: Row[] | null }) {
-  const freshness = dailyFreshness(freshnessData);
   // Tahun data = tahun transaksi terakhir (view salesman memakai tahun transaksi terbaru), bukan angka tetap.
   const year = Number(String(freshnessData?.max_do_date ?? '').slice(0, 4)) || new Date().getFullYear();
   const dists = useMemo(() => [...new Set(rows.map(r => String(r.dist_code)))].sort(), [rows]);
@@ -35,6 +35,8 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
   const [dist, setDist] = useState('all');
   const [month, setMonth] = useState(defaultMonth);
   const [topN, setTopN] = useState(10);
+  const [q, setQ] = useState('');
+  const query = useDebounced(q.trim().toLowerCase(), 150);
 
   const list = useMemo<Sales[]>(() => rows.filter(r =>
     Number(r.month) === month && (dist === 'all' || r.dist_code === dist) && r.status === 'Sales Real'
@@ -48,49 +50,66 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
     return { ...r, capaian_ta, capaian_tonase, capaian_avg };
   }), [rows, month, dist]);
 
-  const withTargetTonase = list.filter(r => r.target_tonase > 0);
-  const withTargetTA = list.filter(r => r.target_ta > 0);
-  const avgTA = withTargetTA.length ? withTargetTA.reduce((a, r) => a + r.capaian_ta, 0) / withTargetTA.length : null;
-  const avgTonase = withTargetTonase.length ? withTargetTonase.reduce((a, r) => a + r.capaian_tonase, 0) / withTargetTonase.length : null;
-  const aboveTarget = withTargetTonase.filter(r => r.capaian_tonase >= 100).length;
+  /* ---------- KPI tim: capaian tertimbang (total aktual / total target), bukan rata-rata persen ---------- */
+  const sum = (arr: Sales[], k: string) => arr.reduce((a, r) => a + Number(r[k] || 0), 0);
+  const withTA = list.filter(r => r.target_ta > 0), withTon = list.filter(r => r.target_tonase > 0);
+  const tTA = sum(withTA, 'target_ta'), aTA = sum(withTA, 'actual_ta');
+  const tTon = sum(withTon, 'target_tonase'), aTon = sum(withTon, 'actual_tonase');
+  const scored = list.filter(r => r.capaian_avg >= 0);
+  const reached = scored.filter(r => r.capaian_avg >= 100).length;
+  const salesAktif = new Set(list.map(r => `${r.dist_code}|${r.salesman_code}`)).size;
+  const targetSales = targets ? targets.filter(t => dist === 'all' || t.dist_code === dist).reduce((a, t) => a + Number(t.target_salesman || 0), 0) : 0;
 
-  const bucketLabels = ['0-49%', '50-79%', '80-99%', '100-119%', '120%+'];
+  /* ---------- sebaran skor ---------- */
+  const bucketLabels = ['< 50%', '50–79%', '80–99%', '100–119%', '≥ 120%'];
+  const bucketColors = [COLORS.red, '#C9622B', COLORS.amber, '#6E9F7C', COLORS.green];
   const bucketCounts = useMemo(() => {
     const c = [0, 0, 0, 0, 0];
-    withTargetTA.forEach(r => {
-      const p = r.capaian_ta;
+    scored.forEach(r => {
+      const p = r.capaian_avg;
       if (p < 50) c[0]++; else if (p < 80) c[1]++; else if (p < 100) c[2]++; else if (p < 120) c[3]++; else c[4]++;
     });
     return c;
-  }, [withTargetTA]);
+  }, [scored]);
 
-  const { sorted, toggle, ariaSort } = useSort<Sales>(list, 'capaian_avg', 'desc', (r, k) => {
+  /* ---------- papan peringkat ---------- */
+  const rankOf = useMemo(() => {
+    const m = new Map<Sales, number>();
+    [...scored].sort((a, b) => b.capaian_avg - a.capaian_avg).forEach((r, i) => m.set(r, i + 1));
+    return m;
+  }, [scored]);
+  const { sorted, toggle, ariaSort, sortKey, sortDir, setSort } = useSort<Sales>(list, 'capaian_avg', 'desc', (r, k) => {
     const v = r[k];
     return typeof v === 'string' ? v : (v ?? -1);
   });
-  const shown = sorted.slice(0, topN);
-  const hdr = (k: string, text: string, num?: boolean) => <Th sortable num={num} ariaSort={ariaSort(k)} onSort={() => toggle(k)}>{text}</Th>;
+  const view = sortKey === 'capaian_avg' ? (sortDir === 'desc' ? 'atas' : 'bawah') : null;
+  // "Tertinggal": salesman tanpa target (skor –) tidak ikut diurutkan di paling bawah
+  const ordered = view === 'bawah' ? sorted.filter(r => r.capaian_avg >= 0) : sorted;
+  const filtered = query ? ordered.filter(r => `${r.salesman_name} ${r.salesman_code} ${r.dist_code}`.toLowerCase().includes(query)) : ordered;
+  const shown = query ? filtered : filtered.slice(0, topN);
+  const hdr = (k: string, text: ReactNode, num?: boolean, title?: string) => <Th sortable num={num} ariaSort={ariaSort(k)} onSort={() => toggle(k)} title={title}>{text}</Th>;
 
   const sebaranCard = (
-          <div className="card">
-            <h2 className="card-title">Sebaran Capaian TA (%)</h2>
-            <ChartBox className="!h-[480px]" label={chartSRSummary(bucketLabels, bucketCounts, 'salesman')}
-              deps={[bucketCounts]}
-              build={() => ({
-                type: 'bar',
-                data: { labels: bucketLabels, datasets: [{ data: bucketCounts, backgroundColor: [COLORS.red, COLORS.amber, '#A8ADB7', COLORS.accent, '#5B6472'], maxBarThickness: 44 }] },
-                options: {
-                  responsive: true, maintainAspectRatio: false,
-                  scales: { y: { grid: { color: COLORS.line }, ticks: { precision: 0 } }, x: { grid: { display: false } } },
-                  plugins: { tooltip: { callbacks: { label: (c: any) => ` ${fmt(c.parsed.y)} salesman` } } },
-                },
-              } as any)} />
-          </div>
+    <div className="card">
+      <h2 className="card-title">Sebaran Skor Salesman</h2>
+      <p className="text-faint text-[12px] -mt-1 mb-2">{fmt(scored.length)} salesman bertarget · {MONTHS_ID[month]} {year}</p>
+      <ChartBox className="!h-[300px]" label={chartSRSummary(bucketLabels, bucketCounts, 'salesman')}
+        deps={[bucketCounts]}
+        build={() => ({
+          type: 'bar',
+          data: { labels: bucketLabels, datasets: [{ data: bucketCounts, backgroundColor: bucketColors, borderRadius: 3, maxBarThickness: 44 }] },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: { y: { beginAtZero: true, grid: { color: COLORS.line }, ticks: { precision: 0 } }, x: { grid: { display: false } } },
+            plugins: { tooltip: { callbacks: { title: (c: any) => `Skor ${c[0].label}`, label: (c: any) => ` ${fmt(c.parsed.y)} salesman` } } },
+          },
+        } as any)} />
+    </div>
   );
 
   return (
     <div>
-      <PageHeader title="Tim Sales" status={freshness.status} statusVariant={freshness.statusVariant} />
+      <PageHeader title="Tim Sales" status={<DataBadge source="transaksi" />} />
 
       <FilterBar label="Filter Tim Sales">
         <Select label="Distributor" value={dist} onChange={e => setDist(e.target.value)}
@@ -100,30 +119,47 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
       </FilterBar>
 
       <div className="grid-kpi">
-        <Kpi title="Salesman Ditampilkan" value={fmt(list.length)} delta={`${MONTHS_ID[month]} ${year} · status aktif`} />
-        <Kpi title="Rata-rata Capaian TA" value={avgTA == null ? '–' : avgTA.toFixed(0) + '%'} delta="Toko aktif vs target" />
-        <Kpi title="Rata-rata Capaian Tonase" value={avgTonase == null ? '–' : avgTonase.toFixed(0) + '%'} delta={`vs target ${MONTHS_ID[month]} ${year}`} />
-        <Kpi title="Capai/Lampaui Target" value={fmt(aboveTarget)} unit={`/ ${fmt(withTargetTonase.length)}`} delta="Berdasarkan target tonase bulan ini" />
+        {targetSales > 0
+          ? <Kpi title="Salesman Aktif vs Target" value={fmt(salesAktif)} unit={`/ ${fmt(targetSales)}`}
+              delta={<span className="inline-flex items-center gap-2 flex-wrap"><Capaian actual={salesAktif} target={targetSales} /><span className="text-faint">{MONTHS_ID[month]} {year}</span></span>} />
+          : <Kpi title="Salesman Aktif" value={fmt(salesAktif)} delta={`${MONTHS_ID[month]} ${year} · status Sales Real`} />}
+        <Kpi title="Capaian TA Tim" value={tTA > 0 ? (aTA / tTA * 100).toFixed(0) + '%' : '–'}
+          delta={tTA > 0 ? `${fmt(aTA)} dari ${fmt(tTA)} toko aktif` : 'Belum ada target TA'} />
+        <Kpi title="Capaian Tonase Tim" value={tTon > 0 ? (aTon / tTon * 100).toFixed(0) + '%' : '–'}
+          delta={tTon > 0 ? `${fmt(aTon, 1)} dari ${fmt(tTon, 1)} ton` : 'Belum ada target tonase'} />
+        <Kpi title="Capai Target" value={fmt(reached)} unit={`/ ${fmt(scored.length)}`} delta="Salesman dengan skor ≥ 100%" />
       </div>
 
       {targets && targets.length > 0
         ? <SalesmanVsTarget rows={rows} targets={targets} month={month} year={year} dist={dist} lead={sebaranCard} />
         : <div className="grid grid-cols-2 max-lg:grid-cols-1 gap-4 mt-3.5">{sebaranCard}</div>}
 
-      <div className="flex items-baseline justify-between flex-wrap gap-2.5">
-        <h2 className="section-title !mb-3.5">Papan Peringkat</h2>
-        <div className="pill-row" role="group" aria-label="Jumlah baris yang ditampilkan">
-          {[10, 25, 50].map(n => <Chip key={n} active={topN === n} onClick={() => setTopN(n)}>Top {n}</Chip>)}
+      <div className="flex items-end justify-between flex-wrap gap-x-4 gap-y-2.5 mt-[38px] mb-3.5">
+        <div>
+          <h2 className="section-title !m-0">Papan Peringkat</h2>
+          <p className="text-faint text-[12px] mt-1">Skor = rata-rata Capaian TA dan Capaian Tonase (yang punya target).</p>
+        </div>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Cari salesman…" aria-label="Cari salesman" className="!w-[200px] !py-[7px]" />
+          <div className="pill-row" role="group" aria-label="Urutan">
+            <Chip active={view === 'atas'} onClick={() => setSort('capaian_avg', 'desc')}>Teratas</Chip>
+            <Chip active={view === 'bawah'} onClick={() => setSort('capaian_avg', 'asc')}>Tertinggal</Chip>
+          </div>
+          {!query && (
+            <div className="pill-row" role="group" aria-label="Jumlah baris yang ditampilkan">
+              {[10, 25, 50].map(n => <Chip key={n} active={topN === n} onClick={() => setTopN(n)}>{n}</Chip>)}
+            </div>
+          )}
         </div>
       </div>
       <TableWrap>
         <table>
-          <caption className="sr-only">Papan peringkat performa salesman berdasarkan Point</caption>
+          <caption className="sr-only">Papan peringkat salesman berdasarkan skor</caption>
           <thead><tr>
-            <th className="num" style={{ width: 44 }}>#</th>
+            <th className="num" style={{ width: 44 }} title="Peringkat menurut skor">#</th>
             {hdr('salesman_name', 'Salesman')}
             {hdr('dist_code', 'Distributor')}
-            {hdr('capaian_avg', 'Point')}
+            {hdr('capaian_avg', 'Skor', false, 'Rata-rata Capaian TA dan Capaian Tonase')}
             {hdr('target_ta', 'Target TA', true)}
             {hdr('actual_ta', 'TA Aktual', true)}
             {hdr('capaian_ta', 'Capaian TA')}
@@ -133,11 +169,11 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
           </tr></thead>
           <tbody>
             {shown.length === 0
-              ? <tr><td colSpan={10} className="!text-center text-faint !p-6">Tidak ada data untuk filter ini.</td></tr>
+              ? <tr><td colSpan={10} className="!text-center text-faint !p-6">{query ? `Tidak ada salesman dengan kata "${q.trim()}".` : 'Tidak ada data untuk filter ini.'}</td></tr>
               : shown.map((r, i) => (
                 <tr key={`${r.salesman_code}-${r.dist_code}-${i}`}>
-                  <td className="num font-mono">{i + 1}</td>
-                  <td><CellLink to={`/transaksi-detail?salesman=${encodeURIComponent(r.salesman_code)}&year=${year}&month=${month}&name=${encodeURIComponent(r.salesman_name)}`}>{r.salesman_name}</CellLink></td>
+                  <td className="num font-mono">{rankOf.get(r) ?? '–'}</td>
+                  <td className="min-w-[200px]"><CellLink to={`/transaksi-detail?salesman=${encodeURIComponent(r.salesman_code)}&year=${year}&month=${month}&name=${encodeURIComponent(r.salesman_name)}`}>{r.salesman_name}</CellLink></td>
                   <td><span className="tag-code">{r.dist_code}</span></td>
                   <td><CapaianAvg p={r.capaian_avg} /></td>
                   <td className="num font-mono">{r.target_ta ? fmt(r.target_ta) : '–'}</td>
@@ -151,6 +187,7 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
           </tbody>
         </table>
       </TableWrap>
+      {!query && filtered.length > shown.length && <p className="text-faint text-[12px] mt-2">Menampilkan {fmt(shown.length)} dari {fmt(filtered.length)} salesman.</p>}
     </div>
   );
 }
@@ -205,7 +242,7 @@ function SalesmanVsTarget({ rows, targets, month, year, dist, lead }: { rows: Ro
       {lead}
       <div className="card">
         <h2 className="card-title">Target vs Salesman per Bulan</h2>
-        <ChartBox className="!h-[480px]" label={chartSRSummary(labels, monthly.map(v => v ?? 0), 'salesman per bulan; target ' + targetTotal)}
+        <ChartBox className="!h-[300px]" label={chartSRSummary(labels, monthly.map(v => v ?? 0), 'salesman per bulan; target ' + targetTotal)}
           deps={[monthly, targetTotal, month]}
           build={() => ({
             type: 'bar',
@@ -228,7 +265,7 @@ function SalesmanVsTarget({ rows, targets, month, year, dist, lead }: { rows: Ro
       </div>
       <div className="card max-[1360px]:col-span-2 max-lg:col-span-1">
         <h2 className="card-title">Per Distributor · {MONTHS_ID[month]} {year} · Salesman Target / Aktual</h2>
-        <TableWrap>
+        <TableWrap className="max-h-[330px] overflow-y-auto">
           <table className="tbl-dense" style={{ minWidth: 0 }}>
             <caption className="sr-only">Jumlah salesman dibanding target per distributor</caption>
             <thead><tr>

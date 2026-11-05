@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { DataSource } from '../lib/data';
 import { logActivity } from '../lib/api';
-import { formatSyncWhen, ROLE_LABEL } from '../lib/format';
+import { ROLE_LABEL } from '../lib/format';
+import { DataStatusPanel } from './DataStatus';
 import { PAGE_LABEL } from '../lib/pages';
 import { NAV_GROUPS } from '../lib/pages';
 
@@ -14,15 +14,9 @@ function Icon({ d }: { d: string }) {
 export default function Layout() {
   const { session, logout, pageAllowed } = useAuth();
   const loc = useLocation();
-  const [sync, setSync] = useState<string | null>(null);
-  const [syncNote, setSyncNote] = useState<string | undefined>();
 
   const groups = NAV_GROUPS.map(g => ({ ...g, items: g.items.filter(p => pageAllowed(p.id)) })).filter(g => g.items.length);
   const mobItems = groups.flatMap(g => g.items);
-
-  useEffect(() => {
-    DataSource.statusSync().then(s => { if (s) { setSync(formatSyncWhen(s)); setSyncNote(s.keterangan); } }).catch(() => {});
-  }, []);
 
   // catat page_view + judul tab + scroll ke atas
   const pageId = loc.pathname.replace(/^\/+|\/+$/g, '') || 'beranda';
@@ -58,10 +52,8 @@ export default function Layout() {
             </div>
           ))}
         </nav>
-        <div className="px-[22px] pt-4 pb-5 border-t border-white/10 font-mono text-[10px] text-[#847D6C] flex items-center gap-[7px]" style={{ letterSpacing: '.04em' }} title={syncNote}>
-          <span className="w-1.5 h-1.5 rounded-full bg-green shrink-0" aria-hidden="true" />SYNC {sync || '–'}
-        </div>
-        <div className="px-[22px] pt-3 pb-[18px] flex items-center justify-between gap-2.5">
+        <DataStatusPanel />
+        <div className="px-[22px] pt-3 pb-[18px] border-t border-white/10 flex items-center justify-between gap-2.5">
           <div className="min-w-0 flex-1">
             <div className="font-mono text-[11px] text-[#EDE9DF] truncate">{session?.name || '–'}</div>
             <div className="font-mono text-[9px] text-[#847D6C] uppercase mt-0.5" style={{ letterSpacing: '.08em' }}>{ROLE_LABEL[session?.role || ''] || session?.role}</div>

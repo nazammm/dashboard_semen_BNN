@@ -11,6 +11,8 @@ export function getData<T>(key: string, loader: () => Promise<T>): Promise<T> {
 export const clearDataCache = () => cache.clear();
 /** Buang cache untuk kunci berawalan tertentu (mis. setelah upload data baru). */
 export const forgetData = (prefix: string) => { [...cache.keys()].filter(k => k.startsWith(prefix)).forEach(k => cache.delete(k)); };
+/** Lupakan semua data yang tersimpan (setelah data inti seperti transaksi diubah). */
+export const forgetAllData = () => cache.clear();
 
 const pcArg = (codes?: string[] | null) => (codes && codes.length ? codes : null);
 const pcKey = (codes?: string[] | null) => (codes && codes.length ? codes.slice().sort().join(',') : 'all');
@@ -112,6 +114,8 @@ export const DataSource = {
     apiGetAll('v_transaksi_detail', `?select=*&salesman_code=eq.${enc(salesmanCode)}&do_date=gte.${year}-01-01&do_date=lt.${year + 1}-01-01&order=do_date.asc,do_no.asc`),
   tokoPegangan: (salesmanCode: string, month: number) =>
     apiGetAll('v_toko_pegangan_sales', `?select=*&salesman_code=eq.${enc(salesmanCode)}&month=eq.${month}&order=omset.desc`),
+  /** Kesegaran tiap sumber data (transaksi, sell in harian, sell out & sell in bulanan). */
+  dataStatus: () => getData('dataStatus', () => apiGet<Row[]>('v_data_status?select=*')),
   statusSync: () => getData<Row | null>('statusSync', async () => (await apiGet<Row[]>('status_sync?select=*&id=eq.1'))[0] || null),
   dataFreshness: () => getData<Row>('dataFreshness', () => apiGet<Row>('data-freshness')),
   storeInfo: async (custCode: string) => (await apiGet<Row[]>(`toko?select=*&cust_code=eq.${enc(custCode)}`))[0] || null,
