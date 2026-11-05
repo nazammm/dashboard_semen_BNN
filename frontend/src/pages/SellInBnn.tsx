@@ -12,7 +12,8 @@ import type { Row } from '../lib/types';
 import { DataBadge } from '../components/DataStatus';
 import { DateRangePicker, type RangePreset } from '../components/DateRangePicker';
 import { GrowthTable } from '../components/GrowthTable';
-import { Capaian, Card, ChartBox, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, cx } from '../components/ui';
+import { Capaian, Card, ChartBox, ErrorBox, FileIcon, FilterBar, Kpi, PageHeader, PageSkeleton, Select, cx } from '../components/ui';
+import { exportRowsToExcel } from '../lib/xlsx';
 
 /* ============================================================================
    Sell In BNN: detail harian dari upload raw sell in, dibandingkan dengan target
@@ -47,6 +48,8 @@ const fmtTon = (t: number) => fmt(t, Math.abs(t) < 10 ? 1 : 0);
 const growthPct = (cur: number, prev: number) => (prev > 0 ? (cur - prev) / prev * 100 : null);
 const fmtPct = (p: number | null, d = 1) => (p == null ? '–' : (p > 0 ? '+' : '') + p.toFixed(d) + '%');
 const UNIT_LABEL: Record<Unit, string> = { hari: 'Harian', minggu: 'Mingguan', bulan: 'Bulanan' };
+const MONTH_EN = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const SEMEN_ORDER: Record<string, number> = { STR: 0, RJW: 1, CWC: 2 };
 
 function presetsFor(last: string): RangePreset[] {
   const prevMonth = addMonths(startOfMonth(last), -1);
@@ -254,6 +257,46 @@ function Body({ rows, info, last, delivery }: { rows: Row[]; info: Row; last: st
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recs, delivery, range.from, range.to, region, sub, semen, produk, comparable, groupBy, unit, Y, P, kTgt, kPrev]);
 
+  /* ---------- Download Excel: format sheet Sell In bulanan (Region | Sub Region | Month | Type | Target | P | Y) ---------- */
+  const { canDownload } = useAuth();
+  const exportWhy = !delivery ? 'Data target tidak tersedia.'
+    : produk !== 'all' ? 'Kosongkan filter Produk dulu: unduhan per tipe semen.'
+      : range.from.slice(0, 4) !== String(Y) || range.to.slice(0, 4) !== String(Y) ? `Unduhan hanya untuk periode di tahun ${Y}.` : null;
+  const downloadExcel = () => {
+    const geoMatch = (s: string) => (region === 'all' || geo.parentOf(s) === region) && (sub === 'all' || s === sub);
+    const months = new Set(v.months.map(x => x.m));
+    // realisasi Sell In BNN per sub region x tipe x bulan, dalam periode & filter yang aktif
+    const cur = new Map<string, number>();
+    recs.forEach(r => {
+      if (r.tanggal < range.from || r.tanggal > range.to || !geoMatch(r.sub) || !semenMatch(semen, r.semen)) return;
+      const k = `${r.sub}|${r.semen}|${+r.tanggal.slice(5, 7)}`;
+      cur.set(k, (cur.get(k) || 0) + r.ton);
+    });
+    const rank = new Map<string, number>();
+    const out: { m: number; t: string; rk: number; row: (string | number | null)[] }[] = [];
+    (delivery || []).forEach(r => {
+      const m = Number(r.month_num), s = key(r.sub_region), t = String(r.type_cement).toUpperCase();
+      const rk = `${r.region}|${s}`; if (!rank.has(rk)) rank.set(rk, rank.size);
+      if (!months.has(m) || !geoMatch(s) || !semenMatch(semen, t as Semen)) return;
+      // sub region di 2 region (mis. DUMAI): realisasi masuk ke baris region induknya saja
+      const k = `${s}|${t}|${m}`, own = geo.parentOf(s) === String(r.region);
+      const val = own ? cur.get(k) || 0 : 0; if (own) cur.delete(k);
+      out.push({ m, t, rk: rank.get(rk)!, row: [String(r.region), String(r.sub_region), MONTH_EN[m], t, Number(r[kTgt] || 0), Number(r[kPrev] || 0), val] });
+    });
+    // realisasi yang tidak punya baris target (CWC, sub region baru / belum dipetakan)
+    cur.forEach((val, k) => {
+      const [s, t, m] = k.split('|');
+      if (val) out.push({ m: +m, t, rk: rank.get(`${geo.parentOf(s)}|${s}`) ?? 1e6, row: [geo.parentOf(s), geo.nameOf(s), MONTH_EN[+m], t, null, null, val] });
+    });
+    out.sort((a, b) => a.m - b.m || SEMEN_ORDER[a.t] - SEMEN_ORDER[b.t] || a.rk - b.rk || String(a.row[1]).localeCompare(String(b.row[1])));
+    const m0x = v.months[0].m, m1x = v.months[v.months.length - 1].m;
+    const per = m0x === m1x ? `${MONTH_EN[m0x]}` : `${MONTH_EN[m0x]}-${MONTH_EN[m1x]}`;
+    exportRowsToExcel([{
+      name: `Sell In ${Y}`, header: ['Region', 'Sub Region', 'Month', 'Type Cement', `Target ${Y}`, String(P), String(Y)],
+      rows: out.map(x => x.row), widths: [13, 15, 8, 12, 13, 11, 11],
+    }], `Sell_In_BNN_${per}_${Y}_sd_${last}.xlsx`, 'sell-in-bnn');
+  };
+
   const growth = comparable ? growthPct(v.ton, v.prev) : null;
   const m0 = v.months[0].m, m1 = v.months[v.months.length - 1].m;
   const monthsLabel = m0 === m1 ? `${MONTHS_ID[m0]} ${Y}` : `${MONTHS_ID[m0]}–${MONTHS_ID[m1]} ${Y}`;
@@ -276,6 +319,14 @@ function Body({ rows, info, last, delivery }: { rows: Row[]; info: Row; last: st
           options={[{ value: 'all', label: 'Semua Produk' }, ...opts.produks.map(p => ({ value: p, label: shortProduk(p) }))]} />
         {filterActive && (
           <button type="button" className="btn btn-sm self-end max-[880px]:col-span-2 max-[880px]:justify-center" onClick={resetFilter}>Reset filter</button>
+        )}
+        {canDownload('sell-in-bnn') && (
+          <div className="ml-auto self-end max-[880px]:col-span-2 max-[880px]:ml-0">
+            <button type="button" className="btn max-[880px]:w-full max-[880px]:justify-center" onClick={downloadExcel} disabled={!!exportWhy}
+              title={exportWhy || 'Unduh Excel per sub region, bulan, dan tipe semen (mengikuti filter)'}>
+              <FileIcon />Download Excel
+            </button>
+          </div>
         )}
       </FilterBar>
 
