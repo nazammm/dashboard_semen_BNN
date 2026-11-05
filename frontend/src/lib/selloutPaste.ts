@@ -4,7 +4,11 @@
    - DO FAS : [Tipe] | Area | Distributor | Keterangan | 1 .. 12      (ton)
               Kolom Area TIDAK dipakai: region mengikuti peta Sell Out BNN.
               Tipe kosong ikut baris/judul bagian di atasnya (mis. baris "RJW FIX").
-   - Sub ERP: Distributor ("S006 - PT. …") | [Tipe] | Jan .. Dec | Total (ton)
+   - Sub ERP: Distributor ("S006 - PT. …") | [Tipe] | Jan .. Dec | Total (ton), atau
+              per tipe dalam blok per bulan:   JANUARI
+                                               S006 - PT. …  | PCC        | 3,369.70
+                                               S006 - PT. …  | PCC – RJW  | 1,919.50
+              (PCC = STR, PCC – RJW = RJW, White/Putih = CWC)
    Angka "-" atau kosong = 0. Format 7,572 / 5,289.20 / 7.572 / 5.289,20 dikenali.
 ============================================================================ */
 import { toNumber } from './sellin';
@@ -132,11 +136,66 @@ function tipeColumn(lines: string[][], headIndex: number, h: string[], iDist: nu
 /* ---------------- Sub ERP ---------------- */
 const ERP_NAME = /^\s*([A-Za-z]{1,3}\d{2,5})\s*-\s*(.*?)\s*$/;
 
+/** Tipe produk ERP: "PCC" = STR, "PCC – RJW" / Rajawali = RJW, White / Putih = CWC. */
+export function erpTipe(v: unknown): Tipe | null {
+  const s = norm(v).toUpperCase();
+  if (!s) return null;
+  const direct = tipeOf(s); if (direct) return direct;
+  if (/RJW|RAJAWALI/.test(s)) return 'RJW';
+  if (/WHITE|PUTIH|CWC|\bWC\b|PCW/.test(s)) return 'CWC';
+  if (/PCC|OPC|PPC|TIGA RODA|\bSTR\b/.test(s)) return 'STR';
+  return null;
+}
+
+/** Format blok per bulan: baris judul bulan ("JANUARI", "Mei", "AGU"), lalu Distributor | Tipe | Ton. */
+function parseErpBlocks(lines: string[][]): PasteResult<ErpRow> | null {
+  const isMonthLine = (c: string[]) => { const f = c.filter(x => String(x).trim()); return f.length === 1 && monthOf(f[0]) != null && !ERP_NAME.test(f[0]) ? monthOf(f[0]) : null; };
+  if (!lines.some(c => isMonthLine(c) != null)) return null;
+  const res: PasteResult<ErpRow> = { ok: false, rows: [], issues: [], warnings: [] };
+  const byKey = new Map<string, ErpRow>();
+  const seen = new Set<string>();
+  let month: number | null = null;
+  const monthsSeen = new Set<number>();
+  lines.forEach((c, i) => {
+    const rowNo = i + 1;
+    if (c.every(x => !String(x).trim())) return;
+    const m = isMonthLine(c);
+    if (m != null) {
+      if (monthsSeen.has(m)) res.warnings.push(`Bulan ${MONTH_SHORT[m]} muncul dua kali; angkanya dijumlahkan.`);
+      month = m; monthsSeen.add(m); return;
+    }
+    const cells = c.map(x => String(x ?? '').trim());
+    const iName = cells.findIndex(x => ERP_NAME.test(x));
+    if (iName < 0) {
+      if (/^(grand\s*)?total/i.test(cells.find(Boolean) || '')) return;
+      res.issues.push({ row: rowNo, reason: `"${cells.filter(Boolean).join(' ').slice(0, 60)}" tidak berformat "S006 - Nama"` }); return;
+    }
+    if (month == null) { res.issues.push({ row: rowNo, reason: 'Baris di atas judul bulan pertama (mis. "JANUARI")' }); return; }
+    const nm = ERP_NAME.exec(cells[iName])!;
+    const rest = cells.slice(iName + 1).filter(Boolean);
+    const tipeCell = rest.length >= 2 ? rest[0] : '';
+    const tipe = erpTipe(tipeCell);
+    if (!tipe) { res.issues.push({ row: rowNo, reason: `${nm[1]}: tipe "${tipeCell}" tidak dikenali (PCC / PCC – RJW)` }); return; }
+    const ton = cellTon(rest[rest.length - 1]);
+    if (ton == null) { res.issues.push({ row: rowNo, reason: `${nm[1]} ${tipe} ${MONTH_SHORT[month]}: "${rest[rest.length - 1]}" bukan angka` }); return; }
+    const kode = nm[1].toUpperCase(), key = `${kode}|${tipe}`, mk = `${key}|${month}`;
+    if (seen.has(mk)) res.warnings.push(`${kode} ${tipe} ${MONTH_SHORT[month]} muncul lebih dari sekali; angkanya dijumlahkan.`);
+    seen.add(mk);
+    const row = byKey.get(key) || { kode, nama: nm[2], tipe, ton: new Array(12).fill(0), total: null };
+    row.ton[month - 1] += ton; byKey.set(key, row);
+  });
+  res.rows = [...byKey.values()].sort((a, b) => a.kode.localeCompare(b.kode) || TIPE.indexOf(a.tipe!) - TIPE.indexOf(b.tipe!));
+  res.ok = res.rows.length > 0;
+  if (!res.ok) res.error = 'Tidak ada baris data yang terbaca.';
+  return res;
+}
+
 export function parseErp(text: string): PasteResult<ErpRow> {
   const lines = splitLines(text);
   const head = findHeader(lines);
   const res: PasteResult<ErpRow> = { ok: false, rows: [], issues: [], warnings: [] };
-  if (!head) { res.error = 'Baris judul tidak ditemukan. Ikutkan baris judul (Distributor, Jan s.d. Dec, Total) saat menyalin.'; return res; }
+  if (!head) { const blocks = parseErpBlocks(lines); if (blocks) return blocks; }
+  if (!head) { res.error = 'Judul bulan tidak ditemukan. Salin tabel dengan baris judul (Distributor, Jan s.d. Dec), atau format per tipe dengan judul blok bulan (JANUARI, FEBRUARI, …).'; return res; }
   if ('error' in head) { res.error = head.error; return res; }
   const h = lines[head.index].map(norm);
   let iDist = h.indexOf('distributor'); if (iDist < 0) iDist = 0;
@@ -153,7 +212,7 @@ export function parseErp(text: string): PasteResult<ErpRow> {
     if (!m) { res.issues.push({ row: rowNo, reason: `"${name}" tidak berformat "S006 - Nama"` }); continue; }
     let tipe: Tipe | null = null;
     if (iTipe >= 0) {
-      tipe = tipeOf(c[iTipe]);
+      tipe = erpTipe(c[iTipe]);
       if (!tipe) { res.issues.push({ row: rowNo, reason: `Tipe "${String(c[iTipe] ?? '').trim()}" bukan STR/RJW/CWC (${m[1]})` }); continue; }
     }
     const raw = head.months.map(j => c[j]);

@@ -8,7 +8,8 @@ import { daysInMonth } from '../lib/dates';
 import type { Row } from '../lib/types';
 import { DataBadge, todayWIB } from '../components/DataStatus';
 import { GrowthTable } from '../components/GrowthTable';
-import { Capaian, Card, ChartBox, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, cx } from '../components/ui';
+import { Capaian, Card, ChartBox, ErrorBox, FileIcon, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, cx } from '../components/ui';
+import { exportRowsToExcel } from '../lib/xlsx';
 
 /* ============================================================================
    Sell Out BNN: per baris distributor/subdist dari peta sementrack.sellout_bnn_peta
@@ -20,11 +21,12 @@ import { Capaian, Card, ChartBox, ErrorBox, FilterBar, Kpi, PageHeader, PageSkel
 
 interface Peta {
   id: number; urutan: number; region: string; nama: string; target_region: string | null; target_key: string | null;
-  sumber: string; j073: boolean; dofas_kode: string[] | null; erp_kode: string | null; jenis?: 'dist' | 'subdist';
+  sumber: string; j073: boolean; dofas_kode: string[] | null; dofas_tipe: string | null; erp_kode: string | null; jenis?: 'dist' | 'subdist';
 }
 /** Distributor = transaksi sendiri (J028 penuh / tanpa subdist, J073); subdist = DO FAS, Sub ERP, customer subdist di J028. */
 const isSubdist = (p: Peta) => (p.jenis ? p.jenis === 'subdist' : !p.j073 && !/^J028 \S+( tanpa|$| \+)/.test(p.sumber));
 const SUB_COLOR = COLORS.amber;
+const MONTH_EN = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TIPE_OPTS = [
   { value: 'all', label: 'Semua Tipe' }, { value: 'STR', label: 'STR' }, { value: 'RJW', label: 'RJW' }, { value: 'CWC', label: 'CWC (putih)' },
 ];
@@ -71,7 +73,7 @@ function EmptyState() {
 }
 
 function Body({ peta, monthly, targets, status }: { peta: Peta[]; monthly: Row[]; targets: Row[]; status: Row[] }) {
-  const { pageAllowed } = useAuth();
+  const { pageAllowed, canDownload } = useAuth();
   const today = todayWIB();
   const Y = detectYear(targets, Number(today.slice(0, 4))), P = Y - 1;
   const kTgt = `target_do_${Y}`, kPrev = `do_${P}`;
@@ -174,6 +176,40 @@ function Body({ peta, monthly, targets, status }: { peta: Peta[]; monthly: Row[]
     return { ton, target, prev, hasTarget, months, monthLabel, trend, monthRows, drillGroups, perBaris, untyped, byId, kosong };
   }, [peta, monthly, targets, region, baris, tipe, mFrom, mTo, Y, P, kTgt, kPrev, partial, lastMonth, cutDay, groupBy]);
 
+  /* ---------- Download Excel: Region | Distributor | Month | Type Cement | Target DO | DO P | DO Y ---------- */
+  const downloadExcel = () => {
+    const scoped = peta.filter(p => (region === 'all' || p.region === region) && (baris === 'all' || String(p.id) === baris));
+    const types = tipe === 'all' ? ['STR', 'RJW', 'CWC'] : [tipe];
+    const cur = new Map<string, number>(), tgt = new Map<string, number>(), prv = new Map<string, number>();
+    const add = (m: Map<string, number>, k: string, x: unknown) => m.set(k, (m.get(k) || 0) + Number(x || 0));
+    monthly.forEach(r => { if (Number(r.tahun) === Y) add(cur, `${r.peta_id}|${r.tipe ?? 'Total'}|${r.bulan}`, r.ton); });
+    const byKey = new Map<string, Peta[]>();
+    scoped.forEach(p => { if (p.target_key) { const k = `${p.target_region}|${p.target_key}`; byKey.set(k, [...(byKey.get(k) || []), p]); } });
+    targets.forEach(r => {
+      const ps = byKey.get(`${r.region}|${r.distributor}`); if (!ps) return;
+      const t = String(r.type_cement).toUpperCase() === 'WC' ? 'CWC' : String(r.type_cement).toUpperCase();
+      ps.forEach(p => { add(tgt, `${p.id}|${t}|${r.month_num}`, r[kTgt]); add(prv, `${p.id}|${t}|${r.month_num}`, r[kPrev]); });
+    });
+    const rows: (string | number | null)[][] = [];
+    for (let m = mFrom; m <= mTo; m++) {
+      // Sub ERP lama tanpa tipe (kalau masih ada) tampil sebagai tipe "Total"
+      const tlist = tipe === 'all' && scoped.some(p => cur.get(`${p.id}|Total|${m}`)) ? [...types, 'Total'] : types;
+      tlist.forEach(t => scoped.forEach(p => {
+        const k = `${p.id}|${t}|${m}`;
+        const c = cur.get(k) || 0, tg = tgt.get(k) || 0, pv = prv.get(k) || 0;
+        // baris DO FAS khusus satu tipe (Rosalia) hanya tipenya sendiri; CWC & Total hanya kalau ada angka
+        if (p.dofas_tipe && t !== p.dofas_tipe && !c && !tg && !pv) return;
+        if ((t === 'CWC' || t === 'Total') && !c && !tg && !pv) return;
+        rows.push([p.region, p.nama, MONTH_EN[m], t, p.target_key ? tg : null, p.target_key ? pv : null, p.j073 ? null : c]);
+      }));
+    }
+    const per = mFrom === mTo ? MONTH_EN[mFrom] : `${MONTH_EN[mFrom]}-${MONTH_EN[mTo]}`;
+    exportRowsToExcel([{
+      name: `Sell Out BNN ${Y}`, header: ['Region', 'Distributor', 'Month', 'Type Cement', `Target DO ${Y}`, `DO ${P}`, `DO ${Y}`],
+      rows, widths: [13, 15, 8, 12, 15, 12, 12],
+    }], `Sell_Out_BNN_${per}_${Y}.xlsx`, 'sell-out-bnn');
+  };
+
   const growth = growthPct(v.ton, v.prev);
   const monthsLabel = mFrom === mTo ? `${MONTHS_ID[mFrom]} ${Y}` : `${MONTHS_ID[mFrom]}–${MONTHS_ID[mTo]} ${Y}`;
   const scope = [baris !== 'all' ? peta.find(p => String(p.id) === baris)?.nama : region !== 'all' && region, tipe !== 'all' && TIPE_OPTS.find(o => o.value === tipe)!.label].filter(Boolean).join(' · ') || 'Semua';
@@ -192,6 +228,14 @@ function Body({ peta, monthly, targets, status }: { peta: Peta[]; monthly: Row[]
           options={[{ value: 'all', label: 'Semua Distributor' }, ...barisOpts.map(p => ({ value: String(p.id), label: region === 'all' && peta.filter(x => x.nama === p.nama).length > 1 ? `${p.nama} (${p.region})` : p.nama }))]} />
         <Select label="Tipe Semen" value={tipe} onChange={e => setTipe(e.target.value)} style={{ minWidth: 120 }} options={TIPE_OPTS} />
         {filterActive && <button type="button" className="btn btn-sm self-end max-[880px]:col-span-2 max-[880px]:justify-center" onClick={resetFilter}>Reset filter</button>}
+        {canDownload('sell-out-bnn') && (
+          <div className="ml-auto self-end max-[880px]:col-span-2 max-[880px]:ml-0">
+            <button type="button" className="btn max-[880px]:w-full max-[880px]:justify-center" onClick={downloadExcel}
+              title="Unduh Excel per distributor/subdist, bulan, dan tipe semen (mengikuti filter)">
+              <FileIcon />Download Excel
+            </button>
+          </div>
+        )}
       </FilterBar>
 
       {v.kosong.map(k => (

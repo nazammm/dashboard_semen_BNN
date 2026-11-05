@@ -285,7 +285,7 @@ select 'erp', 'Sub ERP', 'harian',
 grant select on sementrack.v_data_status, sementrack.v_sellout_bnn_peta, sementrack.v_sellout_bnn_monthly to public;
 
 -- ---------------------------------------------------------------------
--- 5. Isi awal 2026: DO FAS & Sub ERP dari tempelan 5 Nov 2026, supaya baris subdist
+-- 5. Isi awal 2026: DO FAS (tempelan 5 Nov 2026) & Sub ERP per tipe (Jan–Okt), supaya baris subdist
 --    (Belitung, JAN, WJM, Jambi, Kepri, Rosalia, SIN, BSJ, Pangkalant) langsung terisi.
 --    HANYA jika 2026 masih kosong; tempelan harian di Kelola Data menggantikannya.
 -- ---------------------------------------------------------------------
@@ -401,14 +401,21 @@ begin
   end if;
   if not exists (select 1 from sementrack.sellout_erp where tahun = 2026) then
     perform sementrack.sellout_erp_simpan(2026, $j$[
-  ["S006", "PT. WANDI JAYA MAKMUR", null, 5289.2, 3162, 3461.05, 5002.9, 1763.3, 3423.95, 5194.9, 3950.4, 4312.25, 4624.45, 633.3, 0],
-  ["S010", "PT. BINTANG SENTOSA JAYA", null, 3154.45, 1050.7, 1387, 1172.65, 0, 1874.6, 1261.35, 1574.15, 1825.15, 1398.6, 0, 0],
-  ["S011", "CV. PANGKALANT", null, 1242.4, 1293.4, 1068.4, 1009.6, 1587.05, 1323.25, 2106, 1578.7, 1528.8, 2114.72, 0, 0],
-  ["S014", "PT. SUMATERA INVESTA NIAGA", null, 9291.5, 9574.5, 9592, 10572.5, 9077, 12096, 11701, 11361.5, 8594.5, 5297, 0, 0],
-  ["S023", "CV. CAHAYA MATAHARI", null, 0, 0, 328.35, 0, 15, 7.5, 15, 15, 35.6, 20.5, 0, 0],
-  ["S028", "PT. PASIFIC GLOBAL SEJAHTERA", null, 172.5, 0, 357.8, 0, 0, 0, 0, 0, 0, 162, 209.3, 0],
-  ["S029", "PT MANDIRI GLOBAL SUKSES SEJAHTERA", null, 29.15, 249.9, 239.1, 509.1, 1131.35, 903.85, 267.15, 924.8, 0, 357.55, 0, 0],
-  ["S032", "PT. MULIA ABADI JAYA UNGGUL", null, 1162.8, 446.4, 862.75, 515.9, 284.45, 1072.55, 825.2, 1232.65, 642.25, 574.85, 406.85, 0]
+  ["S006", "PT. WANDI JAYA MAKMUR", "STR", 3369.7, 1932.7, 2683.8, 2979.05, 1500, 2288.35, 3095.8, 2214.65, 2634.3, 2952.6, 0, 0],
+  ["S006", "PT. WANDI JAYA MAKMUR", "RJW", 1919.5, 1229.3, 777.25, 2023.85, 263.3, 1135.6, 2099.1, 1735.75, 1677.95, 1671.85, 0, 0],
+  ["S010", "PT. BINTANG SENTOSA JAYA", "STR", 1696.05, 470.5, 636.6, 531.9, 0, 685.55, 427.6, 586.45, 944.65, 390.1, 0, 0],
+  ["S010", "PT. BINTANG SENTOSA JAYA", "RJW", 1458.4, 580.2, 750.4, 640.75, 0, 1189.05, 833.75, 987.7, 880.5, 1008.5, 0, 0],
+  ["S011", "CV. PANGKALANT", "STR", 432.75, 528.4, 734.85, 562.35, 443.6, 413.9, 701.75, 512.6, 506.15, 622.8, 0, 0],
+  ["S011", "CV. PANGKALANT", "RJW", 809.65, 765, 333.55, 447.25, 1143.45, 909.35, 1404.25, 1066.1, 1022.65, 1491.92, 0, 0],
+  ["S014", "PT. SUMATERA INVESTA NIAGA", "STR", 9291.5, 9574.5, 9592, 10572.5, 9077, 10901, 10686, 10361.5, 8594.5, 5297, 0, 0],
+  ["S014", "PT. SUMATERA INVESTA NIAGA", "RJW", 0, 0, 0, 0, 0, 1195, 1015, 1000, 0, 0, 0, 0],
+  ["S023", "CV. CAHAYA MATAHARI", "STR", 0, 0, 328.35, 0, 15, 7.5, 15, 15, 35.6, 20.5, 0, 0],
+  ["S028", "PT. PASIFIC GLOBAL SEJAHTERA", "STR", 54, 0, 102.75, 0, 0, 0, 0, 0, 0, 71.5, 0, 0],
+  ["S028", "PT. PASIFIC GLOBAL SEJAHTERA", "RJW", 118.5, 0, 255.05, 0, 0, 0, 0, 0, 0, 90.5, 0, 0],
+  ["S029", "PT MANDIRI GLOBAL SUKSES SEJAHTERA", "STR", 21.9, 0, 37.2, 214.1, 450.75, 342, 60.7, 480.4, 0, 91, 0, 0],
+  ["S029", "PT MANDIRI GLOBAL SUKSES SEJAHTERA", "RJW", 7.25, 249.9, 201.9, 295, 680.6, 561.85, 206.45, 444.4, 0, 266.55, 0, 0],
+  ["S032", "PT. MULIA ABADI JAYA UNGGUL", "STR", 703.7, 157.5, 483.45, 249, 165.25, 577.8, 498.35, 677.6, 435.5, 390.25, 0, 0],
+  ["S032", "PT. MULIA ABADI JAYA UNGGUL", "RJW", 459.1, 288.9, 379.3, 266.9, 119.2, 494.75, 326.85, 555.05, 206.75, 184.6, 0, 0]
 ]$j$::json, 'isi awal');
     update sementrack.kelola_log set created_at = timestamptz '2026-11-05 17:00+07'
      where dataset = 'erp' and created_by = 'isi awal';

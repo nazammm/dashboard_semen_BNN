@@ -22,11 +22,11 @@ const LABEL: Record<Dataset, string> = { dofas: 'DO FAS', erp: 'Sub ERP' };
 const SUMBER: Record<Dataset, string> = { dofas: 'DO FAS', erp: 'Sub ERP' };
 const PLACEHOLDER: Record<Dataset, string> = {
   dofas: '\tArea\tDistributor\tKeterangan\t1\t2\t…\t12\nSTR\tBANGKA\tGMD\tKapal\t32\t-\t…\t-',
-  erp: 'Distributor\tJan\tFeb\t…\tDec\tTotal\nS006 - PT. WANDI JAYA MAKMUR\t5,289.20\t3,162.00\t…\t.00\t40,817.70',
+  erp: 'JANUARI\nS006 - PT. WANDI JAYA MAKMUR\tPCC\t3,369.70\nS006 - PT. WANDI JAYA MAKMUR\tPCC – RJW\t1,919.50\n…\nFEBRUARI\n…',
 };
 const HINT: Record<Dataset, string> = {
   dofas: 'Salin tabel DO FAS dari Excel termasuk baris judul (kolom tipe STR/RJW, Distributor, Keterangan, 1 s.d. 12). Kolom Area tidak dipakai: region mengikuti peta Sell Out BNN. Angka dalam ton; "-" dibaca 0.',
-  erp: 'Salin tabel Sub ERP dari Excel termasuk baris judul (Distributor, Jan s.d. Dec, Total). Nama distributor berformat "S006 - Nama". Angka dalam ton.',
+  erp: 'Salin Sub ERP per tipe dari Excel: blok per bulan (judul JANUARI, FEBRUARI, …), lalu baris "S006 - Nama" | PCC / PCC – RJW | ton. Ikutkan semua bulan dari Januari, karena simpan mengganti setahun penuh. Format total (Distributor | Jan … Dec | Total) juga masih bisa.',
 };
 
 type Phase =
@@ -142,7 +142,7 @@ function Preview({ dataset, tahun, res, peta, current, saving, onSave, onCancel 
   const today = todayWIB();
   const closedUpTo = tahun < Number(today.slice(0, 4)) ? 12 : Number(today.slice(5, 7)) - 1;
   const hilang = mapped.flatMap(m => (prev.get(m.peta.id) || []).map((before, k) => ({ m, k, before, after: m.ton[k] })))
-    .filter(x => x.k < closedUpTo && x.before - x.after >= 1);
+    .filter(x => (x.k < closedUpTo && x.before - x.after >= 1) || (x.before >= 1 && Math.abs(x.after) < 0.5));
   const missing = mapped.filter(m => m.rows === 0);
   const lastMonth = Math.max(0, ...mapped.flatMap(m => m.ton.map((t, i) => (t ? i + 1 : 0))));
   const lastShown = Math.max(lastMonth, ...hilang.map(x => x.k + 1));
@@ -207,9 +207,9 @@ function Preview({ dataset, tahun, res, peta, current, saving, onSave, onCancel 
 
         {hilang.length > 0 && (
           <Note tone="warn">
-            <b>Bulan yang sudah lewat jadi lebih kecil dari yang tersimpan:</b>{' '}
+            <b>Lebih kecil dari yang tersimpan:</b>{' '}
             {hilang.map(x => `${x.m.peta.nama} ${MONTHS_ID[x.k + 1]} ${fmtTon(x.before)} → ${fmtTon(x.after)}`).join('; ')}.
-            Kalau bukan koreksi, periksa lagi tempelannya (baris terfilter atau tersembunyi di Excel, sel kosong) sebelum menyimpan.
+            Kalau bukan koreksi, periksa lagi tempelannya (bulan yang belum ikut tersalin, baris terfilter atau tersembunyi di Excel, sel kosong) sebelum menyimpan.
           </Note>
         )}
         {missing.length > 0 && (
