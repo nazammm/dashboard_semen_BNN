@@ -126,7 +126,7 @@ public static class AccessRules
                     "dashboard_payment_breakdown_range", "dashboard_delivery_type_breakdown_range", "dashboard_product_breakdown_range" }),
         ["performa-daerah"] = new(new[] { "v_cement_targets_ext" }, Array.Empty<string>()),
         ["delivery"] = new(new[] { "v_delivery_ext" }, Array.Empty<string>()),
-        ["sell-in-bnn"] = new(new[] { "v_sellin_bnn_daily", "v_sellin_bnn_info" }, Array.Empty<string>()),
+        ["sell-in-bnn"] = new(new[] { "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_delivery_ext" }, Array.Empty<string>()),
         ["rekap-harian"] = new(new[] { "v_distributor_summary", "v_monthly_totals", "produk", "v_target_dist" }, new[] { "dashboard_daily_matrix" }),
         ["tim-sales"] = new(new[] { "v_salesman_performance", "distributor_target_salesman" }, Array.Empty<string>()),
         ["peta-toko"] = new(new[] { "v_monthly_totals" }, new[] { "dashboard_toko_monthly_v2" }),

@@ -26,11 +26,11 @@ export default function TimSales() {
 
 function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshnessData: Row; targets: Row[] | null }) {
   const freshness = dailyFreshness(freshnessData);
+  // Tahun data = tahun transaksi terakhir (view salesman memakai tahun transaksi terbaru), bukan angka tetap.
+  const year = Number(String(freshnessData?.max_do_date ?? '').slice(0, 4)) || new Date().getFullYear();
   const dists = useMemo(() => [...new Set(rows.map(r => String(r.dist_code)))].sort(), [rows]);
-  const defaultMonth = useMemo(() => {
-    const m = [...new Set(rows.filter(r => r.actual_num_do > 0).map(r => Number(r.month)))];
-    return m.length ? Math.max(...m) : 1;
-  }, [rows]);
+  const monthsWithData = useMemo(() => [...new Set(rows.filter(r => r.actual_num_do > 0).map(r => Number(r.month)))].sort((a, b) => a - b), [rows]);
+  const defaultMonth = monthsWithData.length ? monthsWithData[monthsWithData.length - 1] : 1;
 
   const [dist, setDist] = useState('all');
   const [month, setMonth] = useState(defaultMonth);
@@ -96,18 +96,18 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
         <Select label="Distributor" value={dist} onChange={e => setDist(e.target.value)}
           options={[{ value: 'all', label: 'Semua Distributor' }, ...dists.map(d => ({ value: d, label: d }))]} />
         <Select label="Bulan" value={month} onChange={e => setMonth(+e.target.value)}
-          options={MONTHS_ID.slice(1).map((m, i) => ({ value: i + 1, label: `${m} 2026` }))} />
+          options={(monthsWithData.length ? monthsWithData : [month]).map(m => ({ value: m, label: `${MONTHS_ID[m]} ${year}` }))} />
       </FilterBar>
 
       <div className="grid-kpi">
-        <Kpi title="Salesman Ditampilkan" value={fmt(list.length)} delta={`${MONTHS_ID[month]} 2026 · status aktif`} />
+        <Kpi title="Salesman Ditampilkan" value={fmt(list.length)} delta={`${MONTHS_ID[month]} ${year} · status aktif`} />
         <Kpi title="Rata-rata Capaian TA" value={avgTA == null ? '–' : avgTA.toFixed(0) + '%'} delta="Toko aktif vs target" />
-        <Kpi title="Rata-rata Capaian Tonase" value={avgTonase == null ? '–' : avgTonase.toFixed(0) + '%'} delta={`vs target ${MONTHS_ID[month]} 2026`} />
+        <Kpi title="Rata-rata Capaian Tonase" value={avgTonase == null ? '–' : avgTonase.toFixed(0) + '%'} delta={`vs target ${MONTHS_ID[month]} ${year}`} />
         <Kpi title="Capai/Lampaui Target" value={fmt(aboveTarget)} unit={`/ ${fmt(withTargetTonase.length)}`} delta="Berdasarkan target tonase bulan ini" />
       </div>
 
       {targets && targets.length > 0
-        ? <SalesmanVsTarget rows={rows} targets={targets} month={month} dist={dist} lead={sebaranCard} />
+        ? <SalesmanVsTarget rows={rows} targets={targets} month={month} year={year} dist={dist} lead={sebaranCard} />
         : <div className="grid grid-cols-2 max-lg:grid-cols-1 gap-4 mt-3.5">{sebaranCard}</div>}
 
       <div className="flex items-baseline justify-between flex-wrap gap-2.5">
@@ -137,7 +137,7 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
               : shown.map((r, i) => (
                 <tr key={`${r.salesman_code}-${r.dist_code}-${i}`}>
                   <td className="num font-mono">{i + 1}</td>
-                  <td><CellLink to={`/transaksi-detail?salesman=${encodeURIComponent(r.salesman_code)}&year=2026&month=${month}&name=${encodeURIComponent(r.salesman_name)}`}>{r.salesman_name}</CellLink></td>
+                  <td><CellLink to={`/transaksi-detail?salesman=${encodeURIComponent(r.salesman_code)}&year=${year}&month=${month}&name=${encodeURIComponent(r.salesman_name)}`}>{r.salesman_name}</CellLink></td>
                   <td><span className="tag-code">{r.dist_code}</span></td>
                   <td><CapaianAvg p={r.capaian_avg} /></td>
                   <td className="num font-mono">{r.target_ta ? fmt(r.target_ta) : '–'}</td>
@@ -163,7 +163,7 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
 ============================================================================ */
 type DistRow = { dist: string; name: string; real: number | null; target: number; selisih: number | null; p: number | null };
 
-function SalesmanVsTarget({ rows, targets, month, dist, lead }: { rows: Row[]; targets: Row[]; month: number; dist: string; lead: ReactNode }) {
+function SalesmanVsTarget({ rows, targets, month, year, dist, lead }: { rows: Row[]; targets: Row[]; month: number; year: number; dist: string; lead: ReactNode }) {
   const tgt = useMemo(() => new Map(targets.map(t => [String(t.dist_code), { target: Number(t.target_salesman || 0), name: String(t.dist_name || '') }])), [targets]);
   const agg = useMemo(() => {
     const m = new Map<string, Set<string>>();
@@ -227,7 +227,7 @@ function SalesmanVsTarget({ rows, targets, month, dist, lead }: { rows: Row[]; t
           } as any)} />
       </div>
       <div className="card max-[1360px]:col-span-2 max-lg:col-span-1">
-        <h2 className="card-title">Per Distributor · {MONTHS_ID[month]} 2026 · Salesman Target / Aktual</h2>
+        <h2 className="card-title">Per Distributor · {MONTHS_ID[month]} {year} · Salesman Target / Aktual</h2>
         <TableWrap>
           <table className="tbl-dense" style={{ minWidth: 0 }}>
             <caption className="sr-only">Jumlah salesman dibanding target per distributor</caption>
