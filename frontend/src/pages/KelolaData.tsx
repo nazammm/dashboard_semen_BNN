@@ -15,16 +15,19 @@ import { ICON, Ic, errText, fmtWhen } from './kelola/shared';
 import { TransaksiUpload, StatusSyncForm } from './kelola/TransaksiPanel';
 import { SellinUpload } from './kelola/SellinPanel';
 import { HapusPanel } from './kelola/HapusPanel';
+import { SelloutPaste } from './kelola/SelloutPanel';
 
-type Tab = 'transaksi' | 'sellin' | 'riwayat';
+type Tab = 'transaksi' | 'sellin' | 'sellout' | 'riwayat';
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'transaksi', label: 'Transaksi', icon: 'M4 6.5h16M4 12h16M4 17.5h10' },
   { id: 'sellin', label: 'Sell In BNN', icon: 'M3.5 8 12 3.5 20.5 8v8L12 20.5 3.5 16V8ZM3.5 8 12 12.5 20.5 8M12 12.5v8' },
+  { id: 'sellout', label: 'Sell Out BNN', icon: 'M4 20h16M6.5 16.5V11M11 16.5V7.5M15.5 16.5v-4M20 16.5V5' },
   { id: 'riwayat', label: 'Riwayat', icon: ICON.clock },
 ];
 const MENUS: Record<Exclude<Tab, 'riwayat'>, { id: string; label: string }[]> = {
   transaksi: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }, { id: 'sinkron', label: 'Waktu pembaruan' }],
   sellin: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }],
+  sellout: [{ id: 'dofas', label: 'Tempel DO FAS' }, { id: 'erp', label: 'Tempel Sub ERP' }],
 };
 
 export default function KelolaData() {
@@ -37,7 +40,8 @@ export default function KelolaData() {
   const [version, setVersion] = useState(0);   // naik setiap data berubah → riwayat dimuat ulang
   const changed = useCallback(() => setVersion(v => v + 1), []);
   const { rows: status } = useDataStatus();
-  const statusRow = status?.find(r => r.sumber === tab) || null;
+  // Sell Out BNN: status mengikuti menu yang dibuka (DO FAS / Sub ERP)
+  const statusRow = status?.find(r => r.sumber === (tab === 'sellout' ? menu : tab)) || null;
 
   return (
     <div>
@@ -73,6 +77,7 @@ export default function KelolaData() {
           {tab === 'transaksi' && menu === 'sinkron' && <StatusSyncForm onChanged={changed} />}
           {tab === 'sellin' && menu === 'upload' && <SellinUpload onChanged={changed} />}
           {tab === 'sellin' && menu === 'hapus' && <HapusPanel dataset="sellin" lastDate={statusRow?.data_sampai ? String(statusRow.data_sampai).slice(0, 10) : null} onChanged={changed} />}
+          {tab === 'sellout' && (menu === 'dofas' || menu === 'erp') && <SelloutPaste dataset={menu} onChanged={changed} />}
           {tab === 'riwayat' && <Riwayat version={version} />}
         </div>
 
@@ -114,7 +119,8 @@ function StatusStrip({ row }: { row: Row | null }) {
 /* ---------------------------------------------------------------------------
    Riwayat upload & hapus (Transaksi + Sell In BNN)
 --------------------------------------------------------------------------- */
-const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN' };
+const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP' };
+const inFilter = (f: string, ds: unknown) => f === 'all' || ds === f || (f === 'sellout' && (ds === 'dofas' || ds === 'erp'));
 
 function Riwayat({ version, dataset, limit, compact }: { version: number; dataset?: string; limit?: number; compact?: boolean }) {
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -126,7 +132,7 @@ function Riwayat({ version, dataset, limit, compact }: { version: number; datase
     return () => { alive = false; };
   }, [version]);
 
-  const shown = (rows || []).filter(r => filter === 'all' || r.dataset === filter).slice(0, limit ?? 50);
+  const shown = (rows || []).filter(r => inFilter(filter, r.dataset)).slice(0, limit ?? 50);
   const cols = compact ? 7 : 9;
   const cell = (v: unknown) => (v == null ? '–' : fmt(v));
 
@@ -134,7 +140,7 @@ function Riwayat({ version, dataset, limit, compact }: { version: number; datase
     <div>
       {!compact && (
         <div className="flex gap-2 flex-wrap mb-3" role="group" aria-label="Saring riwayat">
-          {[['all', 'Semua'], ['transaksi', 'Transaksi'], ['sellin', 'Sell In BNN']].map(([k, l]) => <Chip key={k} active={filter === k} onClick={() => setFilter(k)}>{l}</Chip>)}
+          {[['all', 'Semua'], ['transaksi', 'Transaksi'], ['sellin', 'Sell In BNN'], ['sellout', 'Sell Out BNN']].map(([k, l]) => <Chip key={k} active={filter === k} onClick={() => setFilter(k)}>{l}</Chip>)}
         </div>
       )}
       {error && <div className="mb-3"><ErrorBox error={error} /></div>}
@@ -152,7 +158,7 @@ function Riwayat({ version, dataset, limit, compact }: { version: number; datase
             {rows && shown.length === 0 && <tr><td colSpan={cols} className="!text-center !text-faint !p-5">Belum ada perubahan.</td></tr>}
             {shown.map((r, i) => {
               const dists = (r.dist_codes as string[] | null) || [];
-              const src = r.aksi === 'hapus' ? null : r.source === 'tempel' ? 'Tempel dari Excel' : r.file_name || 'File';
+              const src = r.aksi === 'hapus' ? null : r.dataset === 'dofas' || r.dataset === 'erp' ? `Tempel ${DS_LABEL[String(r.dataset)]}` : r.source === 'tempel' ? 'Tempel dari Excel' : r.file_name || 'File';
               return (
                 <tr key={`${r.dataset}-${r.created_at}-${i}`}>
                   <td className="font-mono text-[12px] whitespace-nowrap">{fmtWhen(r.created_at)}</td>

@@ -1,0 +1,268 @@
+import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { DataSource } from '../lib/data';
+import { useAsync, useDocTitle } from '../lib/hooks';
+import { useAuth } from '../lib/auth';
+import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact } from '../lib/format';
+import { daysInMonth } from '../lib/dates';
+import type { Row } from '../lib/types';
+import { DataBadge, todayWIB } from '../components/DataStatus';
+import { GrowthTable } from '../components/GrowthTable';
+import { Capaian, Card, ChartBox, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, cx } from '../components/ui';
+
+/* ============================================================================
+   Sell Out BNN: per baris distributor/subdist dari peta sementrack.sellout_bnn_peta
+   (J028 transaksi, DO FAS, Sub ERP; J073 belum tersedia = 0), per bulan.
+   Target & realisasi tahun lalu dari data Sell Out bulanan (v_cement_targets_ext).
+   Bulan berjalan: target = sebulan penuh; tahun lalu dibandingkan pada tanggal yang sama
+   (diperkirakan dari total bulan dibagi jumlah hari).
+============================================================================ */
+
+interface Peta { id: number; urutan: number; region: string; nama: string; target_region: string | null; target_key: string | null; sumber: string; j073: boolean }
+const TIPE_OPTS = [
+  { value: 'all', label: 'Semua Tipe' }, { value: 'STR', label: 'STR' }, { value: 'RJW', label: 'RJW' }, { value: 'CWC', label: 'CWC (putih)' },
+];
+const fmtTon = (t: number) => fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0);
+const growthPct = (cur: number, prev: number) => (prev > 0 ? (cur - prev) / prev * 100 : null);
+const fmtPct = (p: number | null) => (p == null ? '–' : (p > 0 ? '+' : '') + p.toFixed(1) + '%');
+const tgtType = (t: string) => (t === 'CWC' ? 'WC' : t);
+
+/** Tahun target dari nama kolom do_YYYY di v_cement_targets_ext. */
+function detectYear(rows: Row[], fallback: number) {
+  let y = 0;
+  if (rows[0]) for (const k of Object.keys(rows[0])) { const m = /^do_(\d{4})$/.exec(k); if (m) y = Math.max(y, Number(m[1])); }
+  return y || fallback;
+}
+
+export default function SellOutBnn() {
+  useDocTitle('Sell Out BNN');
+  const load = useAsync(async () => {
+    const [peta, monthly, targets, status] = await Promise.all([
+      DataSource.selloutPeta(), DataSource.selloutMonthly(), DataSource.cementTargets(), DataSource.dataStatus().catch(() => [] as Row[]),
+    ]);
+    return { peta: peta as unknown as Peta[], monthly, targets, status };
+  }, []);
+  if (load.error) return <ErrorBox error={load.error} />;
+  if (!load.data) return <PageSkeleton />;
+  const { peta, monthly, targets, status } = load.data;
+  if (!peta.length) return <EmptyState />;
+  return <Body peta={peta} monthly={monthly} targets={targets} status={status} />;
+}
+
+function EmptyState() {
+  const { pageAllowed } = useAuth();
+  return (
+    <>
+      <PageHeader title="Sell Out BNN" />
+      <div className="card max-w-[620px]">
+        <h2 className="!text-[20px]">Belum ada data</h2>
+        <p className="text-soft text-[13.5px] mt-2 leading-relaxed">Peta Sell Out BNN belum dipasang di database (docs/sql/sell_out_bnn.sql).</p>
+        {pageAllowed('kelola-data') && <Link to="/kelola-data?data=sellout" className="btn btn-primary no-underline mt-4">Buka Kelola Data</Link>}
+      </div>
+    </>
+  );
+}
+
+function Body({ peta, monthly, targets, status }: { peta: Peta[]; monthly: Row[]; targets: Row[]; status: Row[] }) {
+  const today = todayWIB();
+  const Y = detectYear(targets, Number(today.slice(0, 4))), P = Y - 1;
+  const kTgt = `target_do_${Y}`, kPrev = `do_${P}`;
+
+  // bulan terakhir berisi data tahun ini & tanggal potong bulan berjalan (dari transaksi harian)
+  const lastMonth = useMemo(() => monthly.reduce((a, r) => (Number(r.tahun) === Y && Number(r.ton) > 0 ? Math.max(a, Number(r.bulan)) : a), 0) || 1, [monthly, Y]);
+  const trxSampai = String(status.find(r => r.sumber === 'transaksi')?.data_sampai ?? '').slice(0, 10);
+  const cutDay = trxSampai.startsWith(`${Y}-${String(lastMonth).padStart(2, '0')}`) ? Number(trxSampai.slice(8, 10)) : daysInMonth(Y, lastMonth);
+  const partial = cutDay < daysInMonth(Y, lastMonth);
+
+  /* ---------- filter ---------- */
+  const [mFrom, setMFrom] = useState(1);
+  const [mTo, setMTo] = useState(lastMonth);
+  const [region, setRegion] = useState('all');
+  const [baris, setBaris] = useState('all');   // id peta
+  const [tipe, setTipe] = useState('all');
+  const regions = useMemo(() => [...new Set(peta.map(p => p.region))], [peta]);
+  const barisOpts = peta.filter(p => region === 'all' || p.region === region);
+  const changeRegion = (v: string) => { setRegion(v); if (v !== 'all' && baris !== 'all' && peta.find(p => String(p.id) === baris)?.region !== v) setBaris('all'); };
+  const filterActive = region !== 'all' || baris !== 'all' || tipe !== 'all' || mFrom !== 1 || mTo !== lastMonth;
+  const resetFilter = () => { setRegion('all'); setBaris('all'); setTipe('all'); setMFrom(1); setMTo(lastMonth); };
+  const groupBy: 'region' | 'baris' = region === 'all' ? 'region' : 'baris';
+
+  const v = useMemo(() => {
+    const inScope = (p: Peta) => (region === 'all' || p.region === region) && (baris === 'all' || String(p.id) === baris);
+    const scoped = peta.filter(inScope);
+    const ids = new Set(scoped.map(p => p.id));
+    const byId = new Map(peta.map(p => [p.id, p]));
+    const typeOk = (t: unknown) => tipe === 'all' || t === tipe;
+
+    // realisasi tahun ini per baris x bulan
+    const cur = new Map<number, number[]>();
+    let untyped = 0;   // Sub ERP tanpa tipe yang tidak ikut saat filter tipe
+    monthly.forEach(r => {
+      if (Number(r.tahun) !== Y || !ids.has(Number(r.peta_id))) return;
+      if (!typeOk(r.tipe)) { if (r.tipe == null && tipe !== 'all') untyped += Number(r.ton || 0); return; }
+      const arr = cur.get(Number(r.peta_id)) || new Array(13).fill(0);
+      arr[Number(r.bulan)] += Number(r.ton || 0);
+      cur.set(Number(r.peta_id), arr);
+    });
+    // target & tahun lalu per baris x bulan
+    const tgt = new Map<number, number[]>(), prv = new Map<number, number[]>();
+    scoped.forEach(p => {
+      if (!p.target_key) return;
+      const t = new Array(13).fill(0), q = new Array(13).fill(0);
+      targets.forEach(r => {
+        if (r.region !== p.target_region || r.distributor !== p.target_key) return;
+        if (tipe !== 'all' && r.type_cement !== tgtType(tipe)) return;
+        const m = Number(r.month_num); if (!(m >= 1 && m <= 12)) return;
+        t[m] += Number(r[kTgt] || 0); q[m] += Number(r[kPrev] || 0);
+      });
+      tgt.set(p.id, t); prv.set(p.id, q);
+    });
+
+    const months = Array.from({ length: mTo - mFrom + 1 }, (_, i) => mFrom + i);
+    const isPartial = (m: number) => partial && m === lastMonth;
+    const prevSame = (q: number[], m: number) => (isPartial(m) ? q[m] * cutDay / daysInMonth(P, m) : q[m]);
+    const get = (map: Map<number, number[]>, id: number, m: number) => map.get(id)?.[m] || 0;
+    const sumOver = (fn: (id: number, m: number) => number, idList = scoped.map(p => p.id), ms = months) =>
+      idList.reduce((a, id) => a + ms.reduce((b, m) => b + fn(id, m), 0), 0);
+
+    // J073 (INSA, PKB) belum ada datanya: target & tahun lalunya tidak ikut dibandingkan
+    const live = scoped.filter(p => !p.j073).map(p => p.id);
+    const ton = sumOver((id, m) => get(cur, id, m));
+    const target = sumOver((id, m) => get(tgt, id, m), live);
+    const prev = sumOver((id, m) => prevSame(prv.get(id) || [], m), live);
+    const hasTarget = target > 0;
+
+    const monthLabel = (m: number) => MONTHS_ID[m] + (isPartial(m) ? ` (1–${cutDay})` : '');
+    const trend = {
+      labels: months.map(monthLabel),
+      cur: months.map(m => sumOver((id) => get(cur, id, m), undefined, [m])),
+      target: months.map(m => sumOver((id) => get(tgt, id, m), live, [m])),
+      prev: months.map(m => sumOver((id) => get(prv, id, m), live, [m])),   // tahun lalu sebulan penuh
+    };
+    const monthRows = months.map(m => ({
+      month_num: m, target: sumOver(id => get(tgt, id, m), live, [m]),
+      prev: sumOver(id => prevSame(prv.get(id) || [], m), live, [m]), cur: trend.cur[months.indexOf(m)],
+    }));
+    const drillGroups = (m: number) => {
+      const g = new Map<string, number>();
+      scoped.forEach(p => { const k = groupBy === 'region' ? p.region : `${p.nama} · ${p.region}`; g.set(k, (g.get(k) || 0) + get(cur, p.id, m)); });
+      return [...g.entries()].map(([label, value]) => ({ label, value })).filter(x => x.value > 0).sort((a, b) => b.value - a.value);
+    };
+
+    // tabel per baris peta, dikelompokkan per region
+    const perBaris = scoped.map(p => ({
+      p, target: months.reduce((a, m) => a + get(tgt, p.id, m), 0), ton: months.reduce((a, m) => a + get(cur, p.id, m), 0),
+      prev: months.reduce((a, m) => a + prevSame(prv.get(p.id) || [], m), 0),
+    }));
+    return { ton, target, prev, hasTarget, months, monthLabel, trend, monthRows, drillGroups, perBaris, untyped, byId };
+  }, [peta, monthly, targets, region, baris, tipe, mFrom, mTo, Y, P, kTgt, kPrev, partial, lastMonth, cutDay, groupBy]);
+
+  const growth = growthPct(v.ton, v.prev);
+  const monthsLabel = mFrom === mTo ? `${MONTHS_ID[mFrom]} ${Y}` : `${MONTHS_ID[mFrom]}–${MONTHS_ID[mTo]} ${Y}`;
+  const scope = [baris !== 'all' ? peta.find(p => String(p.id) === baris)?.nama : region !== 'all' && region, tipe !== 'all' && TIPE_OPTS.find(o => o.value === tipe)!.label].filter(Boolean).join(' · ') || 'Semua';
+  const monthOpts = Array.from({ length: lastMonth }, (_, i) => ({ value: i + 1, label: `${MONTHS_ID[i + 1]} ${Y}` }));
+
+  return (
+    <>
+      <PageHeader title="Sell Out BNN" status={<DataBadge source={['transaksi', 'dofas', 'erp']} />} />
+
+      <FilterBar label="Filter Sell Out BNN" stickyMobile={false} className="max-[880px]:grid max-[880px]:grid-cols-2 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
+        <Select label="Dari" value={mFrom} onChange={e => { const x = +e.target.value; setMFrom(x); if (x > mTo) setMTo(x); }} options={monthOpts} />
+        <Select label="Sampai" value={mTo} onChange={e => { const x = +e.target.value; setMTo(x); if (x < mFrom) setMFrom(x); }} options={monthOpts} />
+        <Select label="Region" value={region} onChange={e => changeRegion(e.target.value)} style={{ minWidth: 130 }}
+          options={[{ value: 'all', label: 'Semua Region' }, ...regions.map(r => ({ value: r, label: r }))]} />
+        <Select label="Distributor" value={baris} onChange={e => setBaris(e.target.value)} style={{ minWidth: 150 }}
+          options={[{ value: 'all', label: 'Semua Distributor' }, ...barisOpts.map(p => ({ value: String(p.id), label: region === 'all' && peta.filter(x => x.nama === p.nama).length > 1 ? `${p.nama} (${p.region})` : p.nama }))]} />
+        <Select label="Tipe Semen" value={tipe} onChange={e => setTipe(e.target.value)} style={{ minWidth: 120 }} options={TIPE_OPTS} />
+        {filterActive && <button type="button" className="btn btn-sm self-end max-[880px]:col-span-2 max-[880px]:justify-center" onClick={resetFilter}>Reset filter</button>}
+      </FilterBar>
+
+      <div className="grid-kpi">
+        <Kpi title={`Target ${monthsLabel}`} value={v.hasTarget ? fmtTon(v.target) : '–'} unit={v.hasTarget ? 'ton' : undefined} />
+        <Kpi title={`Realisasi ${Y}`} value={fmtTon(v.ton)} unit="ton" delta={v.hasTarget ? <Capaian actual={v.ton} target={v.target} /> : undefined} />
+        <Kpi title={`Pertumbuhan vs ${P}`} value={<span className={growth == null ? '' : growth >= 0 ? 'text-green' : 'text-red'}>{fmtPct(growth)}</span>} />
+        <Kpi title={`Realisasi ${P} Tanggal Sama`} value={v.prev > 0 ? fmtTon(v.prev) : '–'} unit={v.prev > 0 ? 'ton' : undefined} />
+      </div>
+
+      <Card className="mt-3.5">
+        <div className="card-title">Sell Out Bulanan (Ton) · {scope}</div>
+        <div className="legend">
+          {v.hasTarget && <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target {Y}</span>}
+          <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Realisasi {Y}</span>
+          <span><i style={{ background: COLORS.ink, opacity: .35 }} aria-hidden="true" />Realisasi {P}</span>
+        </div>
+        <ChartBox className="tall" label={chartSRSummary(v.trend.labels, v.trend.cur, `ton sell out ${Y}`)}
+          deps={[v.trend.labels.join('|'), v.trend.cur.join('|'), v.trend.target.join('|'), v.trend.prev.join('|'), v.hasTarget]}
+          build={() => ({
+            type: 'bar',
+            data: { labels: v.trend.labels, datasets: [
+              { label: `Target ${Y}`, data: v.trend.target, type: 'line', borderColor: COLORS.blueMid, backgroundColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3, order: 1, hidden: !v.hasTarget },
+              { label: `Realisasi ${Y}`, data: v.trend.cur, backgroundColor: COLORS.accent, maxBarThickness: 26, order: 2 },
+              { label: `Realisasi ${P}`, data: v.trend.prev, backgroundColor: 'rgba(33,30,25,.22)', borderRadius: 3, maxBarThickness: 26, order: 3 },
+            ] } as any,
+            options: { responsive: true, maintainAspectRatio: false,
+              scales: { y: { beginAtZero: true, grid: { color: COLORS.line }, ticks: { callback: (x: any) => fmtCompact(x) } }, x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 0 } } },
+              plugins: { tooltip: { callbacks: { label: (c: any) => ` ${c.dataset.label}: ${fmt(c.parsed.y)} ton` } } } },
+          })} />
+        {v.untyped > 0 && <p className="text-faint text-[12px] mt-2">Sub ERP (WJM, SIN, BSJ, Pangkalant) belum dipisah per tipe, jadi {fmtTon(v.untyped)} ton tidak ikut saat filter tipe.</p>}
+      </Card>
+
+      <h2 className="section-title">Rincian per Bulan · Sell Out (Ton)</h2>
+      <GrowthTable caption={`Rincian sell out per bulan: target, realisasi ${P} dan ${Y}, pertumbuhan, capaian`}
+        rows={v.monthRows} Y={Y} P={P} hasTarget={v.hasTarget} labels={{ target: 'Target', value: 'Sell Out', capaian: 'Capaian' }} monthLabel={v.monthLabel}
+        drill={{ enabled: true, groupsFor: v.drillGroups,
+          heading: m => `Komposisi Sell Out ${v.monthLabel(m)} ${Y} · per ${groupBy === 'region' ? 'Region' : 'Distributor'}`,
+          title: m => `Lihat komposisi sell out ${MONTHS_ID[m]}` }} />
+
+      <h2 className="section-title">Per Distributor · {monthsLabel} (Ton)</h2>
+      <TableWrap>
+        <table>
+          <caption className="sr-only">Sell out per distributor dan subdist</caption>
+          <thead><tr>
+            <th>Region</th><th>Distributor</th><th>Sumber</th>
+            <th className="num">Target</th><th className="num">{P}</th><th className="num">{Y}</th><th className="num">Growth</th><th>Capaian</th>
+          </tr></thead>
+          <tbody>
+            {regionGroups(v.perBaris).map(([reg, items]) => {
+              const live = items.filter(x => !x.p.j073);
+              const t = live.reduce((a, x) => a + x.target, 0), c = items.reduce((a, x) => a + x.ton, 0), q = live.reduce((a, x) => a + x.prev, 0);
+              return [
+                ...items.map(x => {
+                  const g = growthPct(x.ton, x.prev);
+                  return (
+                    <tr key={x.p.id}>
+                      <td className="text-soft whitespace-nowrap">{x.p.region}</td>
+                      <td className="font-semibold whitespace-nowrap">{x.p.nama}</td>
+                      <td className="text-faint text-[12px] max-w-[300px]">{x.p.sumber}</td>
+                      <td className="num font-mono">{x.target ? fmtTon(x.target) : '–'}</td>
+                      <td className="num font-mono">{x.prev ? fmtTon(x.prev) : '–'}</td>
+                      <td className="num font-mono font-semibold">{x.p.j073 ? <span className="text-faint font-normal" title="J073 (tabel warehouse) belum tersedia">belum ada</span> : fmtTon(x.ton)}</td>
+                      <td className={cx('num font-mono', g == null || x.p.j073 ? 'text-faint' : g >= 0 ? 'text-green' : 'text-red')}>{x.p.j073 ? '–' : fmtPct(g)}</td>
+                      <td>{x.p.j073 ? <span className="text-faint">–</span> : <Capaian actual={x.ton} target={x.target} />}</td>
+                    </tr>
+                  );
+                }),
+                items.length > 1 && live.length > 0 && (
+                  <tr key={reg + '-sub'} className="bg-surface2/70">
+                    <td colSpan={3} className="font-semibold">Subtotal {reg}</td>
+                    <td className="num font-mono font-semibold">{t ? fmtTon(t) : '–'}</td>
+                    <td className="num font-mono font-semibold">{q ? fmtTon(q) : '–'}</td>
+                    <td className="num font-mono font-semibold">{fmtTon(c)}</td>
+                    <td className={cx('num font-mono font-semibold', growthPct(c, q) == null ? 'text-faint' : growthPct(c, q)! >= 0 ? 'text-green' : 'text-red')}>{fmtPct(growthPct(c, q))}</td>
+                    <td><Capaian actual={c} target={t} /></td>
+                  </tr>
+                ),
+              ];
+            })}
+          </tbody>
+        </table>
+      </TableWrap>
+    </>
+  );
+}
+
+function regionGroups<T extends { p: Peta }>(rows: T[]): [string, T[]][] {
+  const m = new Map<string, T[]>();
+  rows.forEach(r => { const a = m.get(r.p.region) || []; a.push(r); m.set(r.p.region, a); });
+  return [...m.entries()];
+}

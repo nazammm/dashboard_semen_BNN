@@ -73,6 +73,11 @@ Check(AccessRules.DefaultPagesFor("admin").Contains("kelola-data") && !AccessRul
 Check(sales.Tables.Contains("v_data_status") && mo.Tables.Contains("v_data_status"), "status data boleh untuk semua role");
 Check(AccessRules.ReadAlias["v_sellin_bnn_daily"] == "sementrack.v_sellin_bnn_daily", "view sell in di schema sementrack");
 
+// Sell Out BNN
+Check(mo.Tables.Contains("v_sellout_bnn_monthly") && mo.Tables.Contains("v_sellout_bnn_peta") && mo.Tables.Contains("v_cement_targets_ext"), "mo: data sell out BNN + target bulanan");
+Check(!sales.Tables.Contains("v_sellout_bnn_monthly"), "sales: TIDAK boleh sell out BNN");
+Check(AccessRules.ReadAlias["v_sellout_bnn_monthly"] == "sementrack.v_sellout_bnn_monthly", "view sell out di schema sementrack");
+
 Check(AccessRules.DefaultPermFor("sales", "daftar-toko") is { CanViewDetail: true, CanDownload: false }, "perm sales daftar-toko");
 Check(AccessRules.DefaultPermFor("spv", "rekap-harian") is { CanViewDetail: false, CanDownload: false }, "perm spv rekap");
 Check(AccessRules.DefaultPermFor("mo", "beranda") is { CanViewDetail: true, CanDownload: true }, "perm default");

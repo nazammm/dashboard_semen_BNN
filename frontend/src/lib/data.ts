@@ -102,6 +102,8 @@ export const DataSource = {
   targetDist: () => getData('targetDist', () => apiGetAll('v_target_dist', '?select=*')),
   delivery: () => getData('delivery', () => apiGetAll('v_delivery_ext', '?select=*')),
   /** Sell In BNN: ringkasan harian (tanggal x region x produk x tipe pesanan). Urutan lengkap supaya paging stabil. */
+  selloutMonthly: () => getData('sellout:monthly', () => apiGetAll('v_sellout_bnn_monthly', '?select=*')),
+  selloutPeta: () => getData('sellout:peta', () => apiGetAll('v_sellout_bnn_peta', '?select=*&order=urutan.asc')),
   sellinDaily: () => getData('sellin:daily', () => apiGetAll('v_sellin_bnn_daily', '?select=*&order=tanggal.asc,region.asc,produk.asc,tipe_pesanan.asc,loco_franco.asc')),
   sellinInfo: () => getData<Row | null>('sellin:info', async () => (await apiGet<Row[]>('v_sellin_bnn_info?select=*'))[0] || null),
   transaksiDetail: (date: string, distCode?: string | null, productCodes?: string[] | null) => {

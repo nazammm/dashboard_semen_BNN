@@ -39,7 +39,7 @@ export default function Layout() {
           <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="Logo Perusahaan" className="w-14 h-14 object-contain shrink-0" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
           <div className="font-extrabold text-xl text-white leading-tight" style={{ fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif', letterSpacing: '-.01em' }}>DASHBOARD<br />SEMEN</div>
         </div>
-        <nav className="px-3 py-3.5 flex flex-col flex-1 overflow-y-auto" aria-label="Navigasi utama">
+        <nav className="px-3 py-3.5 flex flex-col flex-1 min-h-0 overflow-y-auto" aria-label="Navigasi utama">
           {groups.map(g => (
             <div key={g.label} className="mb-3.5">
               <div className="font-mono text-[9.5px] uppercase text-[#847D6C] px-3 mb-[5px] font-semibold" style={{ letterSpacing: '.1em' }}>{g.label}</div>

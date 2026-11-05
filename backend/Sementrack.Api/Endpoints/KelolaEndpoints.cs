@@ -99,6 +99,25 @@ internal static class KelolaEndpoints
             return Helpers.Json(new { deleted = rows[0]["n"] });
         }));
 
+        // Tempelan Sell Out BNN (DO FAS / Sub ERP): ganti seluruh data satu tahun, paket kecil (±100 baris) dalam 1 permintaan.
+        d.MapPost("/sellout", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) =>
+        {
+            var limit = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (limit is { IsReadOnly: false }) limit.MaxRequestBodySize = StageMaxBody;
+            return SellinEndpoints.Run(ctx, auth, log, "sellout", async s =>
+            {
+                var b = await Helpers.ReadBodyAsync(ctx.Request);
+                var fn = b.GetString("dataset") switch { "dofas" => "sellout_dofas_simpan", "erp" => "sellout_erp_simpan", _ => null };
+                if (fn is null) return Helpers.Error(400, "dataset harus dofas atau erp");
+                var rowsEl = b.Get("rows");
+                if (rowsEl is not { ValueKind: JsonValueKind.Array }) return Helpers.Error(400, "baris tidak valid");
+                var rows = await db.QueryAsync($"select * from sementrack.{fn}($1::int, $2::json, $3)",
+                    new object?[] { b.GetString("tahun"), rowsEl.Value.GetRawText(), s.Username });
+                db.ClearCache();
+                return Helpers.Json(rows[0]);
+            });
+        });
+
         d.MapGet("/status-sync", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) => SellinEndpoints.Run(ctx, auth, log, "status-sync", async _ =>
         {
             var rows = await db.QueryAsync("select tanggal_update, jam_update, keterangan from public.status_sync where id = 1");

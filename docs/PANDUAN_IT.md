@@ -106,3 +106,11 @@ Urutan pasang (keduanya wajib, kalau tidak Overview menampilkan pesan "Filter re
 5. Halaman `Sell In` (`delivery`) dihapus; isinya sudah tercakup di `Sell In BNN`. View `v_delivery_ext` tetap dipakai Sell In BNN
    (target & realisasi tahun lalu), jadi jangan dihapus. Id halaman lama di `auth_local.role_pages` otomatis diabaikan.
    Di Kelola Akses, centang "Sell In BNN" untuk role Management kalau hak aksesnya pernah diubah manual.
+
+## 10. Update Nov 2026: Sell Out BNN
+1. Jalankan `docs/sql/sell_out_bnn.sql` di `web_semen` SETELAH `kelola_data.sql`, sebagai pemilik tabel (nazamudin). Aman dijalankan ulang.
+   Isinya: peta `sementrack.sellout_bnn_peta` (baris distributor/subdist dan sumbernya), tabel tempelan
+   `sementrack.sellout_dofas` / `sementrack.sellout_erp`, fungsi simpan, view `v_sellout_bnn_monthly` / `v_sellout_bnn_peta`,
+   daftar `sementrack.subdist_customer`, dan `v_data_status` (tambah DO FAS & Sub ERP).
+2. Deploy ulang backend + frontend. Endpoint baru (admin): `POST /api/admin/data/sellout`. Halaman baru: `sell-out-bnn`.
+3. Role selain admin: centang "Sell Out BNN" di Kelola Akses kalau hak aksesnya pernah diubah manual.

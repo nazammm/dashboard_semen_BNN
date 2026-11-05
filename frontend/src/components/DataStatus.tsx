@@ -17,7 +17,7 @@ import { MONTHS_ID } from '../lib/format';
 import type { Row } from '../lib/types';
 import { cx } from './ui';
 
-export type DataSourceId = 'transaksi' | 'sellin' | 'sellout_bulanan' | 'sellin_bulanan';
+export type DataSourceId = 'transaksi' | 'sellin' | 'sellout_bulanan' | 'sellin_bulanan' | 'dofas' | 'erp';
 export type FreshLevel = 'good' | 'warn' | 'bad' | 'none';
 
 export interface Freshness {
@@ -94,12 +94,14 @@ export const notifyDataStatusChanged = () => window.dispatchEvent(new Event('dat
 
 /** Halaman yang memakai tiap sumber: panel sidebar hanya menampilkan sumber yang halamannya boleh dibuka. */
 const SOURCE_PAGES: Record<string, string[]> = {
-  transaksi: ['beranda', 'rekap-harian', 'tim-sales', 'daftar-toko', 'peta-toko', 'kelola-data'],
+  transaksi: ['beranda', 'rekap-harian', 'tim-sales', 'daftar-toko', 'peta-toko', 'sell-out-bnn', 'kelola-data'],
   sellin: ['sell-in-bnn', 'kelola-data'],
   sellout_bulanan: ['performa-daerah'],
+  dofas: ['sell-out-bnn', 'kelola-data'],
+  erp: ['sell-out-bnn', 'kelola-data'],
   sellin_bulanan: [],   // halaman Sell In dihapus; target & 2025 di Sell In BNN tidak bergantung pada closing terbaru
 };
-const SHORT_NAME: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', sellout_bulanan: 'Sell Out bulanan', sellin_bulanan: 'Sell In bulanan' };
+const SHORT_NAME: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', sellout_bulanan: 'Sell Out bulanan', sellin_bulanan: 'Sell In bulanan', dofas: 'DO FAS', erp: 'Sub ERP' };
 const LEVEL_LABEL: Record<FreshLevel, string> = { good: 'Terkini', warn: 'Tertinggal', bad: 'Perlu dicek', none: 'Kosong' };
 
 function Detail({ row, f }: { row: Row; f: Freshness }) {
@@ -115,8 +117,14 @@ function Detail({ row, f }: { row: Row; f: Freshness }) {
   );
 }
 
-/** Badge kesegaran data di header halaman. Klik untuk detail (kapan diperbarui, oleh siapa). */
-export function DataBadge({ source, dark }: { source: DataSourceId; dark?: boolean }) {
+const LEVEL_RANK: Record<FreshLevel, number> = { good: 0, warn: 1, bad: 2, none: 3 };
+
+/**
+ * Badge kesegaran data di header halaman. Klik untuk detail (kapan diperbarui, oleh siapa).
+ * Beberapa sumber (mis. Sell Out BNN = transaksi + DO FAS + Sub ERP): warna = sumber yang paling tertinggal,
+ * tanggal = data s.d. paling awal, detail per sumber di popover.
+ */
+export function DataBadge({ source, dark }: { source: DataSourceId | DataSourceId[]; dark?: boolean }) {
   const { rows, failed } = useDataStatus();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -131,23 +139,31 @@ export function DataBadge({ source, dark }: { source: DataSourceId; dark?: boole
   }, [open]);
 
   if (failed) return null;
-  const row = rows?.find(r => r.sumber === source);
   if (!rows) return <span className={cx('ds-badge is-loading', dark && 'is-dark')} aria-hidden="true"><i className="ds-dot" />Memuat status…</span>;
-  if (!row) return null;
-  const f = freshnessOf(row);
-  const freq = row.frekuensi === 'bulanan' ? 'Bulanan' : 'Harian';
+  const ids = Array.isArray(source) ? source : [source];
+  const items = ids.map(s => rows.find(r => r.sumber === s)).filter((r): r is Row => !!r).map(row => ({ row, f: freshnessOf(row) }));
+  if (!items.length) return null;
+  const worst = items.reduce((a, b) => (LEVEL_RANK[b.f.level] > LEVEL_RANK[a.f.level] ? b : a));
+  const earliest = items.filter(x => x.row.data_sampai).sort((a, b) => String(a.row.data_sampai).localeCompare(String(b.row.data_sampai)))[0];
+  const level = worst.f.level, single = items.length === 1;
+  const freq = items.every(x => x.row.frekuensi === 'bulanan') ? 'Bulanan' : 'Harian';
+  const title = single ? String(items[0].row.nama) : items.map(x => SHORT_NAME[String(x.row.sumber)] || x.row.nama).join(' + ');
   return (
     <div className="relative shrink-0 inline-block" ref={ref}>
-      <button type="button" className={cx('ds-badge', `is-${f.level}`, dark && 'is-dark')} aria-expanded={open} aria-controls={id} onClick={() => setOpen(o => !o)}
-        title={`${row.nama}: ${f.keadaan}`}>
+      <button type="button" className={cx('ds-badge', `is-${level}`, dark && 'is-dark')} aria-expanded={open} aria-controls={id} onClick={() => setOpen(o => !o)}
+        title={`${title}: ${worst.f.keadaan}`}>
         <i className="ds-dot" aria-hidden="true" />
-        <span role="status">{f.sampai ? `Data s.d. ${f.sampai}` : 'Belum ada data'}</span>
+        <span role="status">{earliest ? `Data s.d. ${earliest.f.sampai}` : 'Belum ada data'}</span>
         <span className="ds-freq">{freq}</span>
       </button>
       {open && (
-        <div id={id} className="ds-pop" role="dialog" aria-label={`Status data ${row.nama}`}>
-          <div className="ds-pop-head"><span>{String(row.nama)}</span><span className={cx('ds-pill', `is-${f.level}`)}>{LEVEL_LABEL[f.level]}</span></div>
-          <Detail row={row} f={f} />
+        <div id={id} className={cx('ds-pop', !single && 'is-multi')} role="dialog" aria-label={`Status data ${title}`}>
+          {items.map(({ row, f }) => (
+            <div key={String(row.sumber)} className="ds-pop-item">
+              <div className="ds-pop-head"><span>{String(row.nama)}</span><span className={cx('ds-pill', `is-${f.level}`)}>{LEVEL_LABEL[f.level]}</span></div>
+              <Detail row={row} f={f} />
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -159,12 +175,21 @@ export function DataStatusPanel() {
   const { rows: all } = useDataStatus();
   const { pageAllowed } = useAuth();
   const [open, setOpen] = useState<string | null>(null);
+  // terlipat = satu baris titik warna (hemat tempat menu); pilihan diingat per browser
+  const [shown, setShown] = useState(() => { try { return localStorage.getItem('ds-side-open') !== '0'; } catch { return true; } });
+  const toggle = () => setShown(v => { try { localStorage.setItem('ds-side-open', v ? '0' : '1'); } catch { /* abaikan */ } return !v; });
   const rows = all?.filter(r => (SOURCE_PAGES[String(r.sumber)] || []).some(pageAllowed));
   if (!rows?.length) return null;
+  const levels = rows.map(r => freshnessOf(r).level);
+  const worst = levels.reduce((a, b) => (LEVEL_RANK[b] > LEVEL_RANK[a] ? b : a), 'good' as FreshLevel);
   return (
     <div className="ds-side" aria-label="Status data">
-      <div className="ds-side-title">Status data</div>
-      <ul>
+      <button type="button" className="ds-side-title" aria-expanded={shown} onClick={toggle} title={shown ? 'Lipat' : 'Tampilkan status semua sumber data'}>
+        <span>Status data</span>
+        {!shown && <span className="ds-side-dots" aria-label={LEVEL_LABEL[worst]}>{levels.map((l, i) => <i key={i} className={cx('ds-dot', `is-${l}`)} />)}</span>}
+        <svg viewBox="0 0 24 24" aria-hidden="true" className={cx('w-3 h-3 ml-auto transition-transform', shown && 'rotate-180')}><path d="m6 15 6-6 6 6" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
+      </button>
+      {shown && <ul>
         {rows.map(r => {
           const f = freshnessOf(r), k = String(r.sumber), upd = fmtUpdated(r.diperbarui);
           return (
@@ -185,7 +210,7 @@ export function DataStatusPanel() {
             </li>
           );
         })}
-      </ul>
+      </ul>}
     </div>
   );
 }

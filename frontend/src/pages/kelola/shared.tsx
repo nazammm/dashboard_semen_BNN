@@ -20,7 +20,7 @@ export type ImportPhase<R extends ImportResult> =
   | { kind: 'done'; result: Row; name: string };
 
 export const MAX_FILE_MB = 150;
-export const fmtTon = (t: number) => fmt(t, Math.abs(t) < 10 ? 1 : 0);
+export const fmtTon = (t: number) => fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0);
 export const fmtSize = (b: number) => (b >= 1e6 ? (b / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 }) + ' MB' : Math.ceil(b / 1e3) + ' KB');
 export const fmtWhen = (v: unknown) => new Date(String(v)).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 export const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
