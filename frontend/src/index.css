@@ -214,6 +214,12 @@
 
   /* ---------- Status data (badge halaman + panel sidebar) ---------- */
   /* ---------- Sell In BNN: pilihan tampilan grafik ---------- */
+  /* Sell Out BNN: label subdist & baris total */
+  .sob-sub{ @apply ml-1.5 px-1.5 py-px rounded-sm text-[10.5px] font-semibold uppercase tracking-wide align-middle;
+    color: #8A5A12; background: rgba(184,121,26,.14); }
+  .sob-total td{ @apply bg-surface2/70; border-top-width:1px; border-top-color: var(--color-line, #C6BFAF); }
+  .sob-total:first-child td{ border-top:2px solid #AFA790; }
+  .sob-total.sob-grand td{ border-top:2px solid #AFA790; }
   .sib-unit{ @apply inline-flex border border-line-strong rounded-sm overflow-hidden; }
   .sib-unit button{ @apply px-2.5 py-1 bg-surface border-0 border-l border-line font-sans text-[12px] text-soft cursor-pointer first:border-l-0 hover:text-ink; }
   .sib-unit button.is-on{ @apply bg-ink text-white; }

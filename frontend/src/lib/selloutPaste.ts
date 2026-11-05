@@ -2,6 +2,8 @@
    Tempelan Sell Out BNN dari Excel: DO FAS (rekap DO Korin) dan Sub ERP.
    Murni (tanpa DOM) supaya mudah diuji di Node.
    - DO FAS : [Tipe] | Area | Distributor | Keterangan | 1 .. 12      (ton)
+              Kolom Area TIDAK dipakai: region mengikuti peta Sell Out BNN.
+              Tipe kosong ikut baris/judul bagian di atasnya (mis. baris "RJW FIX").
    - Sub ERP: Distributor ("S006 - PT. …") | [Tipe] | Jan .. Dec | Total (ton)
    Angka "-" atau kosong = 0. Format 7,572 / 5,289.20 / 7.572 / 5.289,20 dikenali.
 ============================================================================ */
@@ -10,7 +12,7 @@ import { toNumber } from './sellin';
 export type Tipe = 'STR' | 'RJW' | 'CWC';
 export const TIPE: Tipe[] = ['STR', 'RJW', 'CWC'];
 export interface Issue { row: number; reason: string }
-export interface DofasRow { tipe: Tipe; area: string; distributor: string; keterangan: string; ton: number[] }
+export interface DofasRow { tipe: Tipe; distributor: string; keterangan: string; ton: number[] }
 export interface ErpRow { kode: string; nama: string; tipe: Tipe | null; ton: number[]; total: number | null }
 export interface PasteResult<R> { ok: boolean; error?: string; rows: R[]; issues: Issue[]; warnings: string[] }
 
@@ -23,8 +25,14 @@ const norm = (v: unknown) => String(v ?? '').trim().toLowerCase().replace(/\s+/g
 const monthOf = (h: string): number | null => {
   const s = norm(h);
   if (/^\d{1,2}$/.test(s) && +s >= 1 && +s <= 12) return +s;
-  const i = MONTH_NAMES.findIndex(names => names.includes(s));
-  return i >= 0 ? i + 1 : null;
+  const byName = (x: string) => { const i = MONTH_NAMES.findIndex(names => names.includes(x)); return i >= 0 ? i + 1 : null; };
+  // "Sep", "Sep-26", "Sep 2026", "September 2026"
+  const named = /^([a-z]+)\.?(?:[\s\-/']*(?:\d{2}|\d{4}))?$/.exec(s);
+  if (named) return byName(named[1]);
+  // "2026-09", "09/2026", "9-2026"
+  const num = /^(?:\d{4}[-/](\d{1,2})|(\d{1,2})[-/]\d{4})$/.exec(s);
+  const m = num ? Number(num[1] ?? num[2]) : 0;
+  return m >= 1 && m <= 12 ? m : null;
 };
 
 const splitLines = (text: string) =>
@@ -39,13 +47,20 @@ export function cellTon(v: unknown): number | null {
   return n == null ? null : neg ? -n : n;
 }
 
-/** Cari baris judul: baris pertama yang punya ≥ 12 kolom bulan. */
-function findHeader(lines: string[][]) {
+const MONTH_SHORT = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+/** Cari baris judul: baris pertama yang punya 12 kolom bulan.
+ *  Kalau hanya sebagian bulan yang ada, kembalikan pesan bulan mana yang hilang
+ *  (simpan mengganti setahun penuh, jadi bulan yang tidak ikut akan terhapus). */
+function findHeader(lines: string[][]): { index: number; months: number[] } | { error: string } | null {
+  let partial: number[] | null = null;
   for (let i = 0; i < Math.min(lines.length, 15); i++) {
     const months = new Map<number, number>();
     lines[i].forEach((c, j) => { const m = monthOf(c); if (m && !months.has(m)) months.set(m, j); });
     if (months.size === 12) return { index: i, months: Array.from({ length: 12 }, (_, k) => months.get(k + 1)!) };
+    if (months.size >= 3 && !partial) partial = Array.from({ length: 12 }, (_, k) => k + 1).filter(k => !months.has(k));
   }
+  if (partial) return { error: `Kolom bulan ${partial.map(k => MONTH_SHORT[k]).join(', ')} tidak ada di baris judul. Salin tabel lengkap Jan s.d. Des (simpan mengganti data setahun penuh).` };
   return null;
 }
 
@@ -53,18 +68,25 @@ const tipeOf = (v: unknown): Tipe | null => {
   const s = norm(v).toUpperCase();
   return s === 'STR' || s === 'RJW' || s === 'CWC' ? s : s === 'WC' ? 'CWC' : null;
 };
+/** Judul bagian seperti "RJW FIX" / "STR": kata pertamanya tipe semen. */
+const sectionTipe = (cells: string[]): Tipe | null => {
+  for (const c of cells) { const w = norm(c).split(' ')[0]; if (w) return tipeOf(w); }
+  return null;
+};
+const TIPE_HEAD = ['tipe', 'type', 'produk', 'jenis', 'semen', 'merk'];
 
 /* ---------------- DO FAS ---------------- */
 export function parseDofas(text: string): PasteResult<DofasRow> {
   const lines = splitLines(text);
   const head = findHeader(lines);
   const res: PasteResult<DofasRow> = { ok: false, rows: [], issues: [], warnings: [] };
-  if (!head) { res.error = 'Baris judul tidak ditemukan. Ikutkan baris judul (Area, Distributor, Keterangan, 1 s.d. 12) saat menyalin.'; return res; }
+  if (!head) { res.error = 'Baris judul tidak ditemukan. Ikutkan baris judul (Distributor, Keterangan, 1 s.d. 12) saat menyalin.'; return res; }
+  if ('error' in head) { res.error = head.error; return res; }
   const h = lines[head.index].map(norm);
-  const iArea = h.indexOf('area'), iDist = h.indexOf('distributor'), iKet = h.indexOf('keterangan');
+  const iDist = h.indexOf('distributor'), iKet = h.indexOf('keterangan');
   if (iDist < 0) { res.error = 'Kolom "Distributor" tidak ditemukan di baris judul.'; return res; }
-  const named = h.findIndex(c => c === 'tipe' || c === 'type' || c === 'produk');
-  const iTipe = named >= 0 ? named : 0;   // kolom tanpa judul paling kiri = STR / RJW
+  const iTipe = tipeColumn(lines, head.index, h, iDist);
+  let section: Tipe | null = null;   // tipe dari baris/judul bagian di atasnya
 
   for (let i = head.index + 1; i < lines.length; i++) {
     const c = lines[i], rowNo = i + 1;
@@ -72,19 +94,39 @@ export function parseDofas(text: string): PasteResult<DofasRow> {
     const dist = String(c[iDist] ?? '').trim();
     const raw = head.months.map(j => c[j]);
     if (!dist) {
-      if (raw.every(x => !String(x ?? '').trim())) continue;          // baris pemisah, mis. "RJW  FIX"
+      if (raw.every(x => !String(x ?? '').trim())) {                    // baris pemisah, mis. "RJW  FIX"
+        section = sectionTipe(c.slice(0, iDist)) ?? section; continue;
+      }
       res.issues.push({ row: rowNo, reason: 'Distributor kosong tetapi ada angka' }); continue;
     }
-    const tipe = tipeOf(c[iTipe]);
-    if (!tipe) { res.issues.push({ row: rowNo, reason: `Tipe "${String(c[iTipe] ?? '').trim()}" bukan STR/RJW/CWC (${dist})` }); continue; }
+    const cellTipe = String(c[iTipe] ?? '').trim();
+    const tipe = cellTipe ? tipeOf(cellTipe) : section;
+    if (!tipe) { res.issues.push({ row: rowNo, reason: cellTipe ? `Tipe "${cellTipe}" bukan STR/RJW/CWC (${dist})` : `Tipe kosong (${dist})` }); continue; }
+    section = tipe;
     const ton = raw.map(cellTon);
     const bad = ton.findIndex(x => x == null);
-    if (bad >= 0) { res.issues.push({ row: rowNo, reason: `${dist}: bulan ${bad + 1} bukan angka ("${String(raw[bad]).trim()}")` }); continue; }
-    res.rows.push({ tipe, area: iArea >= 0 ? String(c[iArea] ?? '').trim() : '', distributor: dist, keterangan: iKet >= 0 ? String(c[iKet] ?? '').trim() : '', ton: ton as number[] });
+    if (bad >= 0) { res.issues.push({ row: rowNo, reason: `${dist}: ${MONTH_SHORT[bad + 1]} bukan angka ("${String(raw[bad]).trim()}")` }); continue; }
+    res.rows.push({ tipe, distributor: dist, keterangan: iKet >= 0 ? String(c[iKet] ?? '').trim() : '', ton: ton as number[] });
   }
   res.ok = res.rows.length > 0;
   if (!res.ok && !res.error) res.error = 'Tidak ada baris data yang terbaca.';
   return res;
+}
+
+/** Kolom tipe: yang berjudul Tipe/Produk/…; kalau tidak ada, kolom sebelum Distributor
+ *  yang paling banyak berisi STR/RJW/CWC (biasanya kolom paling kiri tanpa judul). */
+function tipeColumn(lines: string[][], headIndex: number, h: string[], iDist: number) {
+  const named = h.findIndex(c => TIPE_HEAD.includes(c));
+  if (named >= 0) return named;
+  const data = lines.slice(headIndex + 1).filter(c => String(c[iDist] ?? '').trim());
+  let best = -1, bestHits = 0;
+  for (let j = 0; j < iDist; j++) {
+    const filled = data.filter(c => String(c[j] ?? '').trim());
+    const hits = filled.filter(c => tipeOf(c[j])).length;
+    // kolom tipe: yang terisi hampir semuanya STR/RJW/CWC (boleh banyak yang kosong, mis. sel tergabung)
+    if (hits > bestHits && hits >= filled.length * 0.8) { best = j; bestHits = hits; }
+  }
+  return best;   // -1: tidak ada kolom tipe, tipe hanya dari judul bagian
 }
 
 /* ---------------- Sub ERP ---------------- */
@@ -95,9 +137,10 @@ export function parseErp(text: string): PasteResult<ErpRow> {
   const head = findHeader(lines);
   const res: PasteResult<ErpRow> = { ok: false, rows: [], issues: [], warnings: [] };
   if (!head) { res.error = 'Baris judul tidak ditemukan. Ikutkan baris judul (Distributor, Jan s.d. Dec, Total) saat menyalin.'; return res; }
+  if ('error' in head) { res.error = head.error; return res; }
   const h = lines[head.index].map(norm);
   let iDist = h.indexOf('distributor'); if (iDist < 0) iDist = 0;
-  const iTipe = h.findIndex(c => c === 'tipe' || c === 'type' || c === 'produk');
+  const iTipe = h.findIndex(c => TIPE_HEAD.includes(c));
   const iTotal = h.indexOf('total');
   const seen = new Set<string>();
 
@@ -116,7 +159,7 @@ export function parseErp(text: string): PasteResult<ErpRow> {
     const raw = head.months.map(j => c[j]);
     const ton = raw.map(cellTon);
     const bad = ton.findIndex(x => x == null);
-    if (bad >= 0) { res.issues.push({ row: rowNo, reason: `${m[1]}: bulan ${bad + 1} bukan angka ("${String(raw[bad]).trim()}")` }); continue; }
+    if (bad >= 0) { res.issues.push({ row: rowNo, reason: `${m[1]}: ${MONTH_SHORT[bad + 1]} bukan angka ("${String(raw[bad]).trim()}")` }); continue; }
     const kode = m[1].toUpperCase(), key = `${kode}|${tipe ?? ''}`;
     if (seen.has(key)) { res.issues.push({ row: rowNo, reason: `${kode}${tipe ? ' ' + tipe : ''} muncul dua kali; baris ini dilewati` }); continue; }
     seen.add(key);
@@ -171,5 +214,6 @@ function groupIgnored(items: { i: number; key: string; label: string; total: num
 }
 
 /** Bentuk baris untuk fungsi database (urutan kolom = argumen sementrack.sellout_*_simpan). */
-export const dofasPayload = (rows: DofasRow[]) => rows.map(r => [r.tipe, r.area, r.distributor, r.keterangan, ...r.ton]);
+// area selalu null: kolom Area di DO FAS tidak dipakai (region mengikuti peta)
+export const dofasPayload = (rows: DofasRow[]) => rows.map(r => [r.tipe, null, r.distributor, r.keterangan, ...r.ton]);
 export const erpPayload = (rows: ErpRow[]) => rows.map(r => [r.kode, r.nama, r.tipe, ...r.ton]);

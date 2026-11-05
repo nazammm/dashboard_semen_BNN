@@ -114,3 +114,6 @@ Urutan pasang (keduanya wajib, kalau tidak Overview menampilkan pesan "Filter re
    daftar `sementrack.subdist_customer`, dan `v_data_status` (tambah DO FAS & Sub ERP).
 2. Deploy ulang backend + frontend. Endpoint baru (admin): `POST /api/admin/data/sellout`. Halaman baru: `sell-out-bnn`.
 3. Role selain admin: centang "Sell Out BNN" di Kelola Akses kalau hak aksesnya pernah diubah manual.
+4. File SQL juga mengisi DO FAS & Sub ERP 2026 awal (tempelan 5 Nov 2026), HANYA kalau 2026 masih kosong.
+   Setelah itu data diganti lewat Kelola Data → Sell Out BNN (tempel harian). `v_sellout_bnn_peta` punya kolom `jenis`
+   (`dist` / `subdist`) untuk grafik bertumpuk dan baris total di halaman. Kolom Area di DO FAS tidak dipakai.

@@ -25,7 +25,7 @@ const PLACEHOLDER: Record<Dataset, string> = {
   erp: 'Distributor\tJan\tFeb\t…\tDec\tTotal\nS006 - PT. WANDI JAYA MAKMUR\t5,289.20\t3,162.00\t…\t.00\t40,817.70',
 };
 const HINT: Record<Dataset, string> = {
-  dofas: 'Salin tabel DO FAS dari Excel termasuk baris judul (kolom tipe STR/RJW, Area, Distributor, Keterangan, 1 s.d. 12). Angka dalam ton; "-" dibaca 0.',
+  dofas: 'Salin tabel DO FAS dari Excel termasuk baris judul (kolom tipe STR/RJW, Distributor, Keterangan, 1 s.d. 12). Kolom Area tidak dipakai: region mengikuti peta Sell Out BNN. Angka dalam ton; "-" dibaca 0.',
   erp: 'Salin tabel Sub ERP dari Excel termasuk baris judul (Distributor, Jan s.d. Dec, Total). Nama distributor berformat "S006 - Nama". Angka dalam ton.',
 };
 
@@ -129,15 +129,24 @@ function Preview({ dataset, tahun, res, peta, current, saving, onSave, onCancel 
   const { mapped, ignored } = dataset === 'dofas' ? mapDofas(res.rows as DofasRow[], peta) : mapErp(res.rows as ErpRow[], peta);
   const usedTon = mapped.reduce((a, m) => a + sum(m.ton), 0);
   const allTon = (res.rows as { ton: number[] }[]).reduce((a, r) => a + sum(r.ton), 0);
+  // yang sekarang tersimpan per baris peta x bulan (index 0 = Jan)
   const prev = useMemo(() => {
-    const m = new Map<number, number>();
-    (current || []).filter(r => r.sumber === SUMBER[dataset] && Number(r.tahun) === tahun)
-      .forEach(r => m.set(Number(r.peta_id), (m.get(Number(r.peta_id)) || 0) + Number(r.ton || 0)));
+    const m = new Map<number, number[]>();
+    (current || []).filter(r => r.sumber === SUMBER[dataset] && Number(r.tahun) === tahun).forEach(r => {
+      const a = m.get(Number(r.peta_id)) || new Array(12).fill(0);
+      a[Number(r.bulan) - 1] += Number(r.ton || 0); m.set(Number(r.peta_id), a);
+    });
     return m;
   }, [current, dataset, tahun]);
+  // bulan yang sudah lewat tetapi turun dibanding yang tersimpan (mis. jadi 0): biasanya salah salin
+  const today = todayWIB();
+  const closedUpTo = tahun < Number(today.slice(0, 4)) ? 12 : Number(today.slice(5, 7)) - 1;
+  const hilang = mapped.flatMap(m => (prev.get(m.peta.id) || []).map((before, k) => ({ m, k, before, after: m.ton[k] })))
+    .filter(x => x.k < closedUpTo && x.before - x.after >= 1);
   const missing = mapped.filter(m => m.rows === 0);
   const lastMonth = Math.max(0, ...mapped.flatMap(m => m.ton.map((t, i) => (t ? i + 1 : 0))));
-  const months = Array.from({ length: Math.max(lastMonth, 1) }, (_, i) => i + 1);
+  const lastShown = Math.max(lastMonth, ...hilang.map(x => x.k + 1));
+  const months = Array.from({ length: Math.max(lastShown, 1) }, (_, i) => i + 1);
   const hasType = dataset === 'erp' && (res.rows as ErpRow[]).some(r => r.tipe);
 
   return (
@@ -171,13 +180,20 @@ function Preview({ dataset, tahun, res, peta, current, saving, onSave, onCancel 
             </tr></thead>
             <tbody>
               {mapped.map(m => {
-                const tot = sum(m.ton), before = prev.get(m.peta.id);
-                const diff = before == null ? null : tot - before;
+                const stored = prev.get(m.peta.id), before = stored ? sum(stored) : undefined;
+                const tot = sum(m.ton), diff = before == null ? null : tot - before;
                 return (
                   <tr key={m.peta.id} className={cx(m.rows === 0 && 'text-faint')}>
                     <td className="whitespace-nowrap">{m.peta.region}</td>
                     <td className="whitespace-nowrap font-semibold" title={(m.peta.dofas_kode || [m.peta.erp_kode]).join(', ') + (m.peta.dofas_tipe ? ` (${m.peta.dofas_tipe})` : '')}>{m.peta.nama}</td>
-                    {months.map(k => <td key={k} className="num font-mono">{m.ton[k - 1] ? fmt(m.ton[k - 1], m.ton[k - 1] % 1 ? 1 : 0) : '–'}</td>)}
+                    {months.map(k => {
+                      const lost = hilang.some(x => x.m === m && x.k === k - 1);
+                      return (
+                        <td key={k} className={cx('num font-mono', lost && 'text-red font-semibold')} title={lost ? `Sebelumnya ${fmtTon(stored![k - 1])} ton` : undefined}>
+                          {m.ton[k - 1] ? fmt(m.ton[k - 1], m.ton[k - 1] % 1 ? 1 : 0) : lost ? '0' : '–'}
+                        </td>
+                      );
+                    })}
                     <td className="num font-mono font-semibold">{m.rows ? fmtTon(tot) : 'tidak ada'}</td>
                     <td className={cx('num font-mono', diff && Math.abs(diff) >= 0.5 ? (diff > 0 ? 'text-green' : 'text-red') : 'text-faint')}>
                       {before == null ? '–' : diff && Math.abs(diff) >= 0.5 ? `${diff > 0 ? '+' : ''}${fmtTon(diff)}` : 'sama'}
@@ -189,6 +205,13 @@ function Preview({ dataset, tahun, res, peta, current, saving, onSave, onCancel 
           </table>
         </div>
 
+        {hilang.length > 0 && (
+          <Note tone="warn">
+            <b>Bulan yang sudah lewat jadi lebih kecil dari yang tersimpan:</b>{' '}
+            {hilang.map(x => `${x.m.peta.nama} ${MONTHS_ID[x.k + 1]} ${fmtTon(x.before)} → ${fmtTon(x.after)}`).join('; ')}.
+            Kalau bukan koreksi, periksa lagi tempelannya (baris terfilter atau tersembunyi di Excel, sel kosong) sebelum menyimpan.
+          </Note>
+        )}
         {missing.length > 0 && (
           <Note tone="warn">Tidak ditemukan di tempelan: <b>{missing.map(m => `${m.peta.nama} (${(m.peta.dofas_kode || [m.peta.erp_kode]).join(', ')})`).join('; ')}</b>. Setelah disimpan nilainya menjadi 0.</Note>
         )}

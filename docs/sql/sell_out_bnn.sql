@@ -202,7 +202,10 @@ select p.id, p.urutan, p.region, p.nama, p.target_region, p.target_key, p.dofas_
                           when 'hanya' then 'J028 ' || p.j028_dist || ' cust ' || array_to_string(p.j028_customers, ', ') end,
          case when p.dofas_kode is not null then 'DO FAS ' || array_to_string(p.dofas_kode, ', ') || coalesce(' (' || p.dofas_tipe || ')', '') end,
          case when p.erp_kode is not null then 'Sub ERP ' || p.erp_kode end,
-         case when p.j073 then 'J073 (belum tersedia)' end) as sumber
+         case when p.j073 then 'J073 (belum tersedia)' end) as sumber,
+       -- distributor = punya transaksi sendiri (J028 penuh / tanpa subdist, atau J073);
+       -- subdist = dari DO FAS, Sub ERP, atau customer subdist yang menumpang di J028
+       case when p.j073 or p.j028_mode in ('penuh', 'tanpa') then 'dist' else 'subdist' end as jenis
 from sementrack.sellout_bnn_peta p;
 
 create or replace view sementrack.v_sellout_bnn_monthly as
@@ -280,6 +283,137 @@ select 'erp', 'Sub ERP', 'harian',
        (select 'Tempel data ' || extract(year from date_from) || ' oleh ' || created_by from erp_up);
 
 grant select on sementrack.v_data_status, sementrack.v_sellout_bnn_peta, sementrack.v_sellout_bnn_monthly to public;
+
+-- ---------------------------------------------------------------------
+-- 5. Isi awal 2026: DO FAS & Sub ERP dari tempelan 5 Nov 2026, supaya baris subdist
+--    (Belitung, JAN, WJM, Jambi, Kepri, Rosalia, SIN, BSJ, Pangkalant) langsung terisi.
+--    HANYA jika 2026 masih kosong; tempelan harian di Kelola Data menggantikannya.
+-- ---------------------------------------------------------------------
+do $do$
+begin
+  if not exists (select 1 from sementrack.sellout_dofas where tahun = 2026) then
+    perform sementrack.sellout_dofas_simpan(2026, $j$[
+  ["STR", null, "GMD", "Kapal", 32, 0, 0, 7572, 2130, 0, 900, 2280, 3024, 2468, 0, 0],
+  ["STR", null, "JAN", "Kapal", 400, 0, 80, 840, 0, 336, 648, 1080, 96, 408, 0, 0],
+  ["STR", null, "WJM", "Kapal", 2352, 1552, 2016, 4896, 1220, 1160, 2056, 2452, 3504, 2460, 0, 0],
+  ["STR", null, "NSA", "Kapal", 3848, 832, 3152, 2600, 600, 2200, 288, 3496, 312, 4568, 0, 0],
+  ["STR", null, "CB", "Kapal", 456, 0, 0, 360, 352, 456, 648, 288, 552, 432, 0, 0],
+  ["STR", null, "KB", "Kapal", 880, 0, 896, 1328, 600, 1192, 1496, 936, 912, 1032, 312, 0],
+  ["STR", null, "BKP", "Kapal", 2696, 0, 5936, 4232, 0, 0, 504, 0, 4800, 4304, 0, 0],
+  ["STR", null, "BKP", "Darat", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "GUDANG JAMBI - TERMINAL LAMPUNG", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "GUDANG JAMBI - TERMINAL PALEMBANG", "Terminal", 0, 40, 140, 320, 200, 300, 20, 20, 0, 0, 0, 0],
+  ["STR", null, "JAMBI - LOCO TERMINAL", "Terminal", 1301, 900, 690, 400, 360, 742, 522, 522, 80, 0, 0, 0],
+  ["STR", null, "JMB", "Kapal", 0, 0, 2540, 4548, 156, 0, 390, 156, 780, 5148, 0, 0],
+  ["STR", null, "JMB", "Darat", 0, 600, 655, 90, 0, 1898, 800, 2800, 60, 600, 10, 0],
+  ["STR", null, "MGS", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "PGS", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "MAJU", "Kapal", 156, 0, 468, 780, 0, 546, 728, 0, 364, 780, 0, 0],
+  ["STR", null, "KTP", "Kapal", 1104, 0, 0, 1400, 0, 2000, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "CILEGON", "Darat", 5000, 5000, 0, 2000, 0, 2016, 4840, 17008, 0, 10000, 0, 0],
+  ["STR", null, "BMM", "Darat", 0, 3650, 0, 0, 0, 0, 3200, 5000, 0, 3000, 0, 0],
+  ["STR", null, "GUDANG BYPASS - LAMPUNG (35244)", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "Gudang Way Lunik", "Terminal", 2920, 19920, 7600, 6685, 75, 3100, 13160, 59880, 5625, 0, 0, 0],
+  ["STR", null, "Terminal Lampung - BMM ( Loco )", "Terminal", 11444, 5075, 3398, 5730, 2326, 6890, 11838, 14910, 3157, 2650, 0, 0],
+  ["STR", null, "INSA", "Kapal", 16050, 2090, 2940, 3898, 4078, 6712, 3000, 6636, 4410, 4895, 200, 0],
+  ["STR", null, "MB", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "CBS", "Kapal", 9464, 3120, 4784, 3900, 4420, 7280, 8060, 7540, 3640, 5460, 0, 0],
+  ["STR", null, "GUDANG BATURAJA - TERMINAL LAMPUNG", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "GUDANG GANDUS - PM", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "GUDANG PERINTIS KEMERDEKAAN - PM", "Terminal", 1000, 3500, 1000, 1000, 0, 0, 1000, 6000, 0, 0, 0, 0],
+  ["STR", null, "GUDANG SUKAJAYA - PM", "Terminal", 7500, 6000, 4800, 2000, 2000, 6000, 5000, 50000, 0, 0, 0, 0],
+  ["STR", null, "GUDANG SUKAJAYA - TERMINAL LAMPUNG", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "GUDANG LAHAT", "Terminal", 640, 740, 200, 400, 190, 490, 480, 4280, 0, 0, 0, 0],
+  ["STR", null, "PM", "Kapal", 0, 0, 1120, 3080, 0, 0, 840, 11648, 448, 3360, 0, 0],
+  ["STR", null, "PM", "Darat", 120, 250, 0, 200, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "SIN", "Kapal", 24920, 624, 3360, 8400, 8400, 11200, 11200, 22400, 0, 0, 0, 0],
+  ["STR", null, "PKB", "Kapal", 5956, 2108, 5060, 3520, 0, 0, 1692, 3484, 5044, 4160, 0, 0],
+  ["STR", null, "PATEN", "Kapal", 2632, 2800, 1288, 3304, 672, 3304, 2968, 3296, 1344, 1008, 0, 0],
+  ["STR", null, "BSJ", "Kapal", 0, 552, 400, 1504, 0, 304, 1000, 0, 0, 0, 0, 0],
+  ["STR", null, "GUDANG WAJOK", "Terminal", 0, 1000, 3000, 5000, 1000, 3500, 10000, 0, 0, 0, 0, 0],
+  ["STR", null, "PKL", "Kapal", 440, 0, 472, 848, 0, 32, 1000, 0, 0, 0, 0, 0],
+  ["STR", null, "PTK", "Kapal", 6152, 80, 2960, 2928, 84, 5664, 2575, 943, 400, 16593, 0, 0],
+  ["STR", null, "NBB", "Kapal", 0, 0, 0, 0, 0, 320, 408, 0, 240, 0, 0, 0],
+  ["STR", null, "BS", "Kapal", 792, 0, 0, 264, 168, 96, 96, 120, 96, 288, 0, 0],
+  ["STR", null, "HUR", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "MA", "Kapal", 528, 0, 0, 312, 96, 24, 216, 96, 144, 192, 0, 0],
+  ["STR", null, "NC", "Kapal", 3528, 0, 0, 2400, 0, 0, 200, 600, 680, 4512, 0, 0],
+  ["STR", null, "NCTB", "Kapal", 144, 0, 0, 96, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "RENULI", "Kapal", 392, 0, 0, 384, 0, 16, 240, 216, 360, 168, 0, 0],
+  ["STR", null, "ROSALIA", "Kapal", 288, 0, 0, 0, 72, 0, 240, 144, 312, 0, 168, 0],
+  ["STR", null, "SS", "Kapal", 216, 272, 280, 168, 0, 120, 0, 392, 280, 264, 0, 0],
+  ["STR", null, "SLA", "Kapal", 0, 0, 0, 24, 0, 24, 0, 24, 24, 24, 0, 0],
+  ["STR", null, "SSK", "Kapal", 456, 0, 216, 336, 0, 0, 216, 0, 768, 720, 0, 0],
+  ["STR", null, "TMA", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["STR", null, "UBS", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "GMD", "Kapal", 1568, 0, 832, 3132, 2626, 200, 2328, 2148, 3648, 3580, 0, 0],
+  ["RJW", null, "JAN", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "WJM", "Kapal", 1216, 48, 1256, 3264, 508, 976, 696, 1236, 2664, 2244, 0, 0],
+  ["RJW", null, "NSA", "Kapal", 5936, 280, 3240, 4688, 1264, 2464, 2456, 6896, 5336, 6688, 152, 0],
+  ["RJW", null, "CB", "Kapal", 128, 0, 0, 360, 0, 0, 0, 240, 192, 264, 48, 0],
+  ["RJW", null, "KB", "Kapal", 816, 0, 808, 1208, 640, 832, 1624, 968, 1032, 1168, 120, 0],
+  ["RJW", null, "BKP", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "GUDANG JAMBI - TERMINAL LAMPUNG", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "GUDANG JAMBI - TERMINAL PALEMBANG", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "JAMBI - LOCO TERMINAL", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "JMB", "Kapal", 0, 0, 3234, 2964, 364, 520, 728, 104, 364, 4992, 0, 0],
+  ["RJW", null, "JMB", "Darat", 0, 50, 0, 0, 0, 1510, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "MGS", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "PGS", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "MAJU", "Kapal", 104, 0, 312, 780, 0, 494, 416, 0, 156, 520, 0, 0],
+  ["RJW", null, "KTP", "Kapal", 896, 0, 0, 608, 0, 2000, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "CILEGON", "Darat", 5000, 10000, 0, 0, 0, 1512, 5944, 16008, 0, 15000, 0, 0],
+  ["RJW", null, "GUDANG BYPASS - LAMPUNG (35244)", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "Gudang Way Lunik", "Terminal", 600, 2000, 2000, 0, 0, 0, 0, 3000, 0, 0, 0, 0],
+  ["RJW", null, "LAMPUNG TERMINAL - LOCO (XXXXX)", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "INSA", "Kapal", 22634, 2250, 3610, 9358, 9810, 12708, 11000, 14954, 12288, 10285, 550, 0],
+  ["RJW", null, "MB", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "CBS", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "GUDANG BATURAJA - TERMINAL LAMPUNG", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "GUDANG GANDUS - PM", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "GUDANG PERINTIS KEMERDEKAAN - PM", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "GUDANG SUKAJAYA - PM", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "GUDANG SUKAJAYA - TERMINAL LAMPUNG", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "PM", "Kapal", 280, 0, 560, 0, 840, 840, 840, 840, 1820, 5712, 0, 0],
+  ["RJW", null, "PM", "Darat", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "SIN", "Kapal", 0, 0, 0, 0, 0, 1008, 1232, 1008, 0, 0, 0, 0],
+  ["RJW", null, "PKB", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "BSJ", "Kapal", 0, 752, 704, 3000, 0, 1408, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "NBB", "Kapal", 0, 0, 0, 0, 0, 544, 848, 64, 952, 224, 0, 0],
+  ["RJW", null, "GUDANG WAJOK", "Terminal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "PKL", "Kapal", 640, 0, 1320, 1160, 0, 2736, 0, 1000, 0, 264, 0, 0],
+  ["RJW", null, "PTK", "Kapal", 4444, 0, 4632, 4860, 0, 13940, 1175, 3255, 1501, 7598, 0, 0],
+  ["RJW", null, "BS", "Kapal", 1416, 0, 336, 744, 576, 984, 672, 576, 240, 744, 0, 0],
+  ["RJW", null, "HUR", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "MA", "Kapal", 528, 24, 264, 264, 120, 264, 240, 312, 168, 288, 0, 0],
+  ["RJW", null, "NC", "Kapal", 0, 0, 0, 0, 0, 0, 800, 0, 1456, 1432, 0, 0],
+  ["RJW", null, "NCTB", "Kapal", 936, 0, 0, 1576, 0, 0, 0, 0, 120, 0, 0, 0],
+  ["RJW", null, "RENULI", "Kapal", 536, 0, 88, 216, 144, 120, 240, 144, 392, 16, 0, 0],
+  ["RJW", null, "ROSALIA", "Kapal", 696, 0, 168, 744, 192, 0, 960, 456, 936, 0, 408, 0],
+  ["RJW", null, "SS", "Kapal", 184, 176, 216, 312, 0, 80, 240, 600, 96, 168, 0, 0],
+  ["RJW", null, "SSK", "Kapal", 888, 0, 192, 336, 0, 96, 384, 48, 480, 480, 0, 0],
+  ["RJW", null, "SLA", "Kapal", 288, 0, 24, 216, 48, 96, 240, 120, 96, 192, 0, 0],
+  ["RJW", null, "TMA", "Kapal", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  ["RJW", null, "UBS", "Kapal", 0, 250, 0, 250, 0, 0, 300, 0, 350, 0, 0, 0]
+]$j$::json, 'isi awal');
+    update sementrack.kelola_log set created_at = timestamptz '2026-11-05 17:00+07'
+     where dataset = 'dofas' and created_by = 'isi awal';
+  end if;
+  if not exists (select 1 from sementrack.sellout_erp where tahun = 2026) then
+    perform sementrack.sellout_erp_simpan(2026, $j$[
+  ["S006", "PT. WANDI JAYA MAKMUR", null, 5289.2, 3162, 3461.05, 5002.9, 1763.3, 3423.95, 5194.9, 3950.4, 4312.25, 4624.45, 633.3, 0],
+  ["S010", "PT. BINTANG SENTOSA JAYA", null, 3154.45, 1050.7, 1387, 1172.65, 0, 1874.6, 1261.35, 1574.15, 1825.15, 1398.6, 0, 0],
+  ["S011", "CV. PANGKALANT", null, 1242.4, 1293.4, 1068.4, 1009.6, 1587.05, 1323.25, 2106, 1578.7, 1528.8, 2114.72, 0, 0],
+  ["S014", "PT. SUMATERA INVESTA NIAGA", null, 9291.5, 9574.5, 9592, 10572.5, 9077, 12096, 11701, 11361.5, 8594.5, 5297, 0, 0],
+  ["S023", "CV. CAHAYA MATAHARI", null, 0, 0, 328.35, 0, 15, 7.5, 15, 15, 35.6, 20.5, 0, 0],
+  ["S028", "PT. PASIFIC GLOBAL SEJAHTERA", null, 172.5, 0, 357.8, 0, 0, 0, 0, 0, 0, 162, 209.3, 0],
+  ["S029", "PT MANDIRI GLOBAL SUKSES SEJAHTERA", null, 29.15, 249.9, 239.1, 509.1, 1131.35, 903.85, 267.15, 924.8, 0, 357.55, 0, 0],
+  ["S032", "PT. MULIA ABADI JAYA UNGGUL", null, 1162.8, 446.4, 862.75, 515.9, 284.45, 1072.55, 825.2, 1232.65, 642.25, 574.85, 406.85, 0]
+]$j$::json, 'isi awal');
+    update sementrack.kelola_log set created_at = timestamptz '2026-11-05 17:00+07'
+     where dataset = 'erp' and created_by = 'isi awal';
+  end if;
+end $do$;
 
 -- Cek:
 -- select * from sementrack.v_sellout_bnn_peta order by urutan;
