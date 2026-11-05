@@ -1,14 +1,15 @@
 /* ============================================================================
-   Kelola Data · Sell In BNN: upload / ganti per rentang tanggal + peta region.
+   Kelola Data · Sell In BNN: upload / ganti per rentang tanggal
+   (+ isi region untuk kode Gudang yang belum terpetakan).
 ============================================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { adminApi } from '../../lib/api';
 import { fmt, MONTHS_ID } from '../../lib/format';
-import { dayCount, fmtDate, fmtRange } from '../../lib/dates';
+import { dayCount, fmtRange } from '../../lib/dates';
 import type { SellinParseResult } from '../../lib/sellin';
 import type { Row } from '../../lib/types';
-import { ErrorBox, TableWrap, cx } from '../../components/ui';
+import { ErrorBox, cx } from '../../components/ui';
 import {
   DoneCard, ErrorLine, ICON, InvalidRows, Note, PreviewFrame, SourcePicker, Steps, Unusable, afterDataChanged, errText, fmtTon, type ImportPhase, useImport,
 } from './shared';
@@ -200,80 +201,6 @@ function RegionAssign({ codes, regions, onSaved, compact }: { codes: { kode: str
         </div>
       ))}
       {msg && <div className="text-red text-[12.5px] px-1">{msg}</div>}
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------------------------
-   Peta region lengkap (lihat + tambah/ubah)
---------------------------------------------------------------------------- */
-export function SellinRegionMap() {
-  const { regionMap, error, reload } = useRegionData();
-  const [q, setQ] = useState('');
-  const [form, setForm] = useState({ kode: '', region: '', nama: '' });
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const regions = regionList(regionMap);
-  const rows = (regionMap || []).filter(r => !q || `${r.kode_customer} ${r.nama_customer} ${r.region}`.toLowerCase().includes(q.toLowerCase()));
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.kode.trim() || !form.region.trim()) return;
-    setBusy(true); setMsg(null);
-    try {
-      await adminApi('POST', 'admin/sellin/region-map', { kode_customer: form.kode.trim(), region: form.region.trim(), nama_customer: form.nama.trim() || null });
-      afterDataChanged();
-      setMsg({ ok: true, text: `Region untuk ${form.kode.trim()} disimpan.` });
-      setForm({ kode: '', region: '', nama: '' });
-      reload();
-    } catch (err) { setMsg({ ok: false, text: errText(err) }); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <div>
-      <p className="text-soft text-[13px] mb-3.5 max-w-[720px]">
-        Menentukan region setiap kode Gudang di Sell In BNN{regionMap ? ` (${fmt(regionMap.length)} kode, ${regions.length} region)` : ''}. Toko/project PT Permata Multi Niaga otomatis masuk Sumsel.
-      </p>
-      {error && <div className="mb-3"><ErrorBox error={error} /></div>}
-      <div className="grid gap-4 grid-cols-[minmax(0,1.6fr)_minmax(260px,1fr)] max-[960px]:grid-cols-1 items-start">
-        <div>
-          <input type="search" placeholder="Cari kode, nama, atau region…" value={q} onChange={e => setQ(e.target.value)} className="w-full mb-2.5" aria-label="Cari di peta region" />
-          <TableWrap className="max-h-[460px] overflow-y-auto">
-            <table className="!min-w-0">
-              <thead><tr><th>Region</th><th>Kode</th><th>Nama customer</th><th>Diubah</th></tr></thead>
-              <tbody>
-                {!regionMap && !error && <tr><td colSpan={4} className="!text-center !text-faint !p-5">Memuat…</td></tr>}
-                {rows.map(r => (
-                  <tr key={r.kode_customer} className="cursor-pointer" tabIndex={0} title="Klik untuk mengubah"
-                    onClick={() => setForm({ kode: String(r.kode_customer), region: String(r.region), nama: String(r.nama_customer || '') })}
-                    onKeyDown={e => { if (e.key === 'Enter') setForm({ kode: String(r.kode_customer), region: String(r.region), nama: String(r.nama_customer || '') }); }}>
-                    <td className="font-semibold">{r.region}</td>
-                    <td className="font-mono text-[12px]">{r.kode_customer}</td>
-                    <td>{r.nama_customer || '–'}</td>
-                    <td className="text-faint text-[12px] whitespace-nowrap">{r.updated_by}{r.updated_at ? ' · ' + fmtDate(String(r.updated_at).slice(0, 10)) : ''}</td>
-                  </tr>
-                ))}
-                {regionMap && rows.length === 0 && <tr><td colSpan={4} className="!text-center !text-faint !p-5">Tidak ditemukan.</td></tr>}
-              </tbody>
-            </table>
-          </TableWrap>
-        </div>
-        <form className="card" onSubmit={submit}>
-          <div className="card-title">Tambah atau ubah</div>
-          <p className="text-faint text-[12px] mb-3">Klik baris di tabel untuk mengubahnya.</p>
-          <div className="flex flex-col gap-3">
-            <div className="control"><label htmlFor="rmKode">Kode customer</label><input id="rmKode" type="text" value={form.kode} onChange={e => setForm(f => ({ ...f, kode: e.target.value }))} placeholder="mis. 3300000006" /></div>
-            <div className="control"><label htmlFor="rmRegion">Region</label>
-              <input id="rmRegion" type="text" list="rm-regions" value={form.region} onChange={e => setForm(f => ({ ...f, region: e.target.value }))} placeholder="Pilih atau ketik region baru" />
-              <datalist id="rm-regions">{regions.map(r => <option key={r} value={r} />)}</datalist>
-            </div>
-            <div className="control"><label htmlFor="rmNama">Nama customer (opsional)</label><input id="rmNama" type="text" value={form.nama} onChange={e => setForm(f => ({ ...f, nama: e.target.value }))} /></div>
-            <button type="submit" className="btn btn-primary justify-center" disabled={busy || !form.kode.trim() || !form.region.trim()}>{busy ? 'Menyimpan…' : 'Simpan'}</button>
-            {msg && <div className={cx('text-[12.5px]', msg.ok ? 'text-green' : 'text-red')} role="status">{msg.text}</div>}
-          </div>
-        </form>
-      </div>
     </div>
   );
 }

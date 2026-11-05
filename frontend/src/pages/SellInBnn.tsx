@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom';
 import { DataSource } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
-import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, pct } from '../lib/format';
+import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact } from '../lib/format';
 import {
-  addDays, addMonths, addYears, daysInMonth, endOfMonth, fmtDate, fmtRange, isISO, parseISO, startOfMonth, startOfQuarter, startOfYear,
+  addDays, addMonths, addYears, daysInMonth, endOfMonth, isISO, parseISO, startOfMonth, startOfQuarter, startOfYear,
   toISO, type DateRange,
 } from '../lib/dates';
 import type { Row } from '../lib/types';
@@ -204,7 +204,6 @@ function Body({ rows, info, last, delivery }: { rows: Row[]; info: Row; last: st
     const partial = months.filter(x => !x.full);
     const prevRange = { from: addYears(range.from, -1), to: addYears(range.to, -1) };
     const targetFull = comparable ? months.reduce((a, x) => a + tArr[x.m], 0) : 0;
-    const targetPro = comparable ? prorate(tArr, range, Y) : 0;
     const prev = comparable ? prorate(pArr, prevRange, P) : 0;
     const monthLabel = (m: number) => {
       const x = months.find(z => z.m === m);
@@ -251,19 +250,14 @@ function Body({ rows, info, last, delivery }: { rows: Row[]; info: Row; last: st
       return [...s.entries()].map(([g, val]) => ({ label: groupName(g), value: val })).filter(x => x.value > 0).sort((a, b) => b.value - a.value);
     };
 
-    return { ton, kirim, targetFull, targetPro, prev, prevRange, months, partial, monthLabel, trend, showCompare, monthRows, drillGroups };
+    return { ton, kirim, targetFull, prev, prevRange, months, partial, monthLabel, trend, showCompare, monthRows, drillGroups };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recs, delivery, range.from, range.to, region, sub, semen, produk, comparable, groupBy, unit, Y, P, kTgt, kPrev]);
 
   const growth = comparable ? growthPct(v.ton, v.prev) : null;
-  const rangeLabel = fmtRange(range);
-  const prevLabel = fmtRange(v.prevRange);
   const m0 = v.months[0].m, m1 = v.months[v.months.length - 1].m;
   const monthsLabel = m0 === m1 ? `${MONTHS_ID[m0]} ${Y}` : `${MONTHS_ID[m0]}–${MONTHS_ID[m1]} ${Y}`;
-  const partialText = v.partial.map(x => v.monthLabel(x.m)).join(', ');
   const scope = [sub !== 'all' ? geo.nameOf(sub) : region !== 'all' && region, semen !== 'all' && SEMEN_OPTS.find(o => o.value === semen)!.label, produk !== 'all' && shortProduk(produk)].filter(Boolean).join(' · ') || 'Semua';
-  const naNote = <span className="text-faint">{why}</span>;
-  const proPct = comparable && v.targetPro > 0 ? pct(v.ton, v.targetPro) : null;
 
   return (
     <>
@@ -286,21 +280,12 @@ function Body({ rows, info, last, delivery }: { rows: Row[]; info: Row; last: st
       </FilterBar>
 
       <div className="grid-kpi">
-        <Kpi title={`Target · ${monthsLabel}`} value={comparable ? fmtTon(v.targetFull) : '–'} unit={comparable ? 'ton' : undefined}
-          delta={!comparable ? naNote : v.partial.length
-            ? <span className="text-faint">Prorata {rangeLabel}: {fmtTon(v.targetPro)} ton</span>
-            : <span className="text-faint">Target bulanan {Y}</span>} />
-        <Kpi title={`Realisasi · ${rangeLabel}`} value={fmtTon(v.ton)} unit="ton"
-          delta={<span className="inline-flex items-center gap-x-2 gap-y-1 flex-wrap">
-            {comparable && <Capaian actual={v.ton} target={v.targetFull} />}
-            {comparable && v.partial.length > 0 && proPct != null && <span className="text-faint">{proPct.toFixed(0)}% dari prorata</span>}
-            {!comparable && <span className="text-faint">{fmt(v.kirim)} pengiriman</span>}
-          </span>} />
+        <Kpi title={`Target ${monthsLabel}`} value={comparable ? fmtTon(v.targetFull) : '–'} unit={comparable ? 'ton' : undefined} />
+        <Kpi title={`Realisasi ${Y}`} value={fmtTon(v.ton)} unit="ton"
+          delta={comparable ? <Capaian actual={v.ton} target={v.targetFull} /> : undefined} />
         <Kpi title={`Pertumbuhan vs ${P}`}
-          value={<span className={growth == null ? '' : growth >= 0 ? 'text-green' : 'text-red'}>{fmtPct(growth)}</span>}
-          delta={comparable ? <span className="text-faint">{rangeLabel} vs {prevLabel}</span> : naNote} />
-        <Kpi title={`Realisasi ${P} · Tanggal Sama`} value={comparable ? fmtTon(v.prev) : '–'} unit={comparable ? 'ton' : undefined}
-          delta={comparable ? <span className="text-faint">{prevLabel}{v.partial.length ? ' · bulan tidak penuh diperkirakan*' : ''}</span> : naNote} />
+          value={<span className={growth == null ? '' : growth >= 0 ? 'text-green' : 'text-red'}>{fmtPct(growth)}</span>} />
+        <Kpi title={`Realisasi ${P} Tanggal Sama`} value={comparable ? fmtTon(v.prev) : '–'} unit={comparable ? 'ton' : undefined} />
       </div>
 
       <Card className="mt-3.5">
@@ -333,9 +318,6 @@ function Body({ rows, info, last, delivery }: { rows: Row[]; info: Row; last: st
         {comparable && unit !== 'bulan' && (
           <p className="text-faint text-[12px] mt-2">Target dan realisasi {P} hanya tersedia per bulan. <button type="button" className="link-btn" onClick={() => setUnitPick('bulan')}>Tampilkan bulanan</button> untuk membandingkan.</p>
         )}
-        {v.showCompare && v.partial.length > 0 && (
-          <p className="text-faint text-[12px] mt-2">{partialText}: realisasi baru sebagian bulan; target dan {P} tetap angka sebulan penuh.</p>
-        )}
       </Card>
 
       {comparable && v.monthRows.length > 0 && (
@@ -349,12 +331,6 @@ function Body({ rows, info, last, delivery }: { rows: Row[]; info: Row; last: st
         </>
       )}
 
-      <p className="text-faint text-[12px] mt-4 leading-relaxed max-w-[900px]">
-        Tonase = Delivery Quantity × berat per zak; mortar dan thinbed tidak dihitung.
-        {' '}Target {Y} dan realisasi {P} dari data Sell In bulanan, hanya STR dan RJW (CWC tidak punya target).
-        {v.partial.length > 0 && comparable && <> *Bulan yang tidak penuh ({partialText}): realisasi {P} pada tanggal yang sama diperkirakan dari total bulan dibagi jumlah hari, dan capaian dihitung terhadap target sebulan penuh.</>}
-        {' '}Data {fmtDate(first)} s.d. {fmtDate(last)}{info.upload_terakhir ? `, upload terakhir ${new Date(info.upload_terakhir).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })} oleh ${info.upload_oleh}` : ''}.
-      </p>
     </>
   );
 }

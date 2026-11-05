@@ -13,7 +13,7 @@ import { freshnessOf, useDataStatus } from '../components/DataStatus';
 import { Badge, Breadcrumb, Chip, ErrorBox, PageHeader, TableWrap, cx } from '../components/ui';
 import { ICON, Ic, errText, fmtWhen } from './kelola/shared';
 import { TransaksiUpload, StatusSyncForm } from './kelola/TransaksiPanel';
-import { SellinRegionMap, SellinUpload } from './kelola/SellinPanel';
+import { SellinUpload } from './kelola/SellinPanel';
 import { HapusPanel } from './kelola/HapusPanel';
 
 type Tab = 'transaksi' | 'sellin' | 'riwayat';
@@ -24,7 +24,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 ];
 const MENUS: Record<Exclude<Tab, 'riwayat'>, { id: string; label: string }[]> = {
   transaksi: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }, { id: 'sinkron', label: 'Waktu pembaruan' }],
-  sellin: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }, { id: 'region', label: 'Peta region' }],
+  sellin: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }],
 };
 
 export default function KelolaData() {
@@ -73,7 +73,6 @@ export default function KelolaData() {
           {tab === 'transaksi' && menu === 'sinkron' && <StatusSyncForm onChanged={changed} />}
           {tab === 'sellin' && menu === 'upload' && <SellinUpload onChanged={changed} />}
           {tab === 'sellin' && menu === 'hapus' && <HapusPanel dataset="sellin" lastDate={statusRow?.data_sampai ? String(statusRow.data_sampai).slice(0, 10) : null} onChanged={changed} />}
-          {tab === 'sellin' && menu === 'region' && <SellinRegionMap />}
           {tab === 'riwayat' && <Riwayat version={version} />}
         </div>
 

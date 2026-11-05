@@ -103,3 +103,6 @@ Urutan pasang (keduanya wajib, kalau tidak Overview menampilkan pesan "Filter re
      kalau memakai out-of-process, naikkan `requestTimeout` di `web.config` (aspNetCore) ke minimal `00:05:00`.
 3. Menu `Upload Sell In` berganti menjadi `Kelola Data` (`/kelola-data`, khusus admin). Akun admin yang sedang login perlu login ulang.
 4. Fitur unduh PPT di Overview dihapus (paket `pptxgenjs` ikut dibuang dari frontend).
+5. Halaman `Sell In` (`delivery`) dihapus; isinya sudah tercakup di `Sell In BNN`. View `v_delivery_ext` tetap dipakai Sell In BNN
+   (target & realisasi tahun lalu), jadi jangan dihapus. Id halaman lama di `auth_local.role_pages` otomatis diabaikan.
+   Di Kelola Akses, centang "Sell In BNN" untuk role Management kalau hak aksesnya pernah diubah manual.

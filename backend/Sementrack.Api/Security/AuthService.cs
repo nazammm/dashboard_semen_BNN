@@ -85,7 +85,7 @@ public sealed class AuthService
 
         var rows = await _db.QueryAsync("select page_id from auth_local.role_pages where role=$1 order by page_id", new object?[] { role });
         var pages = rows.Count > 0
-            ? rows.Select(x => (string)x["page_id"]!).Where(x => x != NoPagesMarker).ToArray()
+            ? rows.Select(x => (string)x["page_id"]!).Where(x => x != NoPagesMarker && AccessRules.KnownPageIds.Contains(x)).ToArray()   // id lama (mis. "delivery") diabaikan
             : AccessRules.DefaultPagesFor(role);
         _rolePagesCache[role] = pages;
         return pages;

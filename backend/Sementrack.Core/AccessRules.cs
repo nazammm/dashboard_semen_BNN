@@ -8,7 +8,7 @@ public static class AccessRules
 {
     public static readonly string[] DashboardPages =
     {
-        "beranda", "performa-daerah", "delivery", "sell-in-bnn", "rekap-harian", "tim-sales",
+        "beranda", "performa-daerah", "sell-in-bnn", "rekap-harian", "tim-sales",
         "peta-toko", "daftar-toko", "transaksi-detail", "toko-detail",
     };
 
@@ -126,7 +126,6 @@ public static class AccessRules
                     "dashboard_period_summary_range", "dashboard_top_customers_range", "dashboard_channel_breakdown_range",
                     "dashboard_payment_breakdown_range", "dashboard_delivery_type_breakdown_range", "dashboard_product_breakdown_range" }),
         ["performa-daerah"] = new(new[] { "v_cement_targets_ext" }, Array.Empty<string>()),
-        ["delivery"] = new(new[] { "v_delivery_ext" }, Array.Empty<string>()),
         ["sell-in-bnn"] = new(new[] { "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_delivery_ext" }, Array.Empty<string>()),
         ["rekap-harian"] = new(new[] { "v_distributor_summary", "v_monthly_totals", "produk", "v_target_dist" }, new[] { "dashboard_daily_matrix" }),
         ["tim-sales"] = new(new[] { "v_salesman_performance", "distributor_target_salesman" }, Array.Empty<string>()),

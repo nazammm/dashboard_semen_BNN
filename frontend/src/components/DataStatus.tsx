@@ -97,7 +97,7 @@ const SOURCE_PAGES: Record<string, string[]> = {
   transaksi: ['beranda', 'rekap-harian', 'tim-sales', 'daftar-toko', 'peta-toko', 'kelola-data'],
   sellin: ['sell-in-bnn', 'kelola-data'],
   sellout_bulanan: ['performa-daerah'],
-  sellin_bulanan: ['delivery'],
+  sellin_bulanan: [],   // halaman Sell In dihapus; target & 2025 di Sell In BNN tidak bergantung pada closing terbaru
 };
 const SHORT_NAME: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', sellout_bulanan: 'Sell Out bulanan', sellin_bulanan: 'Sell In bulanan' };
 const LEVEL_LABEL: Record<FreshLevel, string> = { good: 'Terkini', warn: 'Tertinggal', bad: 'Perlu dicek', none: 'Kosong' };

@@ -27,7 +27,7 @@ export default function RekapHarian() {
 
 function RekapBody({ base }: { base: Base }) {
   const { canViewDetail } = useAuth();
-  const { monthly, dists, produk, targetDist, freshnessData } = base;
+  const { monthly, dists, produk, targetDist } = base;
 
   const distCodes = useMemo(() => dists.filter(d => d.tag === 'Distributor').map(d => String(d.dist_code)).sort(), [dists]);
   const jenisList = useMemo(() => [...new Set(produk.map(p => String(p.jenis)))].sort(), [produk]);

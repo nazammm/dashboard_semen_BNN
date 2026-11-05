@@ -9,7 +9,6 @@ import ErrorBoundary from './components/ErrorBoundary';
 const pages: Record<string, ReturnType<typeof lazy>> = {
   beranda: lazy(() => import('./pages/Beranda')),
   'performa-daerah': lazy(() => import('./pages/PerformaDaerah')),
-  delivery: lazy(() => import('./pages/Delivery')),
   'rekap-harian': lazy(() => import('./pages/RekapHarian')),
   'tim-sales': lazy(() => import('./pages/TimSales')),
   'peta-toko': lazy(() => import('./pages/PetaToko')),
