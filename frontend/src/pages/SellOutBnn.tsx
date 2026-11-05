@@ -280,7 +280,7 @@ function Body({ peta, monthly, targets, status }: { peta: Peta[]; monthly: Row[]
                 footer: (items: any[]) => (items.length ? `Total ${Y}: ${fmt(v.trend.cur[items[0].dataIndex])} ton` : ''),
               } } } },
           })} />
-        {v.untyped > 0 && <p className="text-faint text-[12px] mt-2">Sub ERP (WJM, SIN, BSJ, Pangkalant) belum dipisah per tipe, jadi {fmtTon(v.untyped)} ton tidak ikut saat filter tipe.</p>}
+        {v.untyped > 0 && <p className="text-faint text-[12px] mt-2">{fmtTon(v.untyped)} ton Sub ERP masih tersimpan tanpa tipe (ditempel versi total), jadi tidak ikut saat filter tipe. Tempel ulang Sub ERP per tipe untuk memisahkannya.</p>}
       </Card>
 
       <h2 className="section-title">Rincian per Bulan · Sell Out (Ton)</h2>

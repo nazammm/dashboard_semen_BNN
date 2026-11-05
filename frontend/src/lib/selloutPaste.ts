@@ -18,7 +18,11 @@ export const TIPE: Tipe[] = ['STR', 'RJW', 'CWC'];
 export interface Issue { row: number; reason: string }
 export interface DofasRow { tipe: Tipe; distributor: string; keterangan: string; ton: number[] }
 export interface ErpRow { kode: string; nama: string; tipe: Tipe | null; ton: number[]; total: number | null }
-export interface PasteResult<R> { ok: boolean; error?: string; rows: R[]; issues: Issue[]; warnings: string[] }
+export interface PasteResult<R> {
+  ok: boolean; error?: string; rows: R[]; issues: Issue[]; warnings: string[];
+  /** Hanya untuk format blok per bulan: bulan yang ada di tempelan (1..12). Bulan lain tidak diubah saat simpan. */
+  months?: number[];
+}
 
 const MONTH_NAMES = [
   ['jan', 'januari', 'january'], ['feb', 'februari', 'february', 'peb'], ['mar', 'maret', 'march'], ['apr', 'april'],
@@ -185,6 +189,7 @@ function parseErpBlocks(lines: string[][]): PasteResult<ErpRow> | null {
     row.ton[month - 1] += ton; byKey.set(key, row);
   });
   res.rows = [...byKey.values()].sort((a, b) => a.kode.localeCompare(b.kode) || TIPE.indexOf(a.tipe!) - TIPE.indexOf(b.tipe!));
+  res.months = [...monthsSeen].sort((a, b) => a - b);
   res.ok = res.rows.length > 0;
   if (!res.ok) res.error = 'Tidak ada baris data yang terbaca.';
   return res;
@@ -275,4 +280,6 @@ function groupIgnored(items: { i: number; key: string; label: string; total: num
 /** Bentuk baris untuk fungsi database (urutan kolom = argumen sementrack.sellout_*_simpan). */
 // area selalu null: kolom Area di DO FAS tidak dipakai (region mengikuti peta)
 export const dofasPayload = (rows: DofasRow[]) => rows.map(r => [r.tipe, null, r.distributor, r.keterangan, ...r.ton]);
-export const erpPayload = (rows: ErpRow[]) => rows.map(r => [r.kode, r.nama, r.tipe, ...r.ton]);
+// months: bulan yang ditempel; bulan lain dikirim null = tidak diubah di database
+export const erpPayload = (rows: ErpRow[], months?: number[]) =>
+  rows.map(r => [r.kode, r.nama, r.tipe, ...r.ton.map((t, i) => (months && !months.includes(i + 1) ? null : t))]);

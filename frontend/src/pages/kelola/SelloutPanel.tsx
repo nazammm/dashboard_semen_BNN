@@ -26,7 +26,7 @@ const PLACEHOLDER: Record<Dataset, string> = {
 };
 const HINT: Record<Dataset, string> = {
   dofas: 'Salin tabel DO FAS dari Excel termasuk baris judul (kolom tipe STR/RJW, Distributor, Keterangan, 1 s.d. 12). Kolom Area tidak dipakai: region mengikuti peta Sell Out BNN. Angka dalam ton; "-" dibaca 0.',
-  erp: 'Salin Sub ERP per tipe dari Excel: blok per bulan (judul JANUARI, FEBRUARI, …), lalu baris "S006 - Nama" | PCC / PCC – RJW | ton. Ikutkan semua bulan dari Januari, karena simpan mengganti setahun penuh. Format total (Distributor | Jan … Dec | Total) juga masih bisa.',
+  erp: 'Salin Sub ERP per tipe dari Excel: blok per bulan (judul JANUARI, FEBRUARI, …), lalu baris "S006 - Nama" | PCC / PCC – RJW | ton. Boleh hanya bulan tertentu: bulan yang tidak ditempel tidak diubah. Format total (Distributor | Jan … Dec | Total) juga masih bisa.',
 };
 
 type Phase =
@@ -70,7 +70,7 @@ export function SelloutPaste({ dataset, onChanged }: { dataset: Dataset; onChang
     setError(null);
     setPhase({ kind: 'saving', res });
     try {
-      const rows = dataset === 'dofas' ? dofasPayload(res.rows as DofasRow[]) : erpPayload(res.rows as ErpRow[]);
+      const rows = dataset === 'dofas' ? dofasPayload(res.rows as DofasRow[]) : erpPayload(res.rows as ErpRow[], res.months);
       const result = await adminApi<Row>('POST', 'admin/data/sellout', { dataset, tahun, rows });
       afterDataChanged(); onChanged();
       setText('');
@@ -102,7 +102,9 @@ export function SelloutPaste({ dataset, onChanged }: { dataset: Dataset; onChang
                 {[thisYear, thisYear - 1].map(y => <option key={y} value={y}>{y}</option>)}
               </select>
             </div>
-            <span className="text-faint text-[12px] max-w-[520px]">Simpan akan mengganti seluruh {LABEL[dataset]} tahun {tahun}.</span>
+            <span className="text-faint text-[12px] max-w-[520px]">{dataset === 'erp'
+              ? `Simpan mengganti bulan yang ada di tempelan saja; bulan lain tahun ${tahun} tetap.`
+              : `Simpan akan mengganti seluruh ${LABEL[dataset]} tahun ${tahun}.`}</span>
           </div>
           <label htmlFor={`so-${dataset}-paste`} className="block text-[13px] text-soft mb-2">{HINT[dataset]}</label>
           <textarea id={`so-${dataset}-paste`} className="upl-paste" value={text} onChange={e => setText(e.target.value)} spellCheck={false} placeholder={PLACEHOLDER[dataset]} />
@@ -126,8 +128,11 @@ function Preview({ dataset, tahun, res, peta, current, saving, onSave, onCancel 
   dataset: Dataset; tahun: number; res: PasteResult<DofasRow> | PasteResult<ErpRow>; peta: PetaRow[]; current: Row[] | null;
   saving: boolean; onSave: () => void; onCancel: () => void;
 }) {
-  const { mapped, ignored } = dataset === 'dofas' ? mapDofas(res.rows as DofasRow[], peta) : mapErp(res.rows as ErpRow[], peta);
-  const usedTon = mapped.reduce((a, m) => a + sum(m.ton), 0);
+  const map0 = dataset === 'dofas' ? mapDofas(res.rows as DofasRow[], peta) : mapErp(res.rows as ErpRow[], peta);
+  const ignored = map0.ignored;
+  // format per bulan: bulan yang tidak ditempel tetap memakai data tersimpan
+  const pasted = res.months;
+  const keep = (k: number) => !!pasted && !pasted.includes(k + 1);
   const allTon = (res.rows as { ton: number[] }[]).reduce((a, r) => a + sum(r.ton), 0);
   // yang sekarang tersimpan per baris peta x bulan (index 0 = Jan)
   const prev = useMemo(() => {
@@ -138,11 +143,14 @@ function Preview({ dataset, tahun, res, peta, current, saving, onSave, onCancel 
     });
     return m;
   }, [current, dataset, tahun]);
+  const mapped = map0.mapped.map(m => ({ ...m, ton: m.ton.map((t, k) => (keep(k) ? prev.get(m.peta.id)?.[k] || 0 : t)) }));
+  const usedTon = mapped.reduce((a, m) => a + sum(m.ton), 0);
+  const keptMonths = pasted ? Array.from({ length: 12 }, (_, k) => k).filter(k => keep(k) && mapped.some(m => m.ton[k])) : [];
   // bulan yang sudah lewat tetapi turun dibanding yang tersimpan (mis. jadi 0): biasanya salah salin
   const today = todayWIB();
   const closedUpTo = tahun < Number(today.slice(0, 4)) ? 12 : Number(today.slice(5, 7)) - 1;
   const hilang = mapped.flatMap(m => (prev.get(m.peta.id) || []).map((before, k) => ({ m, k, before, after: m.ton[k] })))
-    .filter(x => (x.k < closedUpTo && x.before - x.after >= 1) || (x.before >= 1 && Math.abs(x.after) < 0.5));
+    .filter(x => !keep(x.k)).filter(x => (x.k < closedUpTo && x.before - x.after >= 1) || (x.before >= 1 && Math.abs(x.after) < 0.5));
   const missing = mapped.filter(m => m.rows === 0);
   const lastMonth = Math.max(0, ...mapped.flatMap(m => m.ton.map((t, i) => (t ? i + 1 : 0))));
   const lastShown = Math.max(lastMonth, ...hilang.map(x => x.k + 1));
@@ -187,9 +195,10 @@ function Preview({ dataset, tahun, res, peta, current, saving, onSave, onCancel 
                     <td className="whitespace-nowrap">{m.peta.region}</td>
                     <td className="whitespace-nowrap font-semibold" title={(m.peta.dofas_kode || [m.peta.erp_kode]).join(', ') + (m.peta.dofas_tipe ? ` (${m.peta.dofas_tipe})` : '')}>{m.peta.nama}</td>
                     {months.map(k => {
-                      const lost = hilang.some(x => x.m === m && x.k === k - 1);
+                      const lost = hilang.some(x => x.m === m && x.k === k - 1), kept = keep(k - 1);
                       return (
-                        <td key={k} className={cx('num font-mono', lost && 'text-red font-semibold')} title={lost ? `Sebelumnya ${fmtTon(stored![k - 1])} ton` : undefined}>
+                        <td key={k} className={cx('num font-mono', lost && 'text-red font-semibold', kept && 'text-faint italic')}
+                          title={lost ? `Sebelumnya ${fmtTon(stored![k - 1])} ton` : kept ? 'Tidak ada di tempelan: tetap data tersimpan' : undefined}>
                           {m.ton[k - 1] ? fmt(m.ton[k - 1], m.ton[k - 1] % 1 ? 1 : 0) : lost ? '0' : '–'}
                         </td>
                       );
@@ -205,6 +214,12 @@ function Preview({ dataset, tahun, res, peta, current, saving, onSave, onCancel 
           </table>
         </div>
 
+        {keptMonths.length > 0 && (
+          <Note tone="info">
+            <b>{keptMonths.map(k => MONTHS_ID[k + 1]).join(', ')}</b> tidak ada di tempelan, jadi tidak diubah: tetap memakai data yang sudah tersimpan (angka miring).
+            Hanya bulan {pasted!.map(k => MONTHS_ID[k]).join(', ')} yang diganti.
+          </Note>
+        )}
         {hilang.length > 0 && (
           <Note tone="warn">
             <b>Lebih kecil dari yang tersimpan:</b>{' '}
@@ -228,7 +243,7 @@ function Preview({ dataset, tahun, res, peta, current, saving, onSave, onCancel 
       </div>
 
       <div className="px-[22px] py-4 border-t border-line flex items-center justify-between gap-4 flex-wrap bg-surface2/60">
-        <span className="text-[12.5px] text-soft">{saving ? 'Menyimpan…' : `Seluruh ${LABEL[dataset]} ${tahun} yang tersimpan akan diganti.`}</span>
+        <span className="text-[12.5px] text-soft">{saving ? 'Menyimpan…' : pasted ? `${LABEL[dataset]} ${tahun} bulan ${MONTHS_ID[pasted[0]]}${pasted.length > 1 ? '–' + MONTHS_ID[pasted[pasted.length - 1]] : ''} akan diganti; bulan lain tetap.` : `Seluruh ${LABEL[dataset]} ${tahun} yang tersimpan akan diganti.`}</span>
         <div className="flex gap-2">
           <button type="button" className="btn" onClick={onCancel} disabled={saving}>Batal</button>
           <button type="button" className="btn btn-primary" onClick={onSave} disabled={saving || !res.rows.length}>{saving ? 'Menyimpan…' : `Simpan ${LABEL[dataset]} ${tahun}`}</button>

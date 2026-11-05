@@ -154,13 +154,14 @@ begin
   return query select v_baris, v_old / 12, v_ton;
 end $$;
 
--- Ganti seluruh Sub ERP satu tahun. p_rows = [[kode, nama, tipe|null, jan..des], ...]
+-- Simpan Sub ERP satu tahun: hanya bulan yang ada angkanya di p_rows yang diganti (null = bulan tidak ditempel).
+-- p_rows = [[kode, nama, tipe|null, jan..des], ...]
 create or replace function sementrack.sellout_erp_simpan(p_tahun integer, p_rows json, p_user text)
 returns table(rows_saved integer, rows_deleted integer, ton numeric)
 language plpgsql security definer
 set search_path to 'sementrack', 'public', 'pg_temp'
 as $$
-declare v_old integer; v_new integer; v_ton numeric;
+declare v_old integer; v_new integer; v_ton numeric; v_bulan integer[];
 begin
   if p_tahun is null or p_tahun not between 2020 and 2100 then raise exception 'Tahun tidak valid' using errcode = '22023'; end if;
   if json_typeof(p_rows) <> 'array' or json_array_length(p_rows) = 0 then raise exception 'Tidak ada baris Sub ERP' using errcode = '22023'; end if;
@@ -180,15 +181,22 @@ begin
     raise exception 'Kode % muncul lebih dari sekali', (select kode from _erp group by kode, tipe, bulan having count(*) > 1 limit 1) using errcode = '22023';
   end if;
 
-  delete from sementrack.sellout_erp e where e.tahun = p_tahun;
-  get diagnostics v_old = row_count;
+  -- Bulan yang ikut ditempel = bulan yang punya angka (null = bulan itu tidak ada di tempelan).
+  -- Hanya bulan itu yang diganti; bulan lain tetap memakai data yang sudah tersimpan.
+  select array_agg(distinct x.bulan order by x.bulan) into v_bulan from _erp x where x.ton is not null;
+  if v_bulan is null then raise exception 'Tidak ada angka Sub ERP' using errcode = '22023'; end if;
+
+  with d as (delete from sementrack.sellout_erp e where e.tahun = p_tahun and e.bulan = any (v_bulan) returning e.kode, e.tipe)
+  select count(distinct (d.kode, d.tipe)) into v_old from d;
   insert into sementrack.sellout_erp (tahun, kode, nama, tipe, bulan, ton)
-  select p_tahun, x.kode, x.nama, x.tipe, x.bulan, coalesce(x.ton, 0) from _erp x;
-  select count(distinct (x.kode, x.tipe)), coalesce(sum(x.ton), 0) into v_new, v_ton from _erp x;
+  select p_tahun, x.kode, x.nama, x.tipe, x.bulan, x.ton from _erp x where x.bulan = any (v_bulan) and x.ton is not null;
+  select count(distinct (x.kode, x.tipe)), coalesce(sum(x.ton), 0) into v_new, v_ton from _erp x where x.ton is not null;
 
   insert into sementrack.kelola_log (dataset, aksi, created_by, source, date_from, date_to, rows_read, rows_saved, rows_deleted, status, finished_at)
-  values ('erp', 'upload', p_user, 'tempel', make_date(p_tahun, 1, 1), make_date(p_tahun, 12, 31), v_new, v_new, v_old / 12, 'selesai', now());
-  return query select v_new, v_old / 12, v_ton;
+  values ('erp', 'upload', p_user, 'tempel', make_date(p_tahun, v_bulan[1], 1),
+          (make_date(p_tahun, v_bulan[array_length(v_bulan, 1)], 1) + interval '1 month - 1 day')::date,
+          v_new, v_new, v_old, 'selesai', now());
+  return query select v_new, v_old, v_ton;
 end $$;
 
 -- ---------------------------------------------------------------------
@@ -399,7 +407,10 @@ begin
     update sementrack.kelola_log set created_at = timestamptz '2026-11-05 17:00+07'
      where dataset = 'dofas' and created_by = 'isi awal';
   end if;
-  if not exists (select 1 from sementrack.sellout_erp where tahun = 2026) then
+  -- Sub ERP per tipe. Dipasang kalau 2026 masih kosong, ATAU kalau yang tersimpan masih versi total lama
+  -- (semua tanpa tipe). Bulan yang belum ada di versi per tipe (mis. Nov) tetap memakai angka total lama.
+  if not exists (select 1 from sementrack.sellout_erp where tahun = 2026 and tipe is not null) then
+    create temp table _erp_lama on commit drop as select * from sementrack.sellout_erp where tahun = 2026;
     perform sementrack.sellout_erp_simpan(2026, $j$[
   ["S006", "PT. WANDI JAYA MAKMUR", "STR", 3369.7, 1932.7, 2683.8, 2979.05, 1500, 2288.35, 3095.8, 2214.65, 2634.3, 2952.6, 0, 0],
   ["S006", "PT. WANDI JAYA MAKMUR", "RJW", 1919.5, 1229.3, 777.25, 2023.85, 263.3, 1135.6, 2099.1, 1735.75, 1677.95, 1671.85, 0, 0],
@@ -417,6 +428,12 @@ begin
   ["S032", "PT. MULIA ABADI JAYA UNGGUL", "STR", 703.7, 157.5, 483.45, 249, 165.25, 577.8, 498.35, 677.6, 435.5, 390.25, 0, 0],
   ["S032", "PT. MULIA ABADI JAYA UNGGUL", "RJW", 459.1, 288.9, 379.3, 266.9, 119.2, 494.75, 326.85, 555.05, 206.75, 184.6, 0, 0]
 ]$j$::json, 'isi awal');
+    insert into sementrack.sellout_erp (tahun, kode, nama, tipe, bulan, ton)
+    select o.tahun, o.kode, o.nama, null, o.bulan, o.ton
+    from _erp_lama o
+    where o.ton <> 0
+      and not exists (select 1 from sementrack.sellout_erp n
+                      where n.tahun = 2026 and n.kode = o.kode and n.bulan = o.bulan and n.tipe is not null and n.ton <> 0);
     update sementrack.kelola_log set created_at = timestamptz '2026-11-05 17:00+07'
      where dataset = 'erp' and created_by = 'isi awal';
   end if;
