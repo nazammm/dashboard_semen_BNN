@@ -1,121 +1,46 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import type { ChartConfiguration } from 'chart.js';
 import { DataSource, rangeSummary, topCustomersRange, deliveryTypeRange, channelRange, paymentRange, productMixRange } from '../lib/data';
-import { MONTHS_FULL, addDays, addMonths, endOfMonth, fmtRange, isISO, sameRangeLastYear, startOfMonth, startOfQuarter, startOfYear, toISO, type DateRange } from '../lib/dates';
+import { addDays, addMonths, endOfMonth, fmtRange, isISO, sameRangeLastYear, startOfMonth, startOfQuarter, startOfYear, toISO, type DateRange } from '../lib/dates';
 import { DateRangePicker, type RangePreset } from '../components/DateRangePicker';
 import {
-  MONTHS_ID, COLORS, PALETTE, fmt, fmtIDR, fmtIDRCompact, fmtCompact, chartSRSummary,
+  MONTHS_ID, COLORS, fmt, fmtIDR, fmtIDRCompact, fmtCompact, chartSRSummary,
 } from '../lib/format';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { DataBadge } from '../components/DataStatus';
-import { useChart, donutPercentPlugins } from '../lib/chart';
+import { useChart } from '../lib/chart';
 import {
-  Badge, Card, Chip, CellLink, ChartBox, ErrorBox, PageSkeleton, Select, TableWrap, Th, cx,
+  Badge, Card, Chip, CellLink, ChartBox, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th, cx,
 } from '../components/ui';
 import type { Row } from '../lib/types';
 
 /* ============================================================================
-   Hero: jaringan distributor (SVG statis milik sendiri) + parallax + leaderboard
+   Distributor teratas bulan terakhir (tonase), bar sederhana
 ============================================================================ */
-const HUB = { x: 610, y: 330 };
-const NET_NODES = [
-  { c: 'NSA', x: 900, y: 70 }, { c: 'PKB', x: 770, y: 145 }, { c: 'CBS', x: 430, y: 110 },
-  { c: 'INSA', x: 250, y: 90 }, { c: 'JMB', x: 470, y: 290 }, { c: 'BMM', x: 300, y: 560 },
-  { c: 'PM', x: 400, y: 440 }, { c: 'BKP', x: 195, y: 465 }, { c: 'GMD', x: 770, y: 415 },
-  { c: 'PTK', x: 905, y: 520 },
-];
-// Jaringan hanya tampak di sisi kanan (di belakang panel peringkat), tidak menimpa judul dan angka KPI di kiri.
-const NET_MASK = 'linear-gradient(to right, transparent 38%, #000 72%)';
-
-function HeroNetwork({ svgRef }: { svgRef: React.Ref<SVGSVGElement> }) {
-  return (
-    <svg ref={svgRef} className="absolute inset-0 z-0 w-full h-full opacity-90 will-change-transform"
-      style={{ WebkitMaskImage: NET_MASK, maskImage: NET_MASK }}
-      viewBox="0 0 1000 640" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      {NET_NODES.map(n => (
-        <line key={n.c} x1={HUB.x} y1={HUB.y} x2={n.x} y2={n.y} stroke="#FF5A1F" strokeWidth="1" strokeDasharray="1 6" opacity=".55" />
-      ))}
-      <circle cx={HUB.x} cy={HUB.y} r="9" fill="#FF5A1F" />
-      <circle cx={HUB.x} cy={HUB.y} r="17" fill="none" stroke="#FF5A1F" strokeWidth="1" opacity=".5" />
-      {NET_NODES.map(n => (
-        <g key={n.c}>
-          <circle cx={n.x} cy={n.y} r="4.5" fill="#0E0D0B" stroke="#FF5A1F" strokeWidth="1.4" />
-          <text x={n.x} y={n.y - 11} textAnchor="middle" fontFamily="IBM Plex Mono, monospace" fontSize="12" letterSpacing="1" fill="#C9C3B4" opacity=".85">{n.c}</text>
-        </g>
-      ))}
-    </svg>
-  );
-}
-
-/** Parallax grid + jaringan saat scroll; dimatikan kalau prefers-reduced-motion. */
-function useParallax(gridRef: React.RefObject<HTMLElement>, netRef: React.RefObject<SVGSVGElement>) {
-  useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    let ticking = false;
-    let raf = 0;
-    const apply = () => {
-      const y = window.scrollY;
-      if (gridRef.current) gridRef.current.style.transform = `translateY(${y * 0.18}px)`;
-      if (netRef.current) netRef.current.style.transform = `translateY(${y * 0.36}px)`;
-      ticking = false;
-    };
-    const onScroll = () => {
-      if (ticking) return;
-      ticking = true;
-      raf = requestAnimationFrame(apply);
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    apply();
-    return () => { window.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); };
-  }, [gridRef, netRef]);
-}
-
 interface RankItem { dist_code: string; dist_name: string; tonase: number }
 
-function HeroLeaderboard({ ranking, monthLabel }: { ranking: RankItem[]; monthLabel: string }) {
+function TopDistributors({ ranking, monthLabel }: { ranking: RankItem[]; monthLabel: string }) {
+  const max = ranking.reduce((a, d) => Math.max(a, d.tonase), 0) || 1;
   return (
-    <aside className="relative z-[3] flex-none w-[300px] max-[880px]:w-full max-[880px]:basis-full mt-1.5 rounded px-5 py-[18px] border border-white/[.14] backdrop-blur-[8px]"
-      style={{ background: 'rgba(14,13,11,.82)', boxShadow: '0 12px 28px rgba(0,0,0,.4)' }}
-      aria-label={`Peringkat distributor berdasarkan tonase ${monthLabel}`}>
-      <div className="font-mono text-[10.5px] uppercase text-[#8F8874] mb-3.5" style={{ letterSpacing: '.07em' }}>Top 5 Tonase · {monthLabel}</div>
-      <ol className="list-none m-0 p-0 flex flex-col gap-3">
+    <Card title={`Distributor teratas · ${monthLabel}`} className="flex flex-col">
+      <ol className="list-none m-0 p-0 flex flex-col gap-2.5 mt-1" aria-label={`Peringkat distributor berdasarkan tonase ${monthLabel}`}>
         {ranking.map((d, i) => (
-          <li key={d.dist_code} className="flex items-center gap-2.5">
-            <span className={cx('font-disp font-extrabold text-base w-5 shrink-0 text-center', i === 0 ? 'text-accent' : 'text-[#6B6558]')}>{i + 1}</span>
-            <span className="flex-1 min-w-0 flex flex-col font-sans text-[13px] font-semibold text-white">
-              {d.dist_code}
-              <small className="font-mono text-[10.5px] font-medium text-[#9C9585] whitespace-nowrap overflow-hidden text-ellipsis">{d.dist_name}</small>
-            </span>
-            <span className="font-mono text-[13px] font-bold text-[#EDE9DF] text-right shrink-0">
-              {fmt(d.tonase, 1)}
-              <small className="block text-[9.5px] font-medium text-[#8F8874] text-right">ton</small>
-            </span>
+          <li key={d.dist_code} className="grid grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-x-2.5">
+            <span className="text-[12.5px] text-faint text-right">{i + 1}</span>
+            <div className="min-w-0">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[13px] font-medium truncate" title={d.dist_name}>{d.dist_code} <span className="text-faint font-normal">{d.dist_name}</span></span>
+              </div>
+              <div className="h-1.5 mt-1 rounded-full bg-surface3 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${(d.tonase / max) * 100}%`, background: i === 0 ? COLORS.accent : COLORS.sub }} /></div>
+            </div>
+            <span className="text-[13px] font-medium text-right whitespace-nowrap">{fmt(d.tonase)} <span className="text-faint font-normal">ton</span></span>
           </li>
         ))}
-        {ranking.length === 0 && <li className="font-mono text-xs text-[#8F8874]">Belum ada data bulan ini.</li>}
+        {ranking.length === 0 && <li className="text-[13px] text-faint">Belum ada data bulan ini.</li>}
       </ol>
-    </aside>
+    </Card>
   );
 }
-
-function HeroSelect({ id, label, value, onChange, children, minWidth }: { id: string; label: string; value: string | number; onChange: (v: string) => void; children: ReactNode; minWidth?: number }) {
-  return (
-    <div className="control">
-      <label htmlFor={id} style={{ color: '#8F8874' }}>{label}</label>
-      <select id={id} value={value} onChange={e => onChange(e.target.value)} style={minWidth ? { minWidth } : undefined}>{children}</select>
-    </div>
-  );
-}
-
-function HeroKpi({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <div className="font-mono text-[11px] uppercase text-[#8F8874]" style={{ letterSpacing: '.08em' }}>{label}</div>
-      <div className="font-disp font-extrabold text-4xl text-white mt-1">{children}</div>
-    </div>
-  );
-}
-const HeroUnit = ({ children }: { children: ReactNode }) => <small className="font-mono text-[13px] text-accent font-semibold ml-1">{children}</small>;
 
 /* ============================================================================
    Bar horizontal generik (Bauran Pembayaran / Delivery Type)
@@ -126,13 +51,16 @@ function RankedBar({ title, labels, values, axisFmt, tooltipFmt }: {
   const total = values.reduce((a, v) => a + v, 0);
   // min-height (bukan height tetap): box ini flex:1 di dalam card-nya; min-height hanya menjaga bar
   // tidak kegepengan kalau kategorinya banyak.
-  const minH = Math.max(150, Math.min(420, labels.length * 34 + 44));
+  const minH = Math.max(150, Math.min(420, labels.length * 30 + 40));
   const ref = useChart(() => ({
     type: 'bar',
-    data: { labels, datasets: [{ data: values, backgroundColor: PALETTE, maxBarThickness: 22, borderRadius: 3 }] },
+    data: { labels, datasets: [{ data: values, backgroundColor: labels.map(l => (l === 'Lainnya' ? COLORS.prev : COLORS.accent)), maxBarThickness: 18 }] },
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-      scales: { x: { grid: { color: COLORS.line }, ticks: { callback: (v: any) => axisFmt(Number(v)) } }, y: { grid: { display: false } } },
+      scales: {
+        x: { grid: { color: COLORS.line }, border: { display: false }, ticks: { callback: (v: any) => axisFmt(Number(v)) } },
+        y: { grid: { display: false }, ticks: { callback: (_: any, i: number) => (labels[i].length > 20 ? labels[i].slice(0, 19) + '…' : labels[i]) } },
+      },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -148,7 +76,7 @@ function RankedBar({ title, labels, values, axisFmt, tooltipFmt }: {
   } as ChartConfiguration), [labels.join('|'), values.join('|')]);
   const sr = labels.map((l, i) => `${l}: ${tooltipFmt(values[i])}`).join(', ');
   return (
-    <Card title={title} className="flex flex-col flex-1">
+    <Card title={title} className="flex flex-col">
       <div className="relative flex-1" style={{ minHeight: minH }}><canvas ref={ref} role="img" aria-label={sr} /></div>
       <p className="sr-only">{sr}</p>
     </Card>
@@ -212,12 +140,11 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
       .filter(r => Number(r.year) === activeYear && Number(r.month) === heroMonth && distNameByCode[r.dist_code])
       .map(r => ({ dist_code: String(r.dist_code), dist_name: distNameByCode[r.dist_code], tonase: Number(r.total_qty || 0) }))
       .sort((a, b) => b.tonase - a.tonase)
-      .slice(0, 5);
-    const heroTop = heroRanking[0] || { dist_code: '–', dist_name: 'Belum ada data', tonase: 0 };
+      .slice(0, 8);
 
-    return { distOptions, jenisList, productsByJenis, jenisByProduct, activeYear, prevYear, monthsAllActive, heroMonth, heroRanking, heroTop };
+    return { distOptions, jenisList, productsByJenis, jenisByProduct, activeYear, prevYear, monthsAllActive, heroMonth, heroRanking };
   }, [dists, distMonthly, produk]);
-  const { activeYear, prevYear, heroMonth, heroRanking, heroTop } = m;
+  const { activeYear, prevYear, heroMonth, heroRanking } = m;
 
   /* ---------- Filter (saling menyempit berdasar transaksi NYATA) ---------- */
   const [dist, setDist] = useState('all');
@@ -272,11 +199,11 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
   const trend = useMemo(() => ({
     active: monthsLabels.map((_, i) => monthAgg(activeYear, i + 1, productCodes) || null),
     prev: monthsLabels.map((_, i) => monthAgg(prevYear, i + 1, productCodes) || null),
-    actual: monthsLabels.map((_, i) => monthAgg(activeYear, i + 1, null) || 0),
     target: (() => {
       const byMonth: Record<number, number> = {};
       targetDist.forEach(r => {
         if (dist !== 'all' && r.dist_code !== dist) return;
+        if (r.tahun != null && Number(r.tahun) !== activeYear) return;   // target per tahun
         byMonth[Number(r.month_num)] = (byMonth[Number(r.month_num)] || 0) + Number(r.target || 0);
       });
       return monthsLabels.map((_, i) => byMonth[i + 1] || null);
@@ -338,202 +265,82 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
     return { growth, avgPerDO, coverage, totalDO, onlineDO, offlineDO, onlinePct, offlinePct, deliveryLabels, deliveryValues, payLabels, payValues };
   }, [d]);
 
-  /* ---------- Hero parallax ---------- */
-  const gridRef = useRef<HTMLDivElement>(null);
-  const netRef = useRef<SVGSVGElement>(null);
-  useParallax(gridRef, netRef);
+  const growthTxt = kpi?.growth == null ? '–' : (kpi.growth >= 0 ? '+' : '') + fmt(kpi.growth, 1) + '%';
 
-  /* ---------- Bar filter menempel: muncul setelah filter di hero ter-scroll keluar layar ---------- */
-  const heroFilterRef = useRef<HTMLDivElement>(null);
-  const [showStickyFilter, setShowStickyFilter] = useState(false);
-  useEffect(() => {
-    const el = heroFilterRef.current;
-    if (!el || typeof IntersectionObserver === 'undefined') return;
-    const io = new IntersectionObserver(([e]) => setShowStickyFilter(!e.isIntersecting && e.boundingClientRect.top < 0), { rootMargin: '-56px 0px 0px 0px' });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-
-
-  const growthTxt = kpi?.growth == null ? '–' : (kpi.growth >= 0 ? '+' : '') + kpi.growth.toFixed(1) + '%';
-  const flexCard = 'flex flex-col flex-1';
-  const chartFlex = 'h-auto flex-1 min-h-[220px]';
+  const showTarget = jenis === 'all';   // target distributor berlaku untuk semua jenis semen
+  const trendLabel = chartSRSummary(monthsLabels, trend.active.map(v => v ?? 0), `ton (${activeYear})`);
 
   return (
     <>
-      {/* ---------------- HERO ---------------- */}
-      <section className="relative overflow-hidden bg-ink text-white -mx-11 -mt-10 mb-[34px] px-11 pt-[76px] pb-14 border-b border-[#100f0c] max-[880px]:-mx-[18px] max-[880px]:-mt-[26px] max-[880px]:mb-[26px] max-[880px]:px-[18px] max-[880px]:pt-11 max-[880px]:pb-9">
-        <div ref={gridRef} className="absolute -inset-[10%] z-0 will-change-transform" aria-hidden="true"
-          style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,.09) 1px, transparent 1px)', backgroundSize: '26px 26px' }} />
-        <HeroNetwork svgRef={netRef} />
-        <div className="relative z-[2]">
-          <div className="flex gap-12 items-start mt-[22px] flex-wrap">
-            <div className="flex-[1_1_480px] min-w-0">
-              <div className="mb-4"><DataBadge source="transaksi" dark /></div>
-              <h1 className="text-white leading-[.96] max-w-[820px]" style={{ fontSize: 'clamp(36px,5.4vw,64px)' }}>{heroTop.dist_code}<br />teratas {MONTHS_FULL[heroMonth]}.</h1>
-              <p className="text-[#C9C3B4] max-w-[560px] mt-4 text-[15px] leading-relaxed">
-                {heroTop.dist_name} mencatat tonase tertinggi di {MONTHS_ID[heroMonth]} {activeYear}: {fmt(heroTop.tonase, 1)} ton.
-              </p>
-              <div ref={heroFilterRef} className="controls !mt-7 !mb-0">
-                <HeroSelect id="bDist" label="Distributor" value={dist} onChange={onDist} minWidth={190}>
-                  <option value="all">Semua Distributor</option>
-                  {distOpts.map(o => <option key={o.dist_code} value={o.dist_code}>{o.dist_code} · {o.dist_name}</option>)}
-                </HeroSelect>
-                <HeroSelect id="bJenis" label="Jenis Semen" value={jenis} onChange={onJenis}>
-                  <option value="all">Semua Jenis</option>
-                  {jenisOpts.map(j => <option key={j} value={j}>{j}</option>)}
-                </HeroSelect>
-                <DateRangePicker label="Periode" labelClassName="!text-[#8F8874]" value={range} onChange={setRange}
-                  min={minDay} max={lastDataDay} presets={presets} />
-              </div>
-              <div className={cx('flex gap-[38px] max-[880px]:gap-6 flex-wrap mt-10 min-h-[78px] transition-opacity duration-200', refreshing && 'opacity-50')} aria-busy={f.loading}>
-                {d && kpi && (
-                  <>
-                    <HeroKpi label={`Tonase · ${periodLabel}`}><span className="font-mono">{fmtCompact(d.cur.total_qty)}</span><HeroUnit>ton</HeroUnit></HeroKpi>
-                    <HeroKpi label={`Pertumbuhan vs ${fmtRange(prevRange)}`}><span className="font-mono">{growthTxt}</span> <HeroUnit>{kpi.growth == null ? '' : kpi.growth >= 0 ? '▲' : '▼'}</HeroUnit></HeroKpi>
-                    <HeroKpi label="Delivery Order"><span className="font-mono">{fmt(d.cur.num_do)}</span></HeroKpi>
-                    <HeroKpi label="Rata-rata / DO"><span className="font-mono">{kpi.avgPerDO == null ? '–' : kpi.avgPerDO.toFixed(1)}</span><HeroUnit>ton</HeroUnit></HeroKpi>
-                  </>
-                )}
-              </div>
-            </div>
-            <HeroLeaderboard ranking={heroRanking} monthLabel={`${MONTHS_ID[heroMonth]} ${activeYear}`} />
-          </div>
+      <PageHeader title="Overview" status={<DataBadge source="transaksi" />} />
+      <FilterBar label="Filter Overview" className="max-[880px]:grid max-[880px]:grid-cols-2 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0">
+        <Select label="Distributor" value={dist} onChange={e => onDist(e.target.value)} style={{ minWidth: 200 }}
+          options={[{ value: 'all', label: 'Semua Distributor' }, ...distOpts.map(o => ({ value: String(o.dist_code), label: `${o.dist_code} · ${o.dist_name}` }))]} />
+        <Select label="Jenis Semen" value={jenis} onChange={e => onJenis(e.target.value)}
+          options={[{ value: 'all', label: 'Semua Jenis' }, ...jenisOpts.map(j => ({ value: j, label: j }))]} />
+        <div className="max-[880px]:col-span-2 [&_.drp-trigger]:max-[880px]:w-full">
+          <DateRangePicker label="Periode" value={range} onChange={setRange} min={minDay} max={lastDataDay} presets={presets} />
         </div>
-      </section>
-
-      {/* Tinggi 0: bar menimpa konten saat muncul, tidak menggeser tata letak. Tersembunyi (invisible) selama filter hero masih terlihat. */}
-      <div className="sticky top-0 max-[880px]:top-14 z-30 h-0">
-        <div role="group" aria-label="Filter Overview" aria-hidden={!showStickyFilter}
-          className={cx('-mx-11 px-11 max-[880px]:-mx-[18px] max-[880px]:px-[18px] py-2.5 bg-bg border-b border-line shadow-[0_6px_10px_-8px_rgba(33,30,25,.35)] transition-[opacity,transform] duration-200',
-            showStickyFilter ? 'opacity-100 translate-y-0' : 'invisible opacity-0 -translate-y-2 pointer-events-none')}>
-          <div className="controls !mb-0 [&_.control]:min-w-0 max-[880px]:grid max-[880px]:grid-cols-2 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
-            <Select label="Distributor" aria-label="Distributor" value={dist} onChange={e => onDist(e.target.value)} style={{ minWidth: 190 }}
-              options={[{ value: 'all', label: 'Semua Distributor' }, ...distOpts.map(o => ({ value: String(o.dist_code), label: `${o.dist_code} · ${o.dist_name}` }))]} />
-            <Select label="Jenis Semen" aria-label="Jenis Semen" value={jenis} onChange={e => onJenis(e.target.value)}
-              options={[{ value: 'all', label: 'Semua Jenis' }, ...jenisOpts.map(j => ({ value: j, label: j }))]} />
-            <div className="max-[880px]:col-span-2 [&_.drp-trigger]:max-[880px]:w-full">
-              <DateRangePicker label="Periode" value={range} onChange={setRange} min={minDay} max={lastDataDay} presets={presets} />
-            </div>
-          </div>
-        </div>
-      </div>
+      </FilterBar>
 
       {f.error && <div className="mb-4"><ErrorBox error={f.error} /></div>}
 
-
       <div className={cx('transition-opacity duration-200', refreshing && 'opacity-60')} aria-busy={f.loading}>
-      {/* ---------------- KPI sekunder ---------------- */}
       <div className="grid-kpi">
         {d && kpi ? (
           <>
-            <Card title={`Toko Aktif · ${periodLabel}`}>
-              <div className="kpi-value">{fmt(d.cur.num_active_stores)}</div>
-              <div className="kpi-delta">Belanja minimal Rp200 rb dalam sebulan · subdist tidak dihitung</div>
-            </Card>
-            <Card title="Cakupan Toko Aktif">
-              <div className="kpi-value">{kpi.coverage == null ? '–' : kpi.coverage.toFixed(1) + '%'}</div>
-              <div className="kpi-delta">Dari {fmt(d.totalStores)} toko terdaftar</div>
-            </Card>
-            <Card title={`Transaksi · ${periodLabel}`}>
-              <div className="flex justify-between text-[12.5px] text-soft my-2">
-                <span><b className="font-mono text-base font-semibold mr-1" style={{ color: COLORS.accent }}>{kpi.totalDO > 0 ? kpi.onlinePct.toFixed(0) : '–'}%</b> Online</span>
-                <span><b className="font-mono text-base font-semibold mr-1 text-soft">{kpi.totalDO > 0 ? kpi.offlinePct.toFixed(0) : '–'}%</b> Offline</span>
-              </div>
-              <div className="h-2.5 rounded-[5px] bg-line overflow-hidden" role="img"
-                aria-label={`Online ${fmt(kpi.onlineDO)} DO (${kpi.onlinePct.toFixed(1)}%), Offline ${fmt(kpi.offlineDO)} DO (${kpi.offlinePct.toFixed(1)}%).`}>
-                <div className="h-full bg-accent rounded-l-[5px] transition-[width] duration-[400ms] ease-out" style={{ width: kpi.onlinePct + '%' }} />
-              </div>
-              <p className="sr-only">Online {fmt(kpi.onlineDO)} DO ({kpi.onlinePct.toFixed(1)}%), Offline {fmt(kpi.offlineDO)} DO ({kpi.offlinePct.toFixed(1)}%).</p>
-            </Card>
-            <Card title={`Amount · ${periodLabel}`}>
-              <div className="kpi-value !text-[22px]">{fmtIDRCompact(d.cur.net_amount)}</div>
-              <div className="kpi-delta">Total nilai transaksi (net amount)</div>
-            </Card>
+            <Kpi title={`Tonase · ${periodLabel}`} value={fmt(d.cur.total_qty)} unit="ton"
+              delta={<span className={kpi.growth == null ? '' : kpi.growth >= 0 ? 'text-green' : 'text-red'}>{growthTxt} <span className="text-soft">vs {fmtRange(prevRange)}</span></span>} />
+            <Kpi title="Delivery order" value={fmt(d.cur.num_do)} delta={kpi.avgPerDO == null ? undefined : `Rata-rata ${fmt(kpi.avgPerDO, 1)} ton per DO`} />
+            <Kpi title="Toko aktif (tanpa subdist)" value={fmt(d.cur.num_active_stores)}
+              delta={`${kpi.coverage == null ? '–' : fmt(kpi.coverage, 1) + '%'} dari ${fmt(d.totalStores)} toko terdaftar`} />
+            <Kpi title="Amount" value={<span className="text-[22px] max-[520px]:text-[15px]">{fmtIDR(d.cur.net_amount)}</span>}
+              delta={kpi.totalDO > 0 ? `DO online ${fmt(kpi.onlinePct)}% · offline ${fmt(kpi.offlinePct)}%` : undefined} />
           </>
-        ) : [0, 1, 2, 3].map(i => <div key={i} className="skel h-24" />)}
+        ) : [0, 1, 2, 3].map(i => <div key={i} className="skel h-[104px]" />)}
       </div>
 
-      {/* ---------------- Chart: kiri 2 tren, kanan 3 breakdown (sejajar bawah) ---------------- */}
-      <div className="flex gap-4 items-stretch mt-4 flex-wrap">
-        <div className="flex-[1_1_420px] flex flex-col gap-4">
-          <Card title={`Tren Tonase Bulanan · ${prevYear} vs ${activeYear}${distSuffix}${jenisSuffix}`} className={flexCard}>
-            <div className="legend">
-              <span><i style={{ background: COLORS.accent }} aria-hidden="true" />{activeYear}</span>
-              <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />{prevYear}</span>
-            </div>
-            <ChartBox className={chartFlex} label={chartSRSummary(monthsLabels, trend.active as number[], `ton (${activeYear})`)}
-              deps={[trend]}
-              build={() => ({
-                type: 'line',
-                data: {
-                  labels: monthsLabels, datasets: [
-                    { label: String(activeYear), data: trend.active, borderColor: COLORS.accent, backgroundColor: COLORS.accentSoft, fill: true, tension: .35, pointRadius: 3, pointBackgroundColor: COLORS.accent, borderWidth: 2.5 },
-                    { label: String(prevYear), data: trend.prev, borderColor: COLORS.blueMid, borderDash: [5, 4], fill: false, tension: .35, pointRadius: 2.5, pointBackgroundColor: COLORS.blueMid, borderWidth: 2 },
-                  ],
-                },
-                options: {
-                  responsive: true, maintainAspectRatio: false,
-                  scales: { y: { beginAtZero: true, grid: { color: COLORS.line }, ticks: { callback: (v: any) => fmtCompact(v) } }, x: { grid: { display: false } } },
-                  plugins: { tooltip: { callbacks: { label: (c: any) => ` ${c.dataset.label}: ${fmt(c.parsed.y)} ton` } } },
-                },
-              } as ChartConfiguration)} />
-            <p className="sr-only">{chartSRSummary(monthsLabels, trend.active as number[], `ton (${activeYear})`)}</p>
-          </Card>
+      <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] max-[1100px]:grid-cols-1 gap-4 mt-4">
+        <Card title={`Tonase per bulan · ${activeYear} vs ${prevYear}${distSuffix}${jenisSuffix}`}>
+          <div className="legend">
+            {showTarget && <span><i style={{ background: COLORS.target, height: 2 }} aria-hidden="true" />Target {activeYear}</span>}
+            <span><i style={{ background: COLORS.accent }} aria-hidden="true" />{activeYear}</span>
+            <span><i style={{ background: COLORS.prev }} aria-hidden="true" />{prevYear}</span>
+          </div>
+          <ChartBox className="tall" label={trendLabel} deps={[trend, showTarget]}
+            build={() => ({
+              type: 'bar',
+              data: {
+                labels: monthsLabels, datasets: [
+                  { type: 'line', label: `Target ${activeYear}`, data: showTarget ? trend.target : monthsLabels.map(() => null), borderColor: COLORS.target, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, fill: false, order: 0 },
+                  { label: String(activeYear), data: trend.active, backgroundColor: COLORS.accent, maxBarThickness: 22, order: 1 },
+                  { label: String(prevYear), data: trend.prev, backgroundColor: COLORS.prev, maxBarThickness: 22, order: 2 },
+                ],
+              },
+              options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true, grid: { color: COLORS.line }, border: { display: false }, ticks: { callback: (v: any) => fmtCompact(v) } }, x: { grid: { display: false } } },
+                plugins: { tooltip: { callbacks: { label: (c: any) => (c.parsed.y == null ? null : ` ${c.dataset.label}: ${fmt(c.parsed.y)} ton`) } } },
+              },
+            } as ChartConfiguration)} />
+          <p className="sr-only">{trendLabel}</p>
+        </Card>
+        <TopDistributors ranking={heroRanking} monthLabel={`${MONTHS_ID[heroMonth]} ${activeYear}`} />
+      </div>
 
-          <Card title={`Tren Tonase Target vs Aktual${distSuffix}`} className={flexCard}>
-            <div className="legend">
-              <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target</span>
-              <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Aktual</span>
-            </div>
-            <ChartBox className={chartFlex} label={chartSRSummary(monthsLabels, trend.actual, 'ton aktual')}
-              deps={[trend]}
-              build={() => ({
-                type: 'bar',
-                data: {
-                  labels: monthsLabels, datasets: [
-                    { label: 'Target', data: trend.target, type: 'line', borderColor: COLORS.blueMid, borderDash: [5, 4], borderWidth: 2.5, pointRadius: 2.5, fill: false, tension: .3, order: 1 },
-                    { label: 'Aktual', data: trend.actual, backgroundColor: COLORS.accent, borderRadius: 3, maxBarThickness: 26, order: 2 },
-                  ],
-                },
-                options: {
-                  responsive: true, maintainAspectRatio: false,
-                  scales: { y: { grid: { color: COLORS.line }, ticks: { callback: (v: any) => fmtCompact(v) } }, x: { grid: { display: false } } },
-                  plugins: { tooltip: { callbacks: { label: (c: any) => ` ${c.dataset.label}: ${fmt(c.parsed.y)} ton` } } },
-                },
-              } as ChartConfiguration)} />
-            <p className="sr-only">{chartSRSummary(monthsLabels, trend.actual, 'ton aktual')}</p>
-          </Card>
-        </div>
-
-        <div className="flex-[1_1_360px] flex flex-col gap-4">
-          <Card title={`Bauran Produk · ${periodLabel}`} className={flexCard}>
-            <ChartBox className="h-auto flex-1 min-h-[150px]" label={chartSRSummary(prodEntries.map(e => e[0]), prodEntries.map(e => e[1]), 'ton')}
-              deps={[prodEntries]}
-              build={() => ({
-                type: 'doughnut',
-                data: { labels: prodEntries.map(e => e[0]), datasets: [{ data: prodEntries.map(e => e[1]), backgroundColor: PALETTE, borderColor: '#F8F6F0', borderWidth: 2 }] },
-                options: { responsive: true, maintainAspectRatio: false, cutout: '62%', plugins: donutPercentPlugins('ton') as any },
-              } as ChartConfiguration)} />
-            <p className="sr-only">{chartSRSummary(prodEntries.map(e => e[0]), prodEntries.map(e => e[1]), 'ton')}</p>
-          </Card>
-          {kpi ? (
-            <>
-              <RankedBar title={`Pembayaran · ${periodLabel}`} labels={kpi.payLabels} values={kpi.payValues} axisFmt={fmtIDRCompact} tooltipFmt={fmtIDR} />
-              <RankedBar title={`Delivery Type · ${periodLabel}`} labels={kpi.deliveryLabels} values={kpi.deliveryValues} axisFmt={fmtCompact} tooltipFmt={v => `${fmt(v)} ton`} />
-            </>
-          ) : (
-            <>
-              <div className="skel flex-1 min-h-[190px]" />
-              <div className="skel flex-1 min-h-[190px]" />
-            </>
-          )}
-        </div>
+      <div className="grid grid-cols-3 max-[1100px]:grid-cols-1 gap-4 mt-4">
+        {kpi ? (
+          <>
+            <RankedBar title={`Produk · ${periodLabel}`} labels={prodEntries.map(e => e[0])} values={prodEntries.map(e => e[1])} axisFmt={fmtCompact} tooltipFmt={v => `${fmt(v)} ton`} />
+            <RankedBar title={`Pembayaran · ${periodLabel}`} labels={kpi.payLabels} values={kpi.payValues} axisFmt={fmtIDRCompact} tooltipFmt={fmtIDR} />
+            <RankedBar title={`Delivery type · ${periodLabel}`} labels={kpi.deliveryLabels} values={kpi.deliveryValues} axisFmt={fmtCompact} tooltipFmt={v => `${fmt(v)} ton`} />
+          </>
+        ) : [0, 1, 2].map(i => <div key={i} className="skel h-[200px]" />)}
       </div>
 
       {/* ---------------- Top Customer ---------------- */}
       <div className="flex items-baseline justify-between flex-wrap gap-2.5 mt-[38px] mb-3.5">
-        <h2 className="section-title !m-0">Top Customer <span className="n">· berdasarkan tonase · {periodLabel}{distSuffix}{jenisSuffix}</span></h2>
+        <h2 className="section-title !m-0">Top customer <span className="n">berdasarkan tonase · {periodLabel}{distSuffix}{jenisSuffix}</span></h2>
         <div className="pill-row" role="group" aria-label="Jumlah baris yang ditampilkan">
           {[10, 25, 50].map(n => <Chip key={n} active={topN === n} onClick={() => setTopN(n)}>Top {n}</Chip>)}
         </div>

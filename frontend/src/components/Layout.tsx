@@ -28,24 +28,25 @@ export default function Layout() {
 
   return (
     <>
-      <nav className="hidden max-[880px]:flex fixed top-0 inset-x-0 h-14 bg-ink z-[100] items-center px-4 gap-3.5 overflow-x-auto border-b border-[#100f0c]" aria-label="Navigasi utama (mobile)">
+      <nav className="hidden max-[880px]:flex fixed top-0 inset-x-0 h-14 bg-surface z-[100] items-center px-4 gap-4 overflow-x-auto border-b border-line" aria-label="Navigasi utama (mobile)">
+        <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="" className="w-8 h-8 object-contain shrink-0" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
         {mobItems.map(p => (
-          <NavLink key={p.id} to={'/' + p.id} className={({ isActive }) => `font-mono text-[11.5px] tracking-wider whitespace-nowrap py-1.5 px-0.5 no-underline ${isActive ? 'text-accent' : 'text-[#C9C3B4]'}`}>{p.label}</NavLink>
+          <NavLink key={p.id} to={'/' + p.id} className={({ isActive }) => `text-[13px] whitespace-nowrap py-[17px] no-underline border-b-2 ${isActive ? 'text-ink font-semibold border-mark' : 'text-soft border-transparent'}`}>{p.label}</NavLink>
         ))}
       </nav>
 
-      <aside className="fixed top-0 left-0 bottom-0 w-sidebar bg-ink text-[#EDE9DF] flex flex-col z-[100] border-r border-[#100F0C] max-[880px]:hidden">
-        <div className="px-[22px] pt-6 pb-5 border-b border-white/10 flex items-center gap-3.5">
-          <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="Logo Perusahaan" className="w-14 h-14 object-contain shrink-0" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
-          <div className="font-extrabold text-xl text-white leading-tight" style={{ fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif', letterSpacing: '-.01em' }}>DASHBOARD<br />SEMEN</div>
+      <aside className="fixed top-0 left-0 bottom-0 w-sidebar bg-surface text-ink flex flex-col z-[100] border-r border-line max-[880px]:hidden">
+        <div className="px-5 pt-5 pb-4 flex items-center gap-3">
+          <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="Logo Perusahaan" className="w-10 h-10 object-contain shrink-0" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+          <div className="font-semibold text-[15px] text-ink leading-tight">Dashboard Semen</div>
         </div>
-        <nav className="px-3 py-3.5 flex flex-col flex-1 min-h-0 overflow-y-auto" aria-label="Navigasi utama">
+        <nav className="px-3 pb-3 flex flex-col flex-1 min-h-0 overflow-y-auto" aria-label="Navigasi utama">
           {groups.map(g => (
-            <div key={g.label} className="mb-3.5">
-              <div className="font-mono text-[9.5px] uppercase text-[#847D6C] px-3 mb-[5px] font-semibold" style={{ letterSpacing: '.1em' }}>{g.label}</div>
+            <div key={g.label} className="mt-3">
+              <div className="text-[12px] font-medium text-faint px-3 mb-1">{g.label}</div>
               {g.items.map(p => (
                 <NavLink key={p.id} to={'/' + p.id}
-                  className={({ isActive }) => `flex items-center gap-3 px-3 py-[11px] rounded-sm no-underline text-[13.5px] font-medium border-l-2 transition-colors ${isActive ? 'bg-accent/15 text-white border-accent' : 'text-[#C9C3B4] border-transparent hover:bg-white/5 hover:text-white'}`}>
+                  className={({ isActive }) => `relative flex items-center gap-3 px-3 py-2 rounded-sm no-underline text-[13.5px] transition-colors ${isActive ? 'bg-accent-soft text-accent-ink font-semibold before:content-[""] before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-mark' : 'text-soft hover:bg-surface2 hover:text-ink'}`}>
                   <Icon d={p.icon} /><span>{p.label}</span>
                 </NavLink>
               ))}
@@ -53,12 +54,12 @@ export default function Layout() {
           ))}
         </nav>
         <DataStatusPanel />
-        <div className="px-[22px] pt-3 pb-[18px] border-t border-white/10 flex items-center justify-between gap-2.5">
+        <div className="px-5 pt-3 pb-4 border-t border-line flex items-center justify-between gap-2.5">
           <div className="min-w-0 flex-1">
-            <div className="font-mono text-[11px] text-[#EDE9DF] truncate">{session?.name || '–'}</div>
-            <div className="font-mono text-[9px] text-[#847D6C] uppercase mt-0.5" style={{ letterSpacing: '.08em' }}>{ROLE_LABEL[session?.role || ''] || session?.role}</div>
+            <div className="text-[13px] font-medium text-ink truncate">{session?.name || '–'}</div>
+            <div className="text-[12px] text-faint mt-0.5">{ROLE_LABEL[session?.role || ''] || session?.role}</div>
           </div>
-          <button type="button" onClick={() => logout()} className="shrink-0 border border-white/20 bg-transparent text-[#C9C3B4] font-mono text-[10px] uppercase px-2.5 py-[5px] rounded-sm cursor-pointer hover:text-accent hover:border-accent transition-colors">Keluar</button>
+          <button type="button" onClick={() => logout()} className="btn btn-sm shrink-0">Keluar</button>
         </div>
       </aside>
 

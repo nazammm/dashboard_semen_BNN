@@ -2,7 +2,6 @@
 const ICONS = {
   sellout: '<path d="M4 20h16"/><path d="M6.5 16.5V11M11 16.5V7.5M15.5 16.5v-4M20 16.5V5"/><path d="m4.5 9 4-3.5 4 2.5 6-5"/>',
   beranda: '<path d="M3 11 12 4l9 7"/><path d="M5 10v9h14v-9"/><path d="M10 19v-6h4v6"/>',
-  performa: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".8" fill="currentColor"/>',
   rekap: '<rect x="3.5" y="4" width="17" height="16" rx="1"/><path d="M3.5 9h17"/><path d="M8 4v-1.5M16 4v-1.5"/><path d="M7 13h2M11 13h2M15 13h2M7 16.5h2M11 16.5h2"/>',
   timsales: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><circle cx="17.5" cy="9" r="2.3"/><path d="M15.5 20c.3-2.6 2-4.5 4.3-4.9"/>',
   peta: '<path d="M12 21s7-6.3 7-12a7 7 0 1 0-14 0c0 5.7 7 12 7 12Z"/><circle cx="12" cy="9" r="2.4"/>',
@@ -14,15 +13,14 @@ const ICONS = {
 };
 
 export const NAV_GROUPS = [
-  { label: 'Harian', items: [
+  { label: 'Sell In', items: [
+    { id: 'sell-in-bnn', label: 'Sell In BNN', icon: ICONS.sellin },
+  ] },
+  { label: 'Sell Out', items: [
     { id: 'beranda', label: 'Overview', icon: ICONS.beranda },
+    { id: 'sell-out-bnn', label: 'Sell Out BNN', icon: ICONS.sellout },
     { id: 'rekap-harian', label: 'Rekap Harian', icon: ICONS.rekap },
     { id: 'tim-sales', label: 'Tim Sales', icon: ICONS.timsales },
-    { id: 'sell-in-bnn', label: 'Sell In BNN', icon: ICONS.sellin },
-    { id: 'sell-out-bnn', label: 'Sell Out BNN', icon: ICONS.sellout },
-  ] },
-  { label: 'Performa Bulanan', items: [
-    { id: 'performa-daerah', label: 'Sell Out', icon: ICONS.performa },
   ] },
   { label: 'Customer', items: [
     { id: 'daftar-toko', label: 'Daftar Toko', icon: ICONS.daftar },

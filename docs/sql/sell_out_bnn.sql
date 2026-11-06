@@ -169,7 +169,7 @@ create index if not exists sellout_erp_tahun_idx on sementrack.sellout_erp (tahu
 
 -- log kelola data ikut mencatat tempelan DO FAS / Sub ERP
 alter table sementrack.kelola_log drop constraint if exists kelola_log_dataset_check;
-alter table sementrack.kelola_log add constraint kelola_log_dataset_check check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073'));
+alter table sementrack.kelola_log add constraint kelola_log_dataset_check check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073', 'target'));
 
 -- Ganti seluruh DO FAS satu tahun. p_rows = [[tipe, area, distributor, keterangan, jan..des], ...]
 create or replace function sementrack.sellout_dofas_simpan(p_tahun integer, p_rows json, p_user text)
@@ -361,7 +361,7 @@ select s.asal, s.dist_code, s.do_date, extract(year from s.do_date)::int as tahu
 from src s
 left join dj on dj.do_no = s.do_no;
 
-create or replace view sementrack.v_sellout_bnn_monthly as
+create or replace view sementrack.v_sellout_bnn_monthly_dasar as
 with subc as (
   select coalesce(array_agg(distinct c), '{}') as arr from sementrack.sellout_bnn_peta p, unnest(p.j028_customers) c
 ),
@@ -450,7 +450,7 @@ select 'j073', 'J073 (INSA, PKB)', 'harian',
 -- Customer subdist (sementrack.subdist_customer, mis. PGS/MGSS/MAJU di JMB) TIDAK dihitung toko aktif.
 -- Aturan aktif sama dengan dashboard: net amount sebulan >= 200.000. Per tipe: net tipe itu >= 200.000.
 -- ta_sd = aktif s.d. hari yang sama dengan tanggal transaksi terakhir (untuk banding bulan berjalan vs tahun lalu).
-create or replace view sementrack.v_sellout_bnn_ta as
+create or replace view sementrack.v_sellout_bnn_ta_dasar as
 with cut as (select extract(day from max(do_date))::int as hari from public.transaksi),
 jb as materialized (select * from sementrack.v_sellout_j073_baris where peta_id is not null),
 dist_ids as materialized (select id from sementrack.v_sellout_bnn_peta where jenis = 'dist'),
@@ -486,7 +486,18 @@ select peta_id, tahun, bulan, tipe,
 from per
 group by 1, 2, 3, 4;
 
-grant select on sementrack.v_data_status, sementrack.v_sellout_bnn_peta, sementrack.v_sellout_bnn_monthly, sementrack.v_sellout_bnn_ta to public;
+-- Pembungkus tanpa JIT: kedua view di atas ±0,5 detik tanpa JIT, ±3-4 detik kalau Postgres memakai JIT
+-- (biaya kompilasi lebih besar dari kerja query-nya). SET jit = off di fungsi berlaku hanya untuk query ini,
+-- tidak perlu hak superuser atau mengubah pengaturan database.
+create or replace function sementrack.sellout_bnn_monthly() returns setof sementrack.v_sellout_bnn_monthly_dasar
+language sql stable set jit = off as $$ select * from sementrack.v_sellout_bnn_monthly_dasar $$;
+create or replace function sementrack.sellout_bnn_ta() returns setof sementrack.v_sellout_bnn_ta_dasar
+language sql stable set jit = off as $$ select * from sementrack.v_sellout_bnn_ta_dasar $$;
+create or replace view sementrack.v_sellout_bnn_monthly as select * from sementrack.sellout_bnn_monthly();
+create or replace view sementrack.v_sellout_bnn_ta as select * from sementrack.sellout_bnn_ta();
+
+grant select on sementrack.v_data_status, sementrack.v_sellout_bnn_peta, sementrack.v_sellout_bnn_monthly, sementrack.v_sellout_bnn_ta,
+  sementrack.v_sellout_bnn_monthly_dasar, sementrack.v_sellout_bnn_ta_dasar to public;
 
 -- ---------------------------------------------------------------------
 -- 5. Isi awal 2026: DO FAS (tempelan 5 Nov 2026) & Sub ERP per tipe (Jan–Okt), supaya baris subdist

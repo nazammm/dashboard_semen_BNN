@@ -14,11 +14,11 @@ export function PageHeader({ title, desc, status, statusVariant = 'good', childr
   title: string; desc?: string; status?: ReactNode; statusVariant?: StatusVariant; children?: ReactNode;
 }) {
   return (
-    <div className="mb-7">
-      <div className="flex flex-wrap items-start justify-between gap-6 max-md:flex-col max-md:gap-2">
+    <div className="mb-5">
+      <div className="flex flex-wrap items-center justify-between gap-4 max-md:flex-col max-md:items-start max-md:gap-2">
         <div>
-          <h1 className="text-[clamp(30px,4vw,46px)]">{title}</h1>
-          {desc && <p className="text-soft text-[14.5px] max-w-[640px] mt-2.5 leading-relaxed">{desc}</p>}
+          <h1 className="text-[24px] leading-tight">{title}</h1>
+          {desc && <p className="text-soft text-[14px] max-w-[640px] mt-1.5 leading-relaxed">{desc}</p>}
         </div>
         {typeof status === 'string' ? <Badge variant={statusVariant} className="shrink-0"><span role="status">{status}</span></Badge> : status}
       </div>
@@ -35,7 +35,7 @@ export function PageHeader({ title, desc, status, statusVariant = 'good', childr
 export function FilterBar({ label, children, className, stickyMobile = true }: { label: string; children: ReactNode; className?: string; stickyMobile?: boolean }) {
   return (
     <div role="group" aria-label={label}
-      className={cx('sticky top-0 z-30 -mx-11 px-11 max-[880px]:-mx-[18px] max-[880px]:px-[18px] py-2.5 mb-5 bg-bg border-b border-line shadow-[0_6px_10px_-8px_rgba(33,30,25,.35)]',
+      className={cx('sticky top-0 z-30 -mx-11 px-11 max-[880px]:-mx-[18px] max-[880px]:px-[18px] py-2.5 mb-5 bg-bg/95 backdrop-blur-[2px] border-b border-line',
         stickyMobile ? 'max-[880px]:top-14' : 'max-[880px]:static')}>
       <div className={cx('controls !mb-0 [&_.control]:min-w-0', className)}>{children}</div>
     </div>
@@ -90,7 +90,7 @@ export function CapaianAvg({ p }: { p: number | null | undefined }) {
 /** Status toko bulan itu. Subdist bukan toko: tidak dihitung toko aktif. */
 export function TokoStatusBadge({ active, subdist }: { active?: boolean; subdist?: boolean }) {
   if (subdist) return <Badge variant="neutral" title="Subdist: transaksinya tetap dihitung, tetapi tidak dihitung toko aktif">Subdist</Badge>;
-  return active ? <Badge variant="good">Aktif</Badge> : <Badge variant="bad">Nonaktif</Badge>;
+  return active ? <Badge variant="good">Aktif</Badge> : <Badge variant="neutral">Nonaktif</Badge>;
 }
 export function PaymentBadge({ payment }: { payment?: string | null }) {
   if (!payment) return <span className="font-mono text-faint">–</span>;
@@ -185,7 +185,9 @@ export function ExportButton({ pageId, filename, getTables, label = 'Export ke E
     <button type="button" className="btn" onClick={() => {
       if (busy.current) return;
       busy.current = true;
-      try { exportTablesToExcel(getTables(), typeof filename === 'function' ? filename() : filename, pageId); } finally { busy.current = false; }
+      exportTablesToExcel(getTables(), typeof filename === 'function' ? filename() : filename, pageId)
+        .catch(() => alert('Gagal membuat file Excel. Coba lagi.'))
+        .finally(() => { busy.current = false; });
     }}>
       <FileIcon />{label}
     </button>
@@ -195,12 +197,12 @@ export function ExportButton({ pageId, filename, getTables, label = 'Export ke E
 /** Breadcrumb kecil. */
 export function Breadcrumb({ items }: { items: string[] }) {
   return (
-    <div className="font-mono text-[10.5px] uppercase text-faint mb-2.5" style={{ letterSpacing: '.05em' }}>
+    <div className="text-[12.5px] text-faint mb-1.5">
       {items.map((it, i) => <span key={i}>{i > 0 && <span className="mx-1.5 text-line-strong">/</span>}<span className={i === items.length - 1 ? 'text-soft' : ''}>{it}</span></span>)}
     </div>
   );
 }
 
 export function BackLink({ to, children = 'Kembali' }: { to: string; children?: ReactNode }) {
-  return <Link to={to} className="inline-flex items-center gap-1.5 font-mono text-xs text-soft hover:text-accent-ink mb-4">← {children}</Link>;
+  return <Link to={to} className="inline-flex items-center gap-1.5 text-[13px] text-soft hover:text-accent-ink mb-4">← {children}</Link>;
 }

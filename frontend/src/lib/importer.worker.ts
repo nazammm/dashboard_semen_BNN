@@ -1,11 +1,12 @@
 /// <reference lib="webworker" />
-// Membaca file impor (Sell In BNN / Transaksi / J073) di thread terpisah supaya halaman tetap responsif.
+// Membaca file impor (Sell In BNN / Transaksi / J073 / Target) di thread terpisah supaya halaman tetap responsif.
 import { SellinCollector, parseTextWith, parseXlsxWith, type DateOrder, type RowCollector, type SellinParseResult } from './sellin';
 import { TransaksiCollector, type TrxParseResult } from './transaksiImport';
 import { J073Collector, type J073ParseResult } from './j073Import';
+import { TargetCollector, type TargetParseResult } from './targetImport';
 
-export type Dataset = 'sellin' | 'transaksi' | 'j073';
-export type ImportResult = SellinParseResult | TrxParseResult | J073ParseResult;
+export type Dataset = 'sellin' | 'transaksi' | 'j073' | 'target';
+export type ImportResult = SellinParseResult | TrxParseResult | J073ParseResult | TargetParseResult;
 export type ImportWorkerIn = { dataset: Dataset; dateOrder?: DateOrder | null } & ({ kind: 'file'; file: File } | { kind: 'text'; text: string });
 export type ImportWorkerOut =
   | { type: 'progress'; p: number }
@@ -14,7 +15,7 @@ export type ImportWorkerOut =
 
 const post = (m: ImportWorkerOut) => (self as unknown as DedicatedWorkerGlobalScope).postMessage(m);
 const collectorFor = (d: Dataset, o?: DateOrder | null): RowCollector<ImportResult> =>
-  d === 'transaksi' ? new TransaksiCollector(o) : d === 'j073' ? new J073Collector(o) : new SellinCollector(o);
+  d === 'transaksi' ? new TransaksiCollector(o) : d === 'j073' ? new J073Collector(o) : d === 'target' ? new TargetCollector() : new SellinCollector(o);
 
 /** Teks CSV: coba UTF-8, kalau banyak karakter rusak berarti file ANSI (Windows-1252). */
 async function readCsv(file: File) {

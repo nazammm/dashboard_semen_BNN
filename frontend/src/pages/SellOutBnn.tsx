@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { DataSource } from '../lib/data';
+import { DataSource, sellOutTargetsFor } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact } from '../lib/format';
@@ -14,7 +14,7 @@ import { exportRowsToExcel } from '../lib/xlsx';
 /* ============================================================================
    Sell Out BNN: per baris distributor/subdist dari peta sementrack.sellout_bnn_peta
    (J028 transaksi, DO FAS, Sub ERP, J073 untuk INSA & PKB per gudang), per bulan.
-   Target & realisasi tahun lalu dari data Sell Out bulanan (v_cement_targets_ext).
+   Target & realisasi tahun lalu dari tabel target per tahun (v_target_sell_out, diisi lewat Kelola Data → Target).
    Toko aktif dari transaksi J028 / J073 baris distributor saja (v_sellout_bnn_ta): subdist tidak dihitung,
    termasuk customer subdist di transaksi distributor induk (PGS, MGSS, MAJU di JMB, dst.).
    Bulan berjalan: target = sebulan penuh; tahun lalu dibandingkan pada tanggal yang sama
@@ -27,7 +27,7 @@ interface Peta {
 }
 /** Distributor = transaksi sendiri (J028 penuh / tanpa subdist, J073); subdist = DO FAS, Sub ERP, customer subdist di J028. */
 const isSubdist = (p: Peta) => (p.jenis ? p.jenis === 'subdist' : !p.j073 && !/^J028 \S+( tanpa|$| \+)/.test(p.sumber));
-const SUB_COLOR = COLORS.amber;
+const SUB_COLOR = COLORS.sub;
 const MONTH_EN = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TIPE_OPTS = [
   { value: 'all', label: 'Semua Tipe' }, { value: 'STR', label: 'STR' }, { value: 'RJW', label: 'RJW' }, { value: 'CWC', label: 'CWC (putih)' },
@@ -38,27 +38,23 @@ const growthPct = (cur: number, prev: number) => (prev > 0 ? (cur - prev) / prev
 const fmtPct = (p: number | null) => (p == null ? '–' : (p > 0 ? '+' : '') + p.toFixed(1) + '%');
 const tgtType = (t: string) => (t === 'CWC' ? 'WC' : t);
 
-/** Tahun target dari nama kolom do_YYYY di v_cement_targets_ext. */
-function detectYear(rows: Row[], fallback: number) {
-  let y = 0;
-  if (rows[0]) for (const k of Object.keys(rows[0])) { const m = /^do_(\d{4})$/.exec(k); if (m) y = Math.max(y, Number(m[1])); }
-  return y || fallback;
-}
 
 export default function SellOutBnn() {
   useDocTitle('Sell Out BNN');
   const load = useAsync(async () => {
     const [peta, monthly, targets, status, ta] = await Promise.all([
-      DataSource.selloutPeta(), DataSource.selloutMonthly(), DataSource.cementTargets(), DataSource.dataStatus().catch(() => [] as Row[]),
+      DataSource.selloutPeta(), DataSource.selloutMonthly(), DataSource.targetSellOut().catch(() => [] as Row[]), DataSource.dataStatus().catch(() => [] as Row[]),
       DataSource.selloutTa().catch(() => null),
     ]);
-    return { peta: peta as unknown as Peta[], monthly, targets, status, ta };
+    // Tahun halaman = tahun terakhir yang punya sell out; target tahun itu + realisasi pembanding tahun sebelumnya
+    const Y = monthly.reduce((a, r) => (Number(r.ton) > 0 ? Math.max(a, Number(r.tahun)) : a), 0) || Number(todayWIB().slice(0, 4));
+    return { peta: peta as unknown as Peta[], monthly, targets: sellOutTargetsFor(targets, Y), status, ta, Y };
   }, []);
   if (load.error) return <ErrorBox error={load.error} />;
   if (!load.data) return <PageSkeleton />;
-  const { peta, monthly, targets, status, ta } = load.data;
+  const { peta, monthly, targets, status, ta, Y } = load.data;
   if (!peta.length) return <EmptyState />;
-  return <Body peta={peta} monthly={monthly} targets={targets} status={status} ta={ta} />;
+  return <Body peta={peta} monthly={monthly} targets={targets} status={status} ta={ta} Y={Y} />;
 }
 
 function EmptyState() {
@@ -75,10 +71,9 @@ function EmptyState() {
   );
 }
 
-function Body({ peta, monthly, targets, status, ta }: { peta: Peta[]; monthly: Row[]; targets: Row[]; status: Row[]; ta: Row[] | null }) {
+function Body({ peta, monthly, targets, status, ta, Y }: { peta: Peta[]; monthly: Row[]; targets: Row[]; status: Row[]; ta: Row[] | null; Y: number }) {
   const { pageAllowed, canDownload } = useAuth();
-  const today = todayWIB();
-  const Y = detectYear(targets, Number(today.slice(0, 4))), P = Y - 1;
+  const P = Y - 1;
   const kTgt = `target_do_${Y}`, kPrev = `do_${P}`, kTgtTa = `target_ta_${Y}`;
 
   // bulan terakhir berisi data tahun ini & tanggal potong bulan berjalan (dari transaksi harian)
@@ -292,21 +287,21 @@ function Body({ peta, monthly, targets, status, ta }: { peta: Peta[]; monthly: R
       <div className="grid grid-cols-2 gap-4 mt-3.5 max-[1000px]:grid-cols-1">
         <Card title={`Sell Out per Bulan (Ton) · ${scope}`}>
           <div className="legend">
-            {v.hasTarget && <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target {Y}</span>}
+            {v.hasTarget && <span><i style={{ background: COLORS.target, height: 2 }} aria-hidden="true" />Target {Y}</span>}
             <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Distributor {Y}</span>
             <span><i style={{ background: SUB_COLOR }} aria-hidden="true" />Subdist {Y}</span>
-            <span><i style={{ background: COLORS.ink, opacity: .35 }} aria-hidden="true" />Realisasi {P}</span>
+            <span><i style={{ background: COLORS.prev }} aria-hidden="true" />Realisasi {P}</span>
           </div>
           <ChartBox className="tall" label={chartSRSummary(v.trend.labels, v.trend.cur, `ton sell out ${Y}`)}
             deps={[v.trend.labels.join('|'), v.trend.dist.join('|'), v.trend.sub.join('|'), v.trend.target.join('|'), v.trend.prev.join('|'), v.hasTarget]}
             build={() => ({
               type: 'bar',
               data: { labels: v.trend.labels, datasets: [
-                { label: `Target ${Y}`, data: v.trend.target, type: 'line', stack: 'target', borderColor: COLORS.blueMid, backgroundColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3, order: 1, hidden: !v.hasTarget },
+                { label: `Target ${Y}`, data: v.trend.target, type: 'line', stack: 'target', borderColor: COLORS.target, backgroundColor: COLORS.target, borderDash: [4, 3], borderWidth: 1.5, pointRadius: 2, fill: false, tension: .3, order: 1, hidden: !v.hasTarget },
                 // realisasi tahun ini = batang bertumpuk distributor + subdist
                 { label: `Distributor ${Y}`, data: v.trend.dist, stack: 'cur', backgroundColor: COLORS.accent, maxBarThickness: 26, order: 2 },
-                { label: `Subdist ${Y}`, data: v.trend.sub, stack: 'cur', backgroundColor: SUB_COLOR, borderRadius: { topLeft: 3, topRight: 3 }, maxBarThickness: 26, order: 2 },
-                { label: `Realisasi ${P}`, data: v.trend.prev, stack: 'prev', backgroundColor: 'rgba(33,30,25,.22)', borderRadius: 3, maxBarThickness: 26, order: 3 },
+                { label: `Subdist ${Y}`, data: v.trend.sub, stack: 'cur', backgroundColor: SUB_COLOR, maxBarThickness: 26, order: 2 },
+                { label: `Realisasi ${P}`, data: v.trend.prev, stack: 'prev', backgroundColor: COLORS.prev, maxBarThickness: 26, order: 3 },
               ] } as any,
               options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
                 scales: { y: { stacked: true, beginAtZero: true, grid: { color: COLORS.line }, ticks: { callback: (x: any) => fmtCompact(x) } }, x: { stacked: true, grid: { display: false }, ticks: { autoSkip: false, maxRotation: 0 } } },
@@ -320,9 +315,9 @@ function Body({ peta, monthly, targets, status, ta }: { peta: Peta[]; monthly: R
 
         <Card title={`Toko Aktif per Bulan · ${scope}`}>
           <div className="legend">
-            {v.taHasTarget && <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target {Y}</span>}
+            {v.taHasTarget && <span><i style={{ background: COLORS.target, height: 2 }} aria-hidden="true" />Target {Y}</span>}
             <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Realisasi {Y}{tipe !== 'all' ? ` (${tipe}, tanpa target)` : ''}</span>
-            <span><i style={{ background: COLORS.ink, opacity: .35 }} aria-hidden="true" />Realisasi {P}</span>
+            <span><i style={{ background: COLORS.prev }} aria-hidden="true" />Realisasi {P}</span>
           </div>
           {!ta ? <p className="text-soft text-[13px] py-10 text-center">Data toko aktif belum tersedia. Jalankan ulang docs/sql/sell_out_bnn.sql.</p>
             : !v.taIds.length ? <p className="text-soft text-[13px] py-10 text-center">{scope} adalah subdist: tidak dihitung toko aktif.</p>
@@ -331,9 +326,9 @@ function Body({ peta, monthly, targets, status, ta }: { peta: Peta[]; monthly: R
                 build={() => ({
                   type: 'bar',
                   data: { labels: v.trend.labels, datasets: [
-                    { label: `Target ${Y}`, data: v.taTrend.target, type: 'line', borderColor: COLORS.blueMid, backgroundColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3, order: 1, hidden: !v.taHasTarget },
+                    { label: `Target ${Y}`, data: v.taTrend.target, type: 'line', borderColor: COLORS.target, backgroundColor: COLORS.target, borderDash: [4, 3], borderWidth: 1.5, pointRadius: 2, fill: false, tension: .3, order: 1, hidden: !v.taHasTarget },
                     { label: `Realisasi ${Y}`, data: v.taTrend.cur, backgroundColor: COLORS.accent, maxBarThickness: 26, order: 2 },
-                    { label: `Realisasi ${P}`, data: v.taTrend.prev, backgroundColor: 'rgba(33,30,25,.22)', borderRadius: 3, maxBarThickness: 26, order: 3 },
+                    { label: `Realisasi ${P}`, data: v.taTrend.prev, backgroundColor: COLORS.prev, maxBarThickness: 26, order: 3 },
                   ] } as any,
                   options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
                     scales: { y: { beginAtZero: true, grid: { color: COLORS.line }, ticks: { callback: (x: any) => fmtCompact(x) } }, x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 0 } } },

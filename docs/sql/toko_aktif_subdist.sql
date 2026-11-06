@@ -10,10 +10,9 @@
 --   2. dashboard_top_customers_range   Overview: top customer diberi tanda subdist (tidak dibuang)
 --   3. dashboard_toko_monthly_v2       Daftar Toko & Peta Toko: status per toko
 --   4. dashboard_store_year            Detail Toko (versi baru, backend diarahkan ke sini)
---   5. v_salesman_performance          Tim Sales & Detail Transaksi: TA, tonase, amount, DO tanpa subdist (versi baru)
 --   6. v_toko_pegangan_sales           Detail Transaksi: toko pegangan + kolom is_subdist (versi baru)
---   7. v_transaksi_detail              Detail Transaksi / Detail Toko: + kolom is_subdist (versi baru)
--- 4–7 baru terpakai setelah backend dideploy ulang; sebelum itu web tetap memakai versi public.
+--   v_salesman_performance dan v_transaksi_detail (juga tanpa subdist) ada di target_tahunan.sql.
+-- 4 dan 6 baru terpakai setelah backend dideploy ulang; sebelum itu web tetap memakai versi public.
 --
 -- Jalankan SETELAH sell_out_bnn.sql (butuh tabel sementrack.subdist_customer),
 -- sebagai pemilik tabel (nazamudin). Aman dijalankan ulang. Tidak mengubah data.
@@ -162,45 +161,9 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------
--- 5. Tim Sales: aktual per salesman per bulan TANPA transaksi ke subdist (TA, tonase, amount, DO).
---    Salinan public.v_salesman_performance + saringan subdist.
+-- 5. Tim Sales (v_salesman_performance, tanpa transaksi ke subdist) ada di target_tahunan.sql,
+--    karena targetnya sekarang per tahun.
 -- ---------------------------------------------------------------------
-create or replace view sementrack.v_salesman_performance as
- SELECT t.dist_code,
-    t.salesman_code,
-    t.salesman_name,
-    t."Month" AS month,
-    t."Target TA" AS target_ta,
-    t."Target Tonase" AS target_tonase,
-    t.status,
-    COALESCE(tot.total_qty, 0::numeric) AS actual_tonase,
-    COALESCE(act.num_active_stores, 0::bigint) AS actual_ta,
-    COALESCE(tot.num_do, 0::bigint) AS actual_num_do,
-    COALESCE(tot.net_amount, 0::numeric) AS actual_omzet
-   FROM public.salesman_status_target t
-     LEFT JOIN ( SELECT tr.salesman_code,
-            EXTRACT(month FROM tr.do_date)::integer AS month,
-            sum(public.calc_tonase(tr.product_code, tr.order_qty)) AS total_qty,
-            sum(COALESCE(tr.net_amount, 0::numeric)) AS net_amount,
-            count(DISTINCT tr.do_no) AS num_do
-           FROM public.transaksi tr
-          WHERE EXTRACT(year FROM tr.do_date) = (SELECT max(EXTRACT(year FROM t1.do_date)) FROM public.transaksi t1)
-            AND NOT EXISTS (SELECT 1 FROM sementrack.subdist_customer s
-                            WHERE s.dist_code = tr.dist_code AND s.customer_code = tr.customer_code)
-          GROUP BY tr.salesman_code, (EXTRACT(month FROM tr.do_date)::integer)) tot
-       ON tot.salesman_code = t.salesman_code AND tot.month = t."Month"
-     LEFT JOIN ( SELECT cs.salesman_code, cs.month, count(DISTINCT cs.customer_code) AS num_active_stores
-           FROM ( SELECT tr.salesman_code, tr.customer_code,
-                    EXTRACT(month FROM tr.do_date)::integer AS month,
-                    sum(COALESCE(tr.net_amount, 0::numeric)) AS cust_net
-                   FROM public.transaksi tr
-                  WHERE EXTRACT(year FROM tr.do_date) = (SELECT max(EXTRACT(year FROM t1.do_date)) FROM public.transaksi t1)
-                    AND NOT EXISTS (SELECT 1 FROM sementrack.subdist_customer s
-                                    WHERE s.dist_code = tr.dist_code AND s.customer_code = tr.customer_code)
-                  GROUP BY tr.salesman_code, tr.customer_code, (EXTRACT(month FROM tr.do_date)::integer)) cs
-          WHERE cs.cust_net >= 200000::numeric
-          GROUP BY cs.salesman_code, cs.month) act
-       ON act.salesman_code = t.salesman_code AND act.month = t."Month";
 
 -- ---------------------------------------------------------------------
 -- 6. Detail Transaksi: toko pegangan salesman, subdist tidak dihitung aktif (+ kolom is_subdist).
@@ -229,38 +192,9 @@ create or replace view sementrack.v_toko_pegangan_sales as
           GROUP BY tr.customer_code, tr.salesman_code, (EXTRACT(month FROM tr.do_date)::integer)) a
        ON a.customer_code = tp.cust_code AND a.salesman_code = tp.salesman_code AND a.month = tp.month::integer;
 
--- ---------------------------------------------------------------------
--- 7. Detail transaksi + kolom is_subdist (salinan public.v_transaksi_detail).
--- ---------------------------------------------------------------------
-create or replace view sementrack.v_transaksi_detail as
- SELECT t.do_date,
-    t.dist_code,
-    t.distributor_name,
-    t.customer_code,
-    t.customer_name,
-    t.parent_customer_code,
-    t.parent_customer_name,
-    t.product_code,
-    t.product_name,
-    t.order_qty,
-    t.bonus_qty,
-    public.calc_tonase(t.product_code, t.order_qty) AS tonase,
-    t.do_no,
-    t.mss_no_order,
-    COALESCE(t.net_amount, 0::numeric) AS net_amount,
-    t.salesman_code,
-    sm.salesman_name,
-    t.payment,
-    EXISTS (SELECT 1 FROM sementrack.subdist_customer s
-            WHERE s.dist_code = t.dist_code AND s.customer_code = t.customer_code) AS is_subdist
-   FROM public.transaksi t
-     LEFT JOIN ( SELECT salesman_status_target.salesman_code,
-            max(salesman_status_target.salesman_name) AS salesman_name
-           FROM public.salesman_status_target
-          GROUP BY salesman_status_target.salesman_code) sm ON sm.salesman_code = t.salesman_code;
+-- 7. Detail transaksi (+ kolom is_subdist) ada di target_tahunan.sql.
 
-grant select on sementrack.subdist_customer, sementrack.v_salesman_performance, sementrack.v_toko_pegangan_sales,
-  sementrack.v_transaksi_detail to public;
+grant select on sementrack.subdist_customer, sementrack.v_toko_pegangan_sales to public;
 grant execute on function sementrack.dashboard_period_summary_range(text[], date, date, text[]),
   sementrack.dashboard_top_customers_range(text[], date, date, text[], integer),
   sementrack.dashboard_toko_monthly_v2(integer, integer, text[]),

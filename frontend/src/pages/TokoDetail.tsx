@@ -9,7 +9,6 @@ const FROM_LABEL: Record<string, string> = {
   'beranda': 'Overview', 'peta-toko': 'Peta Toko', 'daftar-toko': 'Daftar Toko',
   'transaksi-detail': 'Detail Transaksi', 'tim-sales': 'Tim Sales',
 };
-const YEAR = 2026;
 
 export default function TokoDetail() {
   useDocTitle('Detail Toko');
@@ -33,14 +32,15 @@ export default function TokoDetail() {
 
 function TokoBody({ code, back }: { code: string; back: React.ReactNode }) {
   const { data, error } = useAsync(async () => {
-    const [info, monthly, recentTx] = await Promise.all([
-      DataSource.storeInfo(code), DataSource.storeYear(code, YEAR), DataSource.storeRecentTx(code, 50),
-    ]);
-    return { info, monthly, recentTx };
+    const [info, recentTx] = await Promise.all([DataSource.storeInfo(code), DataSource.storeRecentTx(code, 50)]);
+    // tahun = tahun transaksi terakhir toko ini (bukan angka tetap)
+    const year = Number(String(recentTx[0]?.do_date ?? '').slice(0, 4)) || new Date().getFullYear();
+    const monthly = await DataSource.storeYear(code, year);
+    return { info, monthly, recentTx, year };
   }, [code]);
   if (error) return <ErrorBox error={error} />;
   if (!data) return <PageSkeleton />;
-  const { info, monthly, recentTx } = data;
+  const { info, monthly, recentTx, year: YEAR } = data;
 
   if (!info) {
     return (
@@ -90,7 +90,7 @@ function TokoBody({ code, back }: { code: string; back: React.ReactNode }) {
           <h2 className="card-title">Amount per Bulan</h2>
           <ChartBox label={chartSRSummary(labels, amounts, 'rupiah')} deps={[monthly]} build={() => ({
             type: 'bar',
-            data: { labels, datasets: [{ data: amounts, backgroundColor: monthly.map(m => (m.is_active ? COLORS.accent : '#C6BFAF')), maxBarThickness: 26 }] },
+            data: { labels, datasets: [{ data: amounts, backgroundColor: monthly.map(m => (m.is_active ? COLORS.accent : COLORS.prev)), maxBarThickness: 26 }] },
             options: {
               responsive: true, maintainAspectRatio: false,
               scales: { y: { grid: { color: COLORS.line }, ticks: { callback: (v: any) => fmtCompact(v) } }, x: { grid: { display: false } } },
@@ -102,7 +102,7 @@ function TokoBody({ code, back }: { code: string; back: React.ReactNode }) {
           <h2 className="card-title">Tonase per Bulan</h2>
           <ChartBox label={chartSRSummary(labels, tonases, 'ton')} deps={[monthly]} build={() => ({
             type: 'bar',
-            data: { labels, datasets: [{ data: tonases, backgroundColor: COLORS.blueMid, maxBarThickness: 26 }] },
+            data: { labels, datasets: [{ data: tonases, backgroundColor: COLORS.accent, maxBarThickness: 26 }] },
             options: {
               responsive: true, maintainAspectRatio: false,
               scales: { y: { grid: { color: COLORS.line } }, x: { grid: { display: false } } },

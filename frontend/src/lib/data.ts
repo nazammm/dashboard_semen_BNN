@@ -74,7 +74,6 @@ export const paymentBreakdown = breakdown('dashboard_payment_breakdown', 'paymen
 const enc = encodeURIComponent;
 
 export const DataSource = {
-  cementTargets: () => getData('cementTargets', () => apiGetAll('v_cement_targets_ext', '?select=*')),
   transaksiMonthly: () => getData('transaksiMonthly', () => apiGetAll('v_transaksi_monthly', '?select=*&order=year.asc,month.asc')),
   distributors: () => getData('distributors', () => apiGetAll('v_distributor_summary', '?select=*&order=total_qty_ytd.desc')),
   salesman: () => getData('salesman', () => apiGetAll('v_salesman_performance', '?select=*')),
@@ -100,7 +99,9 @@ export const DataSource = {
   /** Target jumlah salesman aktif per distributor (flat per bulan). */
   targetSalesman: () => getData('targetSalesman', () => apiGetAll('distributor_target_salesman', '?select=*&order=dist_code.asc')),
   targetDist: () => getData('targetDist', () => apiGetAll('v_target_dist', '?select=*')),
-  delivery: () => getData('delivery', () => apiGetAll('v_delivery_ext', '?select=*')),
+  /** Target per tahun (sementrack.target): format panjang, satu baris per tahun x bulan. */
+  targetSellIn: () => getData('target:sellin', () => apiGetAll('v_target_sell_in', '?select=*')),
+  targetSellOut: () => getData('target:sellout', () => apiGetAll('v_target_sell_out', '?select=*')),
   /** Sell In BNN: ringkasan harian (tanggal x region x produk x tipe pesanan). Urutan lengkap supaya paging stabil. */
   selloutMonthly: () => getData('sellout:monthly', () => apiGetAll('v_sellout_bnn_monthly', '?select=*')),
   selloutTa: () => getData('sellout:ta', () => apiGetAll('v_sellout_bnn_ta', '?select=*')),
@@ -127,3 +128,44 @@ export const DataSource = {
     apiGet<Row[]>(`v_transaksi_detail?select=*&customer_code=eq.${enc(custCode)}&order=do_date.desc,do_no.desc&limit=${limit}`),
 };
 export { apiCount };
+
+/* ---------- Target per tahun -> bentuk baris lama (kolom bertahun) untuk tahun Y ---------- */
+type TargetMetric = { from: string; tahun: number; as: string };
+/** Gabungkan target tahun Y dan realisasi pembanding tahun Y-1 jadi satu baris per kunci x bulan.
+ *  keys = kolom pengenal (mis. region, sub_region, tipe); metrics = kolom nilai yang diambil dari tahun tertentu. */
+function pivotTargets(rows: Row[], keys: [string, string][], metrics: TargetMetric[]) {
+  const out = new Map<string, Row>();
+  rows.forEach(r => {
+    const tahun = Number(r.tahun);
+    const used = metrics.filter(mt => mt.tahun === tahun && r[mt.from] != null);
+    if (!used.length) return;
+    const k = keys.map(([src]) => String(r[src] ?? '')).join('|') + '|' + r.bulan;
+    let o = out.get(k);
+    if (!o) {
+      o = { month_num: Number(r.bulan) };
+      keys.forEach(([src, dst]) => { o![dst] = r[src]; });
+      metrics.forEach(mt => { o![mt.as] = 0; });
+      out.set(k, o);
+    }
+    used.forEach(mt => { o![mt.as] = Number(o![mt.as] || 0) + Number(r[mt.from] || 0); });
+  });
+  return [...out.values()];
+}
+/** Sell In: kolom lama v_delivery_ext (target_Y, realisasi_P). */
+export const sellInTargetsFor = (rows: Row[], Y: number) => pivotTargets(rows,
+  [['region', 'region'], ['sub_region', 'sub_region'], ['tipe', 'type_cement']],
+  [{ from: 'target', tahun: Y, as: `target_${Y}` }, { from: 'realisasi', tahun: Y - 1, as: `realisasi_${Y - 1}` }]);
+/** Sell Out: kolom lama v_cement_targets_ext (target_do_Y, do_P, target_ta_Y). */
+export const sellOutTargetsFor = (rows: Row[], Y: number) => pivotTargets(rows,
+  [['region', 'region'], ['distributor', 'distributor'], ['tipe', 'type_cement']],
+  [{ from: 'target_ton', tahun: Y, as: `target_do_${Y}` }, { from: 'realisasi_ton', tahun: Y - 1, as: `do_${Y - 1}` },
+   { from: 'target_ta', tahun: Y, as: `target_ta_${Y}` }]);
+
+/** Tahun & bulan data terakhir dari v_monthly_totals (bukan angka tetap), cadangan: bulan ini. */
+export function latestPeriod(monthly: Row[]) {
+  let best = 0;
+  monthly.forEach(r => { const k = Number(r.year) * 100 + Number(r.month); if (k > best && Number(r.total_qty || r.num_do || 0) > 0) best = k; });
+  if (!best) { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() + 1 }; }
+  return { year: Math.floor(best / 100), month: best % 100 };
+}
+

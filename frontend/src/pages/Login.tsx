@@ -64,20 +64,15 @@ export default function Login() {
 
   const locked = left > 0;
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden bg-bg">
-      <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
-        <div className="absolute w-[480px] h-[480px] -top-40 -left-[120px] rounded-full blur-[60px] opacity-35" style={{ background: 'radial-gradient(circle,#FF5A1F 0%,transparent 72%)' }} />
-        <div className="absolute w-[520px] h-[520px] -bottom-[200px] -right-[140px] rounded-full blur-[60px] opacity-35" style={{ background: 'radial-gradient(circle,#3F7A52 0%,transparent 72%)' }} />
-        <div className="absolute -inset-0.5 opacity-50" style={{ backgroundImage: 'radial-gradient(#AFA790 1px,transparent 1px)', backgroundSize: '26px 26px', maskImage: 'radial-gradient(ellipse 70% 60% at 50% 40%,#000 0%,transparent 75%)' }} />
-      </div>
-      <div className="w-full max-w-[400px] relative z-[1]">
-        <div className="card plain px-8 pt-9 pb-7 shadow-[0_8px_30px_rgba(33,30,25,.12)]" role="main">
-          <div className="flex items-center gap-3.5 mb-6">
-            <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="" className="w-14 h-14 object-contain" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
-            <div className="font-extrabold text-xl leading-tight text-ink" style={{ fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif' }}>DASHBOARD<br />SEMEN</div>
+    <div className="min-h-screen flex items-center justify-center p-6 bg-bg">
+      <div className="w-full max-w-[380px]">
+        <div className="card px-8 pt-8 pb-7" role="main">
+          <div className="flex items-center gap-3 mb-6">
+            <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="" className="w-11 h-11 object-contain" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+            <div className="font-semibold text-[16px] text-ink">Dashboard Semen</div>
           </div>
-          <h1 className="text-[28px]">Masuk ke Dashboard</h1>
-          <p className="text-soft text-[13.5px] mt-1.5 mb-5">Gunakan username &amp; password yang diberikan admin.</p>
+          <h1 className="text-[22px]">Masuk</h1>
+          <p className="text-soft text-[13.5px] mt-1 mb-5">Pakai username dan password dari admin.</p>
           <form onSubmit={onSubmit} noValidate>
             <div className="control mb-3.5">
               <label htmlFor="fUsername">Username</label>
@@ -90,7 +85,7 @@ export default function Login() {
                 <input id="fPassword" type={showPw ? 'text' : 'password'} autoComplete="current-password" className="w-full pr-14" placeholder="Password"
                   value={password} onChange={e => setPassword(e.target.value)} />
                 <button type="button" tabIndex={-1} onClick={() => setShowPw(s => !s)} aria-label={showPw ? 'Sembunyikan password' : 'Tampilkan password'}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] uppercase text-faint hover:text-accent-ink bg-transparent border-0 cursor-pointer">{showPw ? 'Tutup' : 'Lihat'}</button>
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[12px] text-soft hover:text-accent-ink bg-transparent border-0 cursor-pointer">{showPw ? 'Tutup' : 'Lihat'}</button>
               </div>
             </div>
             {(error || locked) && <div role="alert" className="error-box mb-3.5 py-2.5">{locked ? 'Terlalu banyak percobaan gagal. Tunggu sebentar sebelum mencoba lagi.' : error}</div>}

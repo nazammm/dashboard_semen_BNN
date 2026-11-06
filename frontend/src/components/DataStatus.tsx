@@ -96,7 +96,7 @@ export const notifyDataStatusChanged = () => window.dispatchEvent(new Event('dat
 const SOURCE_PAGES: Record<string, string[]> = {
   transaksi: ['beranda', 'rekap-harian', 'tim-sales', 'daftar-toko', 'peta-toko', 'sell-out-bnn', 'kelola-data'],
   sellin: ['sell-in-bnn', 'kelola-data'],
-  sellout_bulanan: ['performa-daerah'],
+  sellout_bulanan: [],  // halaman Sell Out bulanan dihapus; tabelnya tetap jadi sumber target & tahun lalu Sell Out BNN
   dofas: ['sell-out-bnn', 'kelola-data'],
   erp: ['sell-out-bnn', 'kelola-data'],
   j073: ['sell-out-bnn', 'kelola-data'],

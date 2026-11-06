@@ -17,15 +17,19 @@ import { SellinUpload } from './kelola/SellinPanel';
 import { HapusPanel } from './kelola/HapusPanel';
 import { SelloutPaste } from './kelola/SelloutPanel';
 import { J073Upload } from './kelola/J073Panel';
+import { TargetPanel } from './kelola/TargetPanel';
+import { JENIS_LABEL } from '../lib/targetImport';
 
-type Tab = 'transaksi' | 'sellin' | 'sellout' | 'riwayat';
+type Tab = 'transaksi' | 'sellin' | 'sellout' | 'target' | 'riwayat';
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'transaksi', label: 'Transaksi', icon: 'M4 6.5h16M4 12h16M4 17.5h10' },
   { id: 'sellin', label: 'Sell In BNN', icon: 'M3.5 8 12 3.5 20.5 8v8L12 20.5 3.5 16V8ZM3.5 8 12 12.5 20.5 8M12 12.5v8' },
   { id: 'sellout', label: 'Sell Out BNN', icon: 'M4 20h16M6.5 16.5V11M11 16.5V7.5M15.5 16.5v-4M20 16.5V5' },
+  { id: 'target', label: 'Target', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17ZM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 11.2v1.6' },
   { id: 'riwayat', label: 'Riwayat', icon: ICON.clock },
 ];
 const MENUS: Record<Exclude<Tab, 'riwayat'>, { id: string; label: string }[]> = {
+  target: [],
   transaksi: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }, { id: 'sinkron', label: 'Waktu pembaruan' }],
   sellin: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }],
   sellout: [{ id: 'dofas', label: 'Tempel DO FAS' }, { id: 'erp', label: 'Tempel Sub ERP' }, { id: 'j073', label: 'Upload J073' }],
@@ -47,7 +51,7 @@ export default function KelolaData() {
   return (
     <div>
       <Breadcrumb items={['Administrasi', 'Kelola Data']} />
-      <PageHeader title="Kelola Data" desc="Upload, ganti, dan hapus data harian. Setiap perubahan tercatat di Riwayat." />
+      <PageHeader title="Kelola Data" desc="Upload, ganti, dan hapus data harian serta target tahunan. Setiap perubahan tercatat di Riwayat." />
 
       <div className="kd-tabs" role="tablist" aria-label="Jenis data">
         {TABS.map(t => (
@@ -59,7 +63,7 @@ export default function KelolaData() {
       </div>
 
       <div id="kd-panel" role="tabpanel" aria-labelledby={`kd-tab-${tab}`}>
-        {tab !== 'riwayat' && (
+        {tab !== 'riwayat' && tab !== 'target' && (
           <>
             <StatusStrip row={statusRow} />
             <nav className="kd-menu" aria-label="Menu">
@@ -80,6 +84,7 @@ export default function KelolaData() {
           {tab === 'sellin' && menu === 'hapus' && <HapusPanel dataset="sellin" lastDate={statusRow?.data_sampai ? String(statusRow.data_sampai).slice(0, 10) : null} onChanged={changed} />}
           {tab === 'sellout' && (menu === 'dofas' || menu === 'erp') && <SelloutPaste dataset={menu} onChanged={changed} />}
           {tab === 'sellout' && menu === 'j073' && <J073Upload onChanged={changed} />}
+          {tab === 'target' && <TargetPanel onChanged={changed} />}
           {tab === 'riwayat' && <Riwayat version={version} />}
         </div>
 
@@ -121,7 +126,7 @@ function StatusStrip({ row }: { row: Row | null }) {
 /* ---------------------------------------------------------------------------
    Riwayat upload & hapus (Transaksi + Sell In BNN)
 --------------------------------------------------------------------------- */
-const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073' };
+const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', target: 'Target' };
 const inFilter = (f: string, ds: unknown) => f === 'all' || ds === f || (f === 'sellout' && (ds === 'dofas' || ds === 'erp' || ds === 'j073'));
 
 function Riwayat({ version, dataset, limit, compact }: { version: number; dataset?: string; limit?: number; compact?: boolean }) {
@@ -142,7 +147,7 @@ function Riwayat({ version, dataset, limit, compact }: { version: number; datase
     <div>
       {!compact && (
         <div className="flex gap-2 flex-wrap mb-3" role="group" aria-label="Saring riwayat">
-          {[['all', 'Semua'], ['transaksi', 'Transaksi'], ['sellin', 'Sell In BNN'], ['sellout', 'Sell Out BNN']].map(([k, l]) => <Chip key={k} active={filter === k} onClick={() => setFilter(k)}>{l}</Chip>)}
+          {[['all', 'Semua'], ['transaksi', 'Transaksi'], ['sellin', 'Sell In BNN'], ['sellout', 'Sell Out BNN'], ['target', 'Target']].map(([k, l]) => <Chip key={k} active={filter === k} onClick={() => setFilter(k)}>{l}</Chip>)}
         </div>
       )}
       {error && <div className="mb-3"><ErrorBox error={error} /></div>}
@@ -171,7 +176,7 @@ function Riwayat({ version, dataset, limit, compact }: { version: number; datase
                   </td>
                   <td>{r.created_by || '–'}</td>
                   <td className="whitespace-nowrap">{r.date_from ? fmtRange({ from: String(r.date_from), to: String(r.date_to) }) : '–'}</td>
-                  {!compact && <td className="text-[12px]" title={dists.join(', ')}>{r.dataset !== 'transaksi' && r.dataset !== 'j073' ? '–' : dists.length ? (dists.length > 3 ? `${dists.slice(0, 3).join(', ')} +${dists.length - 3}` : dists.join(', ')) : 'Semua'}</td>}
+                  {!compact && <td className="text-[12px]" title={dists.join(', ')}>{r.dataset === 'target' ? (JENIS_LABEL as Record<string, string>)[dists[0]] || '–' : r.dataset !== 'transaksi' && r.dataset !== 'j073' ? '–' : dists.length ? (dists.length > 3 ? `${dists.slice(0, 3).join(', ')} +${dists.length - 3}` : dists.join(', ')) : 'Semua'}</td>}
                   <td className="num font-mono">{cell(r.rows_saved)}</td>
                   <td className="num font-mono">{cell(r.rows_deleted)}</td>
                   <td><StatusBadge s={String(r.status)} at={r.created_at} /></td>

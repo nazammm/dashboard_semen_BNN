@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { DataBadge } from '../components/DataStatus';
 import { Link } from 'react-router-dom';
-import { DataSource } from '../lib/data';
+import { DataSource, latestPeriod } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { MONTHS_ID, fmt, fmtIDR, relDate, uniqueTokoStats } from '../lib/format';
 import type { Row } from '../lib/types';
@@ -44,15 +44,11 @@ export default function DaftarToko() {
   useDocTitle('Daftar Toko');
   const load = useAsync(async () => {
     const monthly = await DataSource.monthlyTotals();
-    const months2026 = monthly.filter(r => r.year === 2026).map(r => Number(r.month));
-    const year = 2026, month = months2026.length ? Math.max(...months2026) : 8;
-    const [tokoMaster, tokoStats, freshnessData] = await Promise.all([DataSource.tokoMaster(), DataSource.tokoMonthly(year, month), DataSource.dataFreshness()]);
-    // Toko bisa muncul >1 kali (1 baris per distributor) -> kunci gabungan toko+distributor
-    const statsByCode = new Map(tokoStats.map(t => [t.cust_code + '|' + t.dist_code, t]));
-    const merged: Row[] = tokoMaster.map(t => {
-      const s = statsByCode.get(t.cust_code + '|' + t.dist_code);
-      return { ...t, total_qty: Number(s?.total_qty || 0), net_amount: Number(s?.net_amount || 0), is_active: !!s?.is_active, is_subdist: !!s?.is_subdist, last_transaction: s?.last_transaction || null };
-    });
+    const { year, month } = latestPeriod(monthly);
+    // dashboard_toko_monthly_v2 sudah berisi seluruh master toko (1 baris per toko+distributor) + angka bulan itu
+    const [tokoStats, freshnessData] = await Promise.all([DataSource.tokoMonthly(year, month), DataSource.dataFreshness()]);
+    const merged: Row[] = tokoStats.map(t => ({ ...t, total_qty: Number(t.total_qty || 0), net_amount: Number(t.net_amount || 0),
+      is_active: !!t.is_active, is_subdist: !!t.is_subdist, last_transaction: t.last_transaction || null }));
     const raw = String(freshnessData?.max_do_date ?? '').slice(0, 10);
     return { year, month, merged, lastDay: isISO(raw) ? raw : '' };
   }, []);

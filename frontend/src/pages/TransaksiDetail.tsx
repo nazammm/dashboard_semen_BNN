@@ -11,7 +11,7 @@ export default function TransaksiDetail() {
   const [params] = useSearchParams();
   const salesman = params.get('salesman');
   const date = params.get('date');
-  const year = +(params.get('year') || 2026), month = +(params.get('month') || 1);
+  const year = +(params.get('year') || new Date().getFullYear()), month = +(params.get('month') || 1);
   const badParams = (salesman && !(Number.isInteger(year) && year >= 2000 && year <= 2100 && Number.isInteger(month) && month >= 1 && month <= 12))
     || (!salesman && date && !(/^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(date))));
   if (badParams) {
@@ -125,7 +125,7 @@ function SalesmanMode({ salesman, year, month, name }: { salesman: string; year:
     });
     const peganganList: Row[] = data.pegangan.filter((t: Row) => !t.is_subdist)
       .map((t: Row) => ({ ...t, last_transaction: lastTxByStore[t.cust_code] || null }));
-    const mine = data.perfRows.filter(r => r.salesman_code === salesman).sort((a, b) => a.month - b.month);
+    const mine = data.perfRows.filter(r => r.salesman_code === salesman && (r.tahun == null || Number(r.tahun) === year)).sort((a, b) => a.month - b.month);
     const trend = {
       months: mine.map(r => Number(r.month)),
       actualTA: mine.map(r => Number(r.actual_ta || 0)),
@@ -148,7 +148,7 @@ function SalesmanMode({ salesman, year, month, name }: { salesman: string; year:
   const trendChart = (actual: number[], target: (number | null)[], tonase: boolean) => () => ({
     type: 'bar',
     data: { labels, datasets: [
-      { label: 'Target', data: target, type: 'line', borderColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: 0.3, order: 1 },
+      { label: 'Target', data: target, type: 'line', borderColor: COLORS.target, borderDash: [4, 3], borderWidth: 1.5, pointRadius: 2, fill: false, tension: 0.3, order: 1 },
       { label: 'Aktual', data: actual, backgroundColor: COLORS.accent, maxBarThickness: 26, order: 2 },
     ] },
     options: {

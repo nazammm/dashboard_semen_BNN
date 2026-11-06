@@ -127,6 +127,35 @@ internal static class KelolaEndpoints
             });
         });
 
+        // Target per tahun (target_tahunan.sql): ringkasan, isi satu jenis x tahun (untuk diunduh), dan simpan tempelan.
+        d.MapGet("/target-ringkas", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) => SellinEndpoints.Run(ctx, auth, log, "target ringkas", async _ =>
+            Helpers.Json(await db.QueryAsync("select * from sementrack.v_target_ringkas order by jenis, tahun desc, metrik"))));
+
+        d.MapGet("/target", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) => SellinEndpoints.Run(ctx, auth, log, "target", async _ =>
+        {
+            var jenis = ctx.Request.Query["jenis"].ToString();
+            if (!int.TryParse(ctx.Request.Query["tahun"].ToString(), out var tahun)) return Helpers.Error(400, "tahun tidak valid");
+            return Helpers.Json(await db.QueryAsync(
+                "select metrik, tahun, bulan, region, area, tipe, kode, nama, status, nilai from sementrack.target " +
+                "where jenis = $1 and tahun = $2 order by region, area, tipe, kode, metrik, bulan", new object?[] { jenis, tahun }));
+        }));
+
+        d.MapPost("/target", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) =>
+        {
+            var limit = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (limit is { IsReadOnly: false }) limit.MaxRequestBodySize = StageMaxBody;
+            return SellinEndpoints.Run(ctx, auth, log, "target simpan", async s =>
+            {
+                var b = await Helpers.ReadBodyAsync(ctx.Request);
+                var rowsEl = b.Get("rows");
+                if (rowsEl is not { ValueKind: JsonValueKind.Array }) return Helpers.Error(400, "baris tidak valid");
+                var rows = await db.QueryAsync("select * from sementrack.target_simpan($1, $2::json, $3, $4)",
+                    new object?[] { b.GetString("jenis"), rowsEl.Value.GetRawText(), s.Username, b.GetString("file_name") }, timeoutSeconds: LongQuery);
+                db.ClearCache();
+                return Helpers.Json(rows[0]);
+            });
+        });
+
         d.MapGet("/status-sync", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) => SellinEndpoints.Run(ctx, auth, log, "status-sync", async _ =>
         {
             var rows = await db.QueryAsync("select tanggal_update, jam_update, keterangan from public.status_sync where id = 1");

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { DataSource } from '../lib/data';
+import { DataSource, sellInTargetsFor } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact } from '../lib/format';
@@ -17,7 +17,7 @@ import { exportRowsToExcel } from '../lib/xlsx';
 
 /* ============================================================================
    Sell In BNN: detail harian dari upload raw sell in, dibandingkan dengan target
-   dan realisasi tahun lalu dari data Sell In bulanan (v_delivery_ext).
+   dan realisasi tahun lalu dari tabel target per tahun (v_target_sell_in, diisi lewat Kelola Data → Target).
 
    - Tipe semen: STR, RJW, CWC (semen putih). Mortar/thinbed tidak dihitung (disaring di database).
    - Target & realisasi tahun lalu hanya ada per bulan (STR & RJW). Karena itu:
@@ -79,18 +79,22 @@ function prorate(arr: number[], r: DateRange, year: number) {
 export default function SellInBnn() {
   useDocTitle('Sell In BNN');
   const load = useAsync(async () => {
-    const [rows, info, delivery] = await Promise.all([
+    const [rows, info, targets] = await Promise.all([
       DataSource.sellinDaily(), DataSource.sellinInfo(),
-      DataSource.delivery().catch(() => null),        // tanpa akses / gagal -> pembanding target & 2025 disembunyikan
+      DataSource.targetSellIn().catch(() => null),        // tanpa akses / gagal -> pembanding target & tahun lalu disembunyikan
     ]);
-    return { rows, info, delivery };
+    // Tahun halaman = tahun data sell in terakhir; target tahun itu + realisasi pembanding tahun sebelumnya
+    const last = String(info?.data_sampai ?? '').slice(0, 10);
+    const Y = Number(last.slice(0, 4)) || new Date().getFullYear();
+    const delivery = targets ? sellInTargetsFor(targets, Y) : null;
+    return { rows, info, delivery: delivery && delivery.length ? delivery : null, Y };
   }, []);
   if (load.error) return <ErrorBox error={load.error} />;
   if (!load.data) return <PageSkeleton />;
-  const { rows, info, delivery } = load.data;
+  const { rows, info, delivery, Y } = load.data;
   const last = String(info?.data_sampai ?? '').slice(0, 10);
   if (!rows.length || !isISO(last)) return <EmptyState />;
-  return <Body rows={rows} info={info!} last={last} delivery={delivery} />;
+  return <Body rows={rows} info={info!} last={last} delivery={delivery} Y={Y} />;
 }
 
 function EmptyState() {
@@ -109,16 +113,9 @@ function EmptyState() {
   );
 }
 
-/** Tahun target dari nama kolom target_YYYY di v_delivery_ext. */
-function detectYear(rows: Row[] | null, fallback: number) {
-  let y = 0;
-  if (rows?.[0]) for (const k of Object.keys(rows[0])) { const m = /^target_(\d{4})$/.exec(k); if (m) y = Math.max(y, Number(m[1])); }
-  return y || fallback;
-}
-
-function Body({ rows, info, last, delivery }: { rows: Row[]; info: Row; last: string; delivery: Row[] | null }) {
+function Body({ rows, info, last, delivery, Y }: { rows: Row[]; info: Row; last: string; delivery: Row[] | null; Y: number }) {
   const first = String(info.data_mulai ?? last).slice(0, 10);
-  const Y = detectYear(delivery, Number(last.slice(0, 4))), P = Y - 1;
+  const P = Y - 1;
   const kTgt = `target_${Y}`, kPrev = `realisasi_${P}`;
 
   /* ---------- peta sub region -> region & nama tampilan ---------- */
@@ -349,18 +346,18 @@ function Body({ rows, info, last, delivery }: { rows: Row[]; info: Row; last: st
           </div>
         </div>
         <div className="legend">
-          {v.showCompare && <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target {Y} (sebulan)</span>}
+          {v.showCompare && <span><i style={{ background: COLORS.target, height: 2 }} aria-hidden="true" />Target {Y} (sebulan)</span>}
           <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Realisasi {Y}</span>
-          {v.showCompare && <span><i style={{ background: COLORS.ink, opacity: .35 }} aria-hidden="true" />Realisasi {P} (sebulan)</span>}
+          {v.showCompare && <span><i style={{ background: COLORS.prev }} aria-hidden="true" />Realisasi {P} (sebulan)</span>}
         </div>
         <ChartBox className="tall" label={chartSRSummary(v.trend.labels, v.trend.cur, `ton realisasi ${Y}`)}
           deps={[v.trend.labels.join('|'), v.trend.cur.join('|'), v.trend.target.join('|'), v.trend.prev.join('|')]}
           build={() => ({
             type: 'bar',
             data: { labels: v.trend.labels, datasets: [
-              { label: `Target ${Y}`, data: v.trend.target, type: 'line', borderColor: COLORS.blueMid, backgroundColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3, order: 1, hidden: !v.showCompare },
+              { label: `Target ${Y}`, data: v.trend.target, type: 'line', borderColor: COLORS.target, backgroundColor: COLORS.target, borderDash: [4, 3], borderWidth: 1.5, pointRadius: 2, fill: false, tension: .3, order: 1, hidden: !v.showCompare },
               { label: `Realisasi ${Y}`, data: v.trend.cur, backgroundColor: COLORS.accent, maxBarThickness: 26, order: 2 },
-              { label: `Realisasi ${P}`, data: v.trend.prev, backgroundColor: 'rgba(33,30,25,.22)', borderRadius: 3, maxBarThickness: 26, order: 3, hidden: !v.showCompare },
+              { label: `Realisasi ${P}`, data: v.trend.prev, backgroundColor: COLORS.prev, maxBarThickness: 26, order: 3, hidden: !v.showCompare },
             ] } as any,
             options: { responsive: true, maintainAspectRatio: false,
               scales: { y: { beginAtZero: true, grid: { color: COLORS.line }, ticks: { callback: (x: any) => fmtCompact(x) } }, x: { grid: { display: false }, ticks: { autoSkip: true, maxRotation: 0 } } },

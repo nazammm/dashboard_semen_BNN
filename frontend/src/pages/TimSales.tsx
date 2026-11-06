@@ -25,15 +25,22 @@ export default function TimSales() {
   return <TimSalesBody rows={data.rows} freshnessData={data.freshnessData} targets={data.targets} />;
 }
 
-function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshnessData: Row; targets: Row[] | null }) {
-  // Tahun data = tahun transaksi terakhir (view salesman memakai tahun transaksi terbaru), bukan angka tetap.
-  const year = Number(String(freshnessData?.max_do_date ?? '').slice(0, 4)) || new Date().getFullYear();
+function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; freshnessData: Row; targets: Row[] | null }) {
+  // Periode = tahun-bulan yang punya transaksi salesman (target per tahun). Default: periode terakhir.
+  const fallbackYear = Number(String(freshnessData?.max_do_date ?? '').slice(0, 4)) || new Date().getFullYear();
+  const yearOf = (r: Row) => (r.tahun == null ? fallbackYear : Number(r.tahun));
+  const periods = useMemo(() => [...new Set(allRows.filter(r => r.actual_num_do > 0).map(r => yearOf(r) * 100 + Number(r.month)))].sort((a, b) => a - b),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allRows]);
+  const [period, setPeriod] = useState(() => periods[periods.length - 1] || fallbackYear * 100 + 1);
+  const year = Math.floor(period / 100), month = period % 100;
+  const rows = useMemo(() => allRows.filter(r => yearOf(r) === year),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allRows, year]);
+  const lastMonthOfYear = periods.filter(p => Math.floor(p / 100) === year).reduce((a, p) => Math.max(a, p % 100), month);
   const dists = useMemo(() => [...new Set(rows.map(r => String(r.dist_code)))].sort(), [rows]);
-  const monthsWithData = useMemo(() => [...new Set(rows.filter(r => r.actual_num_do > 0).map(r => Number(r.month)))].sort((a, b) => a - b), [rows]);
-  const defaultMonth = monthsWithData.length ? monthsWithData[monthsWithData.length - 1] : 1;
 
   const [dist, setDist] = useState('all');
-  const [month, setMonth] = useState(defaultMonth);
   const [topN, setTopN] = useState(10);
   const [q, setQ] = useState('');
   const query = useDebounced(q.trim().toLowerCase(), 150);
@@ -62,7 +69,7 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
 
   /* ---------- sebaran skor ---------- */
   const bucketLabels = ['< 50%', '50–79%', '80–99%', '100–119%', '≥ 120%'];
-  const bucketColors = [COLORS.red, '#C9622B', COLORS.amber, '#6E9F7C', COLORS.green];
+  const bucketColors = [COLORS.red, '#D9822B', COLORS.amber, '#6FAE85', COLORS.green];
   const bucketCounts = useMemo(() => {
     const c = [0, 0, 0, 0, 0];
     scored.forEach(r => {
@@ -100,7 +107,7 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
           data: { labels: bucketLabels, datasets: [{ data: bucketCounts, backgroundColor: bucketColors, borderRadius: 3, maxBarThickness: 44 }] },
           options: {
             responsive: true, maintainAspectRatio: false,
-            scales: { y: { beginAtZero: true, grid: { color: COLORS.line }, ticks: { precision: 0 } }, x: { grid: { display: false } } },
+            scales: { y: { beginAtZero: true, grid: { color: COLORS.line }, ticks: { precision: 0 } }, x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 40 } } },
             plugins: { tooltip: { callbacks: { title: (c: any) => `Skor ${c[0].label}`, label: (c: any) => ` ${fmt(c.parsed.y)} salesman` } } },
           },
         } as any)} />
@@ -114,8 +121,8 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
       <FilterBar label="Filter Tim Sales">
         <Select label="Distributor" value={dist} onChange={e => setDist(e.target.value)}
           options={[{ value: 'all', label: 'Semua Distributor' }, ...dists.map(d => ({ value: d, label: d }))]} />
-        <Select label="Bulan" value={month} onChange={e => setMonth(+e.target.value)}
-          options={(monthsWithData.length ? monthsWithData : [month]).map(m => ({ value: m, label: `${MONTHS_ID[m]} ${year}` }))} />
+        <Select label="Bulan" value={period} onChange={e => setPeriod(+e.target.value)}
+          options={(periods.length ? [...periods].reverse() : [period]).map(p => ({ value: p, label: `${MONTHS_ID[p % 100]} ${Math.floor(p / 100)}` }))} />
       </FilterBar>
 
       <div className="grid-kpi">
@@ -131,7 +138,7 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
       </div>
 
       {targets && targets.length > 0
-        ? <SalesmanVsTarget rows={rows} targets={targets} month={month} year={year} dist={dist} lead={sebaranCard} />
+        ? <SalesmanVsTarget rows={rows} targets={targets} month={month} year={year} lastMonth={lastMonthOfYear} dist={dist} lead={sebaranCard} />
         : <div className="grid grid-cols-2 max-lg:grid-cols-1 gap-4 mt-3.5">{sebaranCard}</div>}
 
       <div className="flex items-end justify-between flex-wrap gap-x-4 gap-y-2.5 mt-[38px] mb-3.5">
@@ -200,7 +207,7 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
 ============================================================================ */
 type DistRow = { dist: string; name: string; real: number | null; target: number; selisih: number | null; p: number | null };
 
-function SalesmanVsTarget({ rows, targets, month, year, dist, lead }: { rows: Row[]; targets: Row[]; month: number; year: number; dist: string; lead: ReactNode }) {
+function SalesmanVsTarget({ rows, targets, month, year, lastMonth, dist, lead }: { rows: Row[]; targets: Row[]; month: number; year: number; lastMonth: number; dist: string; lead: ReactNode }) {
   const tgt = useMemo(() => new Map(targets.map(t => [String(t.dist_code), { target: Number(t.target_salesman || 0), name: String(t.dist_name || '') }])), [targets]);
   const agg = useMemo(() => {
     const m = new Map<string, Set<string>>();
@@ -216,11 +223,13 @@ function SalesmanVsTarget({ rows, targets, month, year, dist, lead }: { rows: Ro
   const scoped = useMemo(() => dists.filter(d => dist === 'all' || d === dist), [dists, dist]);
   const targetTotal = scoped.reduce((a, d) => a + (tgt.get(d)?.target || 0), 0);
 
+  // hanya bulan yang sudah punya transaksi (bulan depan belum terjadi)
   const monthly = useMemo(() => Array.from({ length: 12 }, (_, i) => {
+    if (i + 1 > lastMonth) return null;
     let has = false, real = 0;
     scoped.forEach(d => { const e = agg.get(`${d}|${i + 1}`); if (e) { has = true; real += e.size; } });
     return has ? real : null;
-  }), [scoped, agg]);
+  }), [scoped, agg, lastMonth]);
 
   const signed = (n: number) => (n > 0 ? '+' : n < 0 ? '−' : '') + fmt(Math.abs(n));
 
@@ -249,8 +258,8 @@ function SalesmanVsTarget({ rows, targets, month, year, dist, lead }: { rows: Ro
             data: {
               labels,
               datasets: [
-                { type: 'line', label: 'Target', data: labels.map(() => (targetTotal > 0 ? targetTotal : null)), borderColor: COLORS.red, borderDash: [6, 4], borderWidth: 2, pointRadius: 0, fill: false, order: 1 },
-                { type: 'bar', label: 'Salesman', data: monthly, backgroundColor: monthly.map((_, i) => (i + 1 === month ? COLORS.accent : COLORS.blueMid)), maxBarThickness: 30, order: 2 },
+                { type: 'line', label: 'Target', data: labels.map(() => (targetTotal > 0 ? targetTotal : null)), borderColor: COLORS.target, borderDash: [6, 4], borderWidth: 2, pointRadius: 0, fill: false, order: 1 },
+                { type: 'bar', label: 'Salesman', data: monthly, backgroundColor: monthly.map((_, i) => (i + 1 === month ? COLORS.accent : COLORS.sub)), maxBarThickness: 30, order: 2 },
               ],
             },
             options: {
@@ -276,7 +285,7 @@ function SalesmanVsTarget({ rows, targets, month, year, dist, lead }: { rows: Ro
             </tr></thead>
             <tbody>
               {sorted.map(r => (
-                <tr key={r.dist} style={dist === r.dist ? { background: 'rgba(255,90,31,.08)' } : undefined}>
+                <tr key={r.dist} style={dist === r.dist ? { background: 'rgba(1,129,213,.07)' } : undefined}>
                   <td><span className="tag-code">{r.dist}</span></td>
                   <td className="num font-mono whitespace-nowrap"><span className="text-faint">{r.target > 0 ? fmt(r.target) : '–'} / </span>{r.real == null ? '–' : fmt(r.real)}</td>
                   <td className="num font-mono" style={{ color: r.selisih == null ? undefined : r.selisih >= 0 ? COLORS.green : COLORS.red }}>{r.selisih == null ? '–' : signed(r.selisih)}</td>

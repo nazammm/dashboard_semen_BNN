@@ -39,9 +39,9 @@ function RekapBody({ base }: { base: Base }) {
 
   // hanya periode mulai Januari 2026
   const periods = useMemo(() => monthly.map(r => ({ year: Number(r.year), month: Number(r.month) }))
-    .filter(p => p.year >= 2026)
+    .filter((p, _, all) => p.year >= Math.max(...all.map(x => x.year)) - 1)   // tahun berjalan + tahun lalu
     .sort((a, b) => a.year - b.year || a.month - b.month), [monthly]);
-  const defaultPeriod = periods[periods.length - 1] || { year: 2026, month: 8 };
+  const defaultPeriod = periods[periods.length - 1] || { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
 
   const [period, setPeriod] = useState(`${defaultPeriod.year}-${defaultPeriod.month}`);
   const [jenis, setJenis] = useState('all');
@@ -58,9 +58,9 @@ function RekapBody({ base }: { base: Base }) {
 
   const targetMap = useMemo(() => {
     const map: Record<string, number> = {};
-    targetDist.filter(r => Number(r.month_num) === month).forEach(r => { map[String(r.dist_code)] = Number(r.target || 0); });
+    targetDist.filter(r => Number(r.month_num) === month && (r.tahun == null || Number(r.tahun) === year)).forEach(r => { map[String(r.dist_code)] = Number(r.target || 0); });
     return map;
-  }, [targetDist, month]);
+  }, [targetDist, month, year]);
 
   // ---- Rekap Harian ----
   const dailyView = useMemo(() => {
@@ -192,7 +192,7 @@ function RekapBody({ base }: { base: Base }) {
                   <td className="num bg-surface2 font-bold">{fmt(w.rowTotal)}</td>
                 </tr>
               ))}
-              <tr className="font-bold" style={{ borderTop: '2px solid #AFA790' }}>
+              <tr className="font-bold" style={{ borderTop: '1px solid #CBD1D9' }}>
                 <td>TOTAL</td>
                 {distCodes.map(c => <td key={c} className="num bg-surface2">{weeklyView.colTotal[c] ? fmt(weeklyView.colTotal[c]) : '–'}</td>)}
                 <td className="num bg-accent-soft font-extrabold">{fmt(weeklyView.grand)}</td>
@@ -220,8 +220,8 @@ function RekapBody({ base }: { base: Base }) {
                 <td>%M{p.i + 1} <span className="text-faint">({p.bench.toFixed(1)}%)</span></td>
                 {p.cells.map((v, k) => v == null
                   ? <td key={distCodes[k]} className="num"><Dash /></td>
-                  : <td key={distCodes[k]} className="num font-semibold" style={{ color: v >= p.bench ? COLORS.green : COLORS.red }}>{v.toFixed(2)}%</td>)}
-                <td className="num bg-surface2 font-bold" style={{ color: p.totalP >= p.bench ? COLORS.green : COLORS.red }}>{p.totalP.toFixed(2)}%</td>
+                  : <td key={distCodes[k]} className="num font-semibold" style={{ color: v >= p.bench ? COLORS.green : COLORS.red }}>{v.toFixed(1)}%</td>)}
+                <td className="num bg-surface2 font-bold" style={{ color: p.totalP >= p.bench ? COLORS.green : COLORS.red }}>{p.totalP.toFixed(1)}%</td>
               </tr>
             ))}
           </tbody>

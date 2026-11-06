@@ -17,7 +17,7 @@ semua filter, urutan, KPI, grafik, tabel, drill-down link, export Excel, aturan 
 - Kelas Tailwind komponen (src/index.css): `card`, `card-title`, `kpi-value`, `grid-kpi`, `badge good|warn|bad|neutral|online`,
   `capaian`, `chip`, `btn`, `btn-primary`, `controls`, `control`, `table-wrap`, `tbl-dense`, `tag-code`, `cell-link`, `section-title`,
   `chart-box`, `legend`, `error-box`, `empty-box`, `divider`. Warna token Tailwind: bg, surface, surface2, ink, soft, faint, line,
-  line-strong, accent, accent-ink, accent-soft, blue, blue-mid, blue-soft, green(-soft), red(-soft), amber(-soft). Font: font-disp/mono/sans.
+  line-strong, accent, accent-ink, accent-soft, blue, blue-mid, blue-soft, green(-soft), red(-soft), amber(-soft). Font: satu keluarga IBM Plex Sans (font-disp/mono hanya alias), angka tabular. Warna mengikuti logo: accent = biru, mark = magenta (penanda saja).
 - Router: react-router v6. Link internal pakai `<Link to="/toko-detail?code=X">` (JANGAN `<a href>`), params via `useSearchParams`.
   Halaman lain: beranda, performa-daerah, delivery, rekap-harian, tim-sales, peta-toko, daftar-toko, transaksi-detail, toko-detail, interaksi-web, kelola-akses.
 

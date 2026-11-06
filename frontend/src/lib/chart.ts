@@ -9,19 +9,21 @@ export function applyChartDefaults() {
   if (defaultsApplied) return;
   defaultsApplied = true;
   const d = Chart.defaults;
-  d.font.family = "'IBM Plex Mono', monospace";
-  d.font.size = 11;
-  d.color = '#645E52';
-  d.borderColor = '#C6BFAF';
+  d.font.family = "'IBM Plex Sans', system-ui, sans-serif";
+  d.font.size = 11.5;
+  d.color = '#687180';
+  d.borderColor = '#E2E5EA';
   d.plugins.legend.display = false;
-  d.plugins.tooltip.backgroundColor = '#211E19';
-  d.plugins.tooltip.titleFont = { family: "'IBM Plex Mono', monospace", size: 11, weight: 600 };
-  d.plugins.tooltip.bodyFont = { family: "'IBM Plex Mono', monospace", size: 11 };
+  d.plugins.tooltip.backgroundColor = '#151A21';
+  d.plugins.tooltip.titleFont = { family: "'IBM Plex Sans', system-ui, sans-serif", size: 12, weight: 600 };
+  d.plugins.tooltip.bodyFont = { family: "'IBM Plex Sans', system-ui, sans-serif", size: 12 };
   d.plugins.tooltip.padding = 10;
-  d.plugins.tooltip.cornerRadius = 3;
+  d.plugins.tooltip.cornerRadius = 6;
   d.plugins.tooltip.displayColors = true;
   d.plugins.tooltip.boxPadding = 4;
-  (d.elements.bar as any).borderRadius = 3;
+  (d.elements.bar as any).borderRadius = 2;
+  // label sumbu tidak dimiringkan; kalau sempit, sebagian label dilewati (mis. bulan selang-seling di HP)
+  (d.scale.ticks as any).maxRotation = 0;
   // Transisi lebih singkat: perubahan filter terasa responsif, tetap halus.
   (d.animation as any).duration = 450;
   (d.animation as any).easing = 'easeOutCubic';
@@ -71,7 +73,7 @@ export function donutPercentPlugins(unitLabel = 'ton', valueFmt?: (v: number) =>
     legend: {
       display: true, position: 'bottom' as const,
       labels: {
-        boxWidth: 10, font: { size: 10.5, family: "'IBM Plex Mono', monospace" }, color: '#645E52',
+        boxWidth: 10, font: { size: 11.5, family: "'IBM Plex Sans', system-ui, sans-serif" }, color: '#4A5361',
         generateLabels(chart: Chart) {
           const ds: any = chart.data.datasets[0];
           const total = (ds.data as number[]).reduce((a, b) => a + Number(b || 0), 0);

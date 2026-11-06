@@ -145,3 +145,23 @@ Urutan pasang (keduanya wajib, kalau tidak Overview menampilkan pesan "Filter re
 3. Daftar subdist = tabel `sementrack.subdist_customer` (pasangan distributor + kode customer). Tambah subdist baru cukup
    insert baris ke tabel ini; semua halaman ikut otomatis. Transaksinya tetap dihitung di tonase / amount distributor,
    tetapi tidak dihitung ke salesman mana pun.
+
+## 12. Update Nov 2026: target per tahun, tampilan baru, halaman Sell Out bulanan dihapus
+Urutan SQL (semua aman dijalankan ulang, sebagai pemilik tabel nazamudin):
+1. `docs/sql/sell_out_bnn.sql` (versi baru): view Sell Out BNN dibungkus fungsi `SET jit = off`
+   (±0,6 detik, sebelumnya ±4 detik). Tidak perlu hak superuser.
+2. `docs/sql/toko_aktif_subdist.sql` (versi baru).
+3. `docs/sql/target_tahunan.sql` (baru): tabel `sementrack.target` (satu tabel untuk target Sell In, Sell Out,
+   distributor, salesman, per tahun x bulan), fungsi `target_simpan`, view `v_target_sell_in`, `v_target_sell_out`,
+   `v_target_dist`, `v_target_ringkas`, dan `v_salesman_performance` / `v_transaksi_detail` versi per tahun.
+   Isi tabel lama (cement_targets, delivery, "Target Dist", salesman_status_target) disalin sekali; tabel lama tidak diubah.
+Lalu deploy ulang backend + frontend (SQL dulu, baru backend).
+- Endpoint baru (admin): `GET /api/admin/data/target-ringkas`, `GET /api/admin/data/target?jenis=&tahun=`,
+  `POST /api/admin/data/target`. View baru yang boleh dibaca: `v_target_sell_in` (halaman sell-in-bnn),
+  `v_target_sell_out` (sell-out-bnn); `v_target_dist` sekarang dibaca dari schema sementrack.
+- Halaman `performa-daerah` (Sell Out bulanan) dihapus. Hak akses lama ke halaman itu diabaikan otomatis.
+- Target tahun berikutnya: Kelola Data → Target, tempel sheet dengan format yang sama (kolom bertahun, mis. target_do_2027).
+- Libur nasional untuk Rekap Harian ada di `frontend/src/lib/format.ts` (HOLIDAYS_ID); 2026 dan 2027 sudah diisi.
+  Tambah satu baris setelah SKB 3 Menteri tahun berikutnya terbit.
+- Pustaka xlsx (±430 KB) sekarang dimuat saat tombol unduh diklik; bundel utama turun dari ±700 KB ke ±420 KB.
+

@@ -79,15 +79,19 @@ export function uniqueTokoStats(rows: Row[], hasGeoFn: (r: Row) => boolean) {
   return { total, active, subdist: m.size - total, noGeo: noGeoRows.length, noGeoRows };
 }
 
-// Hari libur nasional 2026 (SKB 3 Menteri), hanya libur nasional.
-const HOLIDAYS_ID_2026 = [
+// Hari libur nasional (SKB 3 Menteri), hanya libur nasional, tanpa cuti bersama.
+// Tahun baru: tambahkan satu baris setelah SKB terbit (biasanya September tahun sebelumnya).
+const HOLIDAYS_ID = new Set([
+  // 2026
   '2026-01-01', '2026-01-16', '2026-02-17', '2026-03-19', '2026-03-21', '2026-03-22', '2026-04-03', '2026-04-05',
   '2026-05-01', '2026-05-14', '2026-05-27', '2026-05-31', '2026-06-01', '2026-06-16', '2026-08-17', '2026-08-25', '2026-12-25',
-];
+  // 2027 (SKB 3 Menteri, Sep 2026)
+  '2027-01-01', '2027-01-05', '2027-02-06', '2027-03-08', '2027-03-10', '2027-03-11', '2027-03-26', '2027-03-28', '2027-05-01',
+  '2027-05-06', '2027-05-17', '2027-05-20', '2027-06-01', '2027-06-06', '2027-08-15', '2027-08-17', '2027-12-25', '2027-12-26',
+]);
 export function isWorkingDay(year: number, month: number, day: number) {
   if (new Date(year, month - 1, day).getDay() === 0) return false;
-  const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  return !HOLIDAYS_ID_2026.includes(iso);
+  return !HOLIDAYS_ID.has(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
 }
 export interface WeekBucket { week: number; days: number[]; workingDays: number }
 export function weekBucketsForMonth(year: number, month: number): WeekBucket[] {
@@ -104,7 +108,9 @@ export function weekBucketsForMonth(year: number, month: number): WeekBucket[] {
 }
 
 export const COLORS = {
-  accent: '#FF5A1F', accentSoft: 'rgba(255,90,31,.16)', blue: '#204A63', blueMid: '#3E7899', blueSoft: 'rgba(62,120,153,.16)',
-  green: '#3F7A52', red: '#B23B2E', amber: '#B8791A', ink: '#211E19', line: '#C6BFAF',
+  // accent = biru logo (data utama) · prev = tahun lalu (abu) · target = garis putus abu gelap · mark = magenta logo (sorotan)
+  accent: '#0181D5', accentSoft: 'rgba(1,129,213,.12)', blue: '#1E3A5C', blueMid: '#5D6B7C', blueSoft: 'rgba(93,107,124,.14)',
+  green: '#2E7D4F', red: '#C03A2B', amber: '#A86300', ink: '#151A21', line: '#E2E5EA',
+  prev: '#C3C9D2', target: '#4A5361', mark: '#C8035F', sub: '#7CB8E4',
 };
-export const PALETTE = ['#FF5A1F', '#204A63', '#3F7A52', '#B8791A', '#8A5FA8', '#3E7899', '#B23B2E', '#6B6153'];
+export const PALETTE = ['#0181D5', '#1E3A5C', '#7CB8E4', '#C8035F', '#5D6B7C', '#2E7D4F', '#A86300', '#B9C1CC'];

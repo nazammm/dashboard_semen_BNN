@@ -49,7 +49,7 @@ Check(adminAccess.Functions.Count == AccessRules.AllowedFunctions.Count, "admin 
 var sales = AccessRules.ComputeAccess("sales", AccessRules.DefaultPagesFor("sales"));
 Check(sales.Tables.Contains("status_sync"), "sales: status_sync selalu boleh");
 Check(sales.Tables.Contains("toko") && sales.Tables.Contains("v_transaksi_detail"), "sales: toko & transaksi detail");
-Check(!sales.Tables.Contains("v_cement_targets_ext"), "sales: TIDAK boleh target semen");
+Check(!sales.Tables.Contains("v_target_sell_out") && !sales.Tables.Contains("v_target_sell_in"), "sales: TIDAK boleh target semen");
 Check(!sales.Functions.Contains("dashboard_period_summary_v2"), "sales: TIDAK boleh period_summary");
 Check(sales.Functions.Contains("dashboard_toko_monthly_v2") && sales.Functions.Contains("dashboard_store_year"), "sales: fungsi toko");
 
@@ -67,14 +67,14 @@ Check(AccessRules.AllowedFunctions["dashboard_top_customers_range"].SequenceEqua
 Check(AccessRules.RpcSchema["dashboard_period_summary_range"] == "sementrack", "fungsi range di schema sementrack");
 
 // Sell In BNN
-Check(mo.Tables.Contains("v_sellin_bnn_daily") && mo.Tables.Contains("v_sellin_bnn_info") && mo.Tables.Contains("v_delivery_ext"), "mo: data sell in BNN + target bulanan");
+Check(mo.Tables.Contains("v_sellin_bnn_daily") && mo.Tables.Contains("v_sellin_bnn_info") && mo.Tables.Contains("v_target_sell_in"), "mo: data sell in BNN + target per tahun");
 Check(!sales.Tables.Contains("v_sellin_bnn_daily"), "sales: TIDAK boleh sell in BNN");
 Check(AccessRules.DefaultPagesFor("admin").Contains("kelola-data") && !AccessRules.DefaultPagesFor("mo").Contains("kelola-data"), "kelola data khusus admin");
 Check(sales.Tables.Contains("v_data_status") && mo.Tables.Contains("v_data_status"), "status data boleh untuk semua role");
 Check(AccessRules.ReadAlias["v_sellin_bnn_daily"] == "sementrack.v_sellin_bnn_daily", "view sell in di schema sementrack");
 
 // Sell Out BNN
-Check(mo.Tables.Contains("v_sellout_bnn_monthly") && mo.Tables.Contains("v_sellout_bnn_peta") && mo.Tables.Contains("v_cement_targets_ext"), "mo: data sell out BNN + target bulanan");
+Check(mo.Tables.Contains("v_sellout_bnn_monthly") && mo.Tables.Contains("v_sellout_bnn_peta") && mo.Tables.Contains("v_target_sell_out"), "mo: data sell out BNN + target per tahun");
 Check(!sales.Tables.Contains("v_sellout_bnn_monthly"), "sales: TIDAK boleh sell out BNN");
 Check(AccessRules.ReadAlias["v_sellout_bnn_monthly"] == "sementrack.v_sellout_bnn_monthly", "view sell out di schema sementrack");
 Check(mo.Tables.Contains("v_sellout_bnn_ta") && !sales.Tables.Contains("v_sellout_bnn_ta"), "toko aktif sell out BNN ikut halaman sell-out-bnn");
@@ -83,6 +83,7 @@ Check(AccessRules.ReadAlias["v_salesman_performance"] == "sementrack.v_salesman_
 Check(AccessRules.ReadAlias["v_toko_pegangan_sales"] == "sementrack.v_toko_pegangan_sales", "toko pegangan tanpa subdist di schema sementrack");
 Check(AccessRules.RpcSchema["dashboard_store_year"] == "sementrack", "detail toko tanpa subdist di schema sementrack");
 Check(AccessRules.ReadAlias["v_transaksi_detail"] == "sementrack.v_transaksi_detail", "detail transaksi (+is_subdist) di schema sementrack");
+Check(AccessRules.ReadAlias["v_target_dist"] == "sementrack.v_target_dist" && AccessRules.ReadAlias["v_target_sell_out"] == "sementrack.v_target_sell_out", "target per tahun di schema sementrack");
 
 Check(AccessRules.DefaultPermFor("sales", "daftar-toko") is { CanViewDetail: true, CanDownload: false }, "perm sales daftar-toko");
 Check(AccessRules.DefaultPermFor("spv", "rekap-harian") is { CanViewDetail: false, CanDownload: false }, "perm spv rekap");

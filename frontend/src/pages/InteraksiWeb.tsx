@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { adminApi } from '../lib/api';
 import { useAsync, useDocTitle } from '../lib/hooks';
-import { fmt, ROLE_LABEL, PALETTE, COLORS } from '../lib/format';
+import { fmt, ROLE_LABEL, COLORS } from '../lib/format';
 import { PAGE_LABEL } from '../lib/pages';
 import { Breadcrumb, PageHeader, PageSkeleton, ErrorBox, Kpi, ChartBox, TableWrap } from '../components/ui';
 import type { Row } from '../lib/types';
@@ -80,7 +80,7 @@ export default function InteraksiWeb() {
                 deps={[data]}
                 build={() => ({
                   type: 'bar',
-                  data: { labels: roleLabels, datasets: [{ data: roleCounts, backgroundColor: PALETTE, maxBarThickness: 46, borderRadius: 4 }] },
+                  data: { labels: roleLabels, datasets: [{ data: roleCounts, backgroundColor: COLORS.accent, maxBarThickness: 46 }] },
                   options: {
                     responsive: true, maintainAspectRatio: false,
                     scales: { y: { grid: { color: COLORS.line }, ticks: { precision: 0 } }, x: { grid: { display: false } } },

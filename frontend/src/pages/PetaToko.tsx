@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { DataBadge } from '../components/DataStatus';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import L from 'leaflet';
-import { DataSource } from '../lib/data';
+import { DataSource, latestPeriod } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import {
@@ -55,14 +55,14 @@ function popupGroupEl(rows: Row[], month: number, canView: boolean, navigate: (t
   if (multi) {
     root.append(el('span', {
       text: `${rows.length} distributor`,
-      style: 'display:inline-block;margin:4px 0;background:#F1EEE5;border:1px solid #C6BFAF;border-radius:4px;padding:1px 6px;font-size:11px;',
+      style: 'display:inline-block;margin:4px 0;background:#EEF0F4;border:1px solid #CBD1D9;border-radius:4px;padding:1px 6px;font-size:11px;',
     }));
   }
   rows.forEach((t, i) => {
-    if (i > 0) root.append(el('hr', { style: 'border:0;border-top:1px solid #DDD6C5;margin:6px 0;' }));
-    const name = el('span', { text: t.dist_name || t.dist_code || '', style: 'color:#645E52' });
+    if (i > 0) root.append(el('hr', { style: 'border:0;border-top:1px solid #E2E5EA;margin:6px 0;' }));
+    const name = el('span', { text: t.dist_name || t.dist_code || '', style: 'color:#4A5361' });
     root.append(name);
-    if (multi) root.append(' ', el('span', { text: `(${t.dist_code})`, style: "font-family:'IBM Plex Mono',monospace;font-size:11px;" }));
+    if (multi) root.append(' ', el('span', { text: `(${t.dist_code})`, style: 'font-size:11.5px;color:#687180;' }));
     root.append(
       el('br'), 'Status: ',
       t.is_subdist
@@ -108,8 +108,7 @@ export default function PetaToko() {
 
   const load = useAsync(async () => {
     const monthly = await DataSource.monthlyTotals();
-    const months2026 = monthly.filter(r => r.year === 2026).map(r => Number(r.month));
-    const year = 2026, month = months2026.length ? Math.max(...months2026) : 8;
+    const { year, month } = latestPeriod(monthly);
     const tokoAll = await DataSource.tokoMonthly(year, month);
     return { year, month, tokoAll };
   }, []);
@@ -186,7 +185,7 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
       const m = L.circleMarker(latlng(t), {
         renderer: canvas,
         radius: rows.length > 1 ? 6 : (anyActive || subdist ? 4.5 : 3.5), weight: rows.length > 1 ? 2 : 1,
-        color: subdist ? COLORS.blue : anyActive ? '#2F6B44' : '#8F3823',
+        color: subdist ? COLORS.blue : anyActive ? '#1F5C39' : '#93291E',
         fillColor: subdist ? COLORS.blueMid : anyActive ? COLORS.green : COLORS.red, fillOpacity: 0.8,
       });
       // Popup dibangun saat dibuka (lazy) supaya ribuan marker tidak membangun DOM di muka
@@ -289,12 +288,12 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
         <div ref={searchBox} className="absolute top-3.5 left-3.5 z-[1001] w-[280px] max-w-[calc(100%-28px)]">
           <input
             type="text" value={query} autoComplete="off" placeholder="Cari nama atau kode toko…" aria-label="Cari toko berdasarkan nama atau kode"
-            className="w-full box-border bg-surface border border-line-strong rounded-md px-3 py-[9px] text-[13px] shadow-[0_2px_6px_rgba(33,30,25,.12)] focus:outline-none focus:border-accent"
+            className="w-full box-border bg-surface border border-line-strong rounded-md px-3 py-[9px] text-[13px] shadow-[0_2px_6px_rgba(21,26,33,.12)] focus:outline-none focus:border-accent"
             onChange={e => { setQuery(e.target.value); setSearchOpen(true); }}
             onFocus={() => setSearchOpen(true)}
           />
           {searchOpen && q.length >= 2 && (
-            <div className="mt-1 bg-surface border border-line-strong rounded-md shadow-[0_4px_14px_rgba(33,30,25,.16)] max-h-[280px] overflow-y-auto">
+            <div className="mt-1 bg-surface border border-line-strong rounded-md shadow-[0_4px_14px_rgba(21,26,33,.16)] max-h-[280px] overflow-y-auto">
               {!matches.length ? (
                 <div className="px-3 py-2.5 font-mono text-[11.5px] text-faint">Tidak ditemukan.</div>
               ) : matches.map(t => {
@@ -312,14 +311,14 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
             </div>
           )}
         </div>
-        <div className="absolute bottom-3.5 left-3.5 z-[1001] bg-surface border border-line-strong rounded-md px-3 py-2 flex gap-3.5 text-[11.5px] text-soft shadow-[0_2px_6px_rgba(33,30,25,.12)]">
+        <div className="absolute bottom-3.5 left-3.5 z-[1001] bg-surface border border-line-strong rounded-md px-3 py-2 flex gap-3.5 text-[11.5px] text-soft shadow-[0_2px_6px_rgba(21,26,33,.12)]">
           <span className="inline-flex items-center gap-1.5"><i className="w-[9px] h-[9px] rounded-full inline-block" style={{ background: COLORS.green }} aria-hidden="true" />Aktif bulan ini</span>
           <span className="inline-flex items-center gap-1.5"><i className="w-[9px] h-[9px] rounded-full inline-block" style={{ background: COLORS.red }} aria-hidden="true" />Nonaktif bulan ini</span>
           {us.subdist > 0 && <span className="inline-flex items-center gap-1.5"><i className="w-[9px] h-[9px] rounded-full inline-block" style={{ background: COLORS.blueMid }} aria-hidden="true" />Subdist</span>}
         </div>
         <button
           type="button" title="Kembalikan tampilan peta" aria-label="Kembalikan tampilan peta"
-          className="absolute top-3.5 right-3.5 z-[1001] w-[34px] h-[34px] bg-surface border border-line-strong rounded-md shadow-[0_2px_6px_rgba(33,30,25,.12)] flex items-center justify-center cursor-pointer text-soft hover:text-accent-ink hover:border-accent [&_svg]:w-4 [&_svg]:h-4"
+          className="absolute top-3.5 right-3.5 z-[1001] w-[34px] h-[34px] bg-surface border border-line-strong rounded-md shadow-[0_2px_6px_rgba(21,26,33,.12)] flex items-center justify-center cursor-pointer text-soft hover:text-accent-ink hover:border-accent [&_svg]:w-4 [&_svg]:h-4"
           onClick={() => mapRef.current?.setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom)}
         >{RESET_ICON}</button>
         <div ref={mapEl} role="img" aria-label="Peta sebaran lokasi toko" className="h-[320px] min-[481px]:h-[400px] min-[881px]:h-[560px] rounded-lg border border-line" />
@@ -331,35 +330,35 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
           className="fixed inset-0 z-[9999] flex items-center justify-center p-[clamp(8px,4vw,24px)]" style={{ background: 'rgba(20,18,14,0.55)' }}
           onClick={e => { if (e.target === e.currentTarget) setShowMissing(false); }}
         >
-          <div role="dialog" aria-modal="true" aria-label="Toko Tanpa Titik Koordinat" className="bg-white text-[#211E19] w-full max-w-[780px] max-h-[88vh] flex flex-col rounded-[10px] shadow-[0_12px_40px_rgba(0,0,0,0.35)] overflow-hidden">
-            <div className="px-5 py-4 border-b border-[#E4E0D4] flex items-center justify-between shrink-0">
+          <div role="dialog" aria-modal="true" aria-label="Toko Tanpa Titik Koordinat" className="bg-white text-[#151A21] w-full max-w-[780px] max-h-[88vh] flex flex-col rounded-[10px] shadow-[0_12px_40px_rgba(0,0,0,0.35)] overflow-hidden">
+            <div className="px-5 py-4 border-b border-[#E2E5EA] flex items-center justify-between shrink-0">
               <div>
                 <div className="font-bold text-[15px]">Toko Tanpa Titik Koordinat</div>
-                <div className="font-mono text-[11px] text-[#8A8375] mt-0.5">
+                <div className="font-mono text-[11px] text-[#687180] mt-0.5">
                   {fmt(missing.length)} toko{dist === 'all' ? '' : ' · ' + dist}{missing.length > MISSING_LIMIT ? ` · menampilkan ${MISSING_LIMIT} pertama` : ''}
                 </div>
               </div>
-              <button type="button" autoFocus onClick={() => setShowMissing(false)} className="bg-[#211E19] text-white border-0 rounded-md px-3.5 py-[7px] text-[13px] cursor-pointer shrink-0">Tutup</button>
+              <button type="button" autoFocus onClick={() => setShowMissing(false)} className="btn btn-sm shrink-0">Tutup</button>
             </div>
             <div className="overflow-auto flex-1">
               <table className="w-full border-collapse text-[13px] min-w-[560px]">
                 <thead>
-                  <tr className="bg-[#F8F6F0] text-[#645E52] text-[11px] uppercase tracking-[.04em]">
-                    <th className="text-left px-3.5 py-[9px] border-b border-[#C6BFAF]">Toko</th>
-                    <th className="text-left px-3.5 py-[9px] border-b border-[#C6BFAF]">Distributor</th>
-                    <th className="text-left px-3.5 py-[9px] border-b border-[#C6BFAF]">Zona</th>
-                    <th className="text-right px-3.5 py-[9px] border-b border-[#C6BFAF]">Transaksi Terakhir</th>
+                  <tr className="bg-[#F7F8FA] text-[#4A5361] text-[12.5px]">
+                    <th className="text-left px-3.5 py-[9px] border-b border-[#CBD1D9]">Toko</th>
+                    <th className="text-left px-3.5 py-[9px] border-b border-[#CBD1D9]">Distributor</th>
+                    <th className="text-left px-3.5 py-[9px] border-b border-[#CBD1D9]">Zona</th>
+                    <th className="text-right px-3.5 py-[9px] border-b border-[#CBD1D9]">Transaksi Terakhir</th>
                   </tr>
                 </thead>
                 <tbody>
                   {missing.length === 0 ? (
-                    <tr><td colSpan={4} className="text-center text-[#8A8375] p-6">Semua toko sudah punya titik koordinat.</td></tr>
+                    <tr><td colSpan={4} className="text-center text-[#687180] p-6">Semua toko sudah punya titik koordinat.</td></tr>
                   ) : missing.slice(0, MISSING_LIMIT).map(t => (
                     <tr key={t.cust_code + '|' + t.dist_code}>
-                      <td className="px-3.5 py-[9px] border-b border-[#E4E0D4]">{t.cust_name || t.cust_code}<br /><span className="font-mono text-[11px] text-[#8A8375]">{t.cust_code}</span></td>
-                      <td className="px-3.5 py-[9px] border-b border-[#E4E0D4]"><span className="bg-[#F1EEE5] border border-[#C6BFAF] rounded px-1.5 py-px font-mono text-[11px]">{t.dist_code}</span> {t.dist_name || ''}</td>
-                      <td className="px-3.5 py-[9px] border-b border-[#E4E0D4]">{t.zona || '–'}</td>
-                      <td className="px-3.5 py-[9px] border-b border-[#E4E0D4] text-right font-mono">{relDate(t.last_transaction)}</td>
+                      <td className="px-3.5 py-[9px] border-b border-[#E2E5EA]">{t.cust_name || t.cust_code}<br /><span className="font-mono text-[11px] text-[#687180]">{t.cust_code}</span></td>
+                      <td className="px-3.5 py-[9px] border-b border-[#E2E5EA]"><span className="bg-[#EEF0F4] border border-[#CBD1D9] rounded px-1.5 py-px font-mono text-[11px]">{t.dist_code}</span> {t.dist_name || ''}</td>
+                      <td className="px-3.5 py-[9px] border-b border-[#E2E5EA]">{t.zona || '–'}</td>
+                      <td className="px-3.5 py-[9px] border-b border-[#E2E5EA] text-right font-mono">{relDate(t.last_transaction)}</td>
                     </tr>
                   ))}
                 </tbody>
