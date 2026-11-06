@@ -82,6 +82,7 @@ Check(AccessRules.ReadAlias["v_sellout_bnn_ta"] == "sementrack.v_sellout_bnn_ta"
 Check(AccessRules.ReadAlias["v_salesman_performance"] == "sementrack.v_salesman_performance", "TA salesman tanpa subdist di schema sementrack");
 Check(AccessRules.ReadAlias["v_toko_pegangan_sales"] == "sementrack.v_toko_pegangan_sales", "toko pegangan tanpa subdist di schema sementrack");
 Check(AccessRules.RpcSchema["dashboard_store_year"] == "sementrack", "detail toko tanpa subdist di schema sementrack");
+Check(AccessRules.ReadAlias["v_transaksi_detail"] == "sementrack.v_transaksi_detail", "detail transaksi (+is_subdist) di schema sementrack");
 
 Check(AccessRules.DefaultPermFor("sales", "daftar-toko") is { CanViewDetail: true, CanDownload: false }, "perm sales daftar-toko");
 Check(AccessRules.DefaultPermFor("spv", "rekap-harian") is { CanViewDetail: false, CanDownload: false }, "perm spv rekap");

@@ -137,9 +137,11 @@ Urutan pasang (keduanya wajib, kalau tidak Overview menampilkan pesan "Filter re
    Aman dijalankan ulang, tidak mengubah data. Objek `public` TIDAK diubah (laporan PPT tetap memakai versi lama).
    Isinya (schema `sementrack`): `dashboard_period_summary_range` (Overview: toko aktif), `dashboard_top_customers_range`
    (+ kolom `is_subdist`), `dashboard_toko_monthly_v2` (+ `is_subdist`, subdist selalu tidak aktif), dan versi baru
-   `dashboard_store_year`, `v_salesman_performance`, `v_toko_pegangan_sales`.
+   `dashboard_store_year`, `v_salesman_performance` (TA, tonase, amount, DO salesman tanpa transaksi ke subdist),
+   `v_toko_pegangan_sales` dan `v_transaksi_detail` (+ kolom `is_subdist`).
 2. JALANKAN SQL DULU, baru deploy ulang backend + frontend. Backend baru membaca `v_salesman_performance`,
-   `v_toko_pegangan_sales` dan `dashboard_store_year` dari schema `sementrack`, dan `/api/toko-count` (Cakupan Toko Aktif)
+   `v_toko_pegangan_sales`, `v_transaksi_detail` dan `dashboard_store_year` dari schema `sementrack`, dan `/api/toko-count` (Cakupan Toko Aktif)
    tidak menghitung subdist. Kalau backend dideploy sebelum SQL dijalankan, Tim Sales / Detail Toko / Overview akan error.
 3. Daftar subdist = tabel `sementrack.subdist_customer` (pasangan distributor + kode customer). Tambah subdist baru cukup
-   insert baris ke tabel ini; semua halaman ikut otomatis. Transaksinya tetap dihitung tonase / amount.
+   insert baris ke tabel ini; semua halaman ikut otomatis. Transaksinya tetap dihitung di tonase / amount distributor,
+   tetapi tidak dihitung ke salesman mana pun.

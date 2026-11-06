@@ -86,6 +86,7 @@ public static class AccessRules
         // Toko aktif tanpa subdist (toko_aktif_subdist.sql)
         ["v_salesman_performance"] = "sementrack.v_salesman_performance",
         ["v_toko_pegangan_sales"] = "sementrack.v_toko_pegangan_sales",
+        ["v_transaksi_detail"] = "sementrack.v_transaksi_detail",
     };
 
     /// <summary>Fungsi yang versi barunya ada di schema sementrack.</summary>

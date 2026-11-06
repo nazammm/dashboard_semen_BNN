@@ -4,7 +4,7 @@ import { DataSource } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, fmtIDR, isOnlineTransaction, relDate } from '../lib/format';
 import type { Row } from '../lib/types';
-import { Card, Chip, ChartBox, ErrorBox, ExportButton, Kpi, OnlineBadge, PageHeader, PageSkeleton, PaymentBadge, TableWrap, TokoStatusBadge } from '../components/ui';
+import { Badge, Card, Chip, ChartBox, ErrorBox, ExportButton, Kpi, OnlineBadge, PageHeader, PageSkeleton, PaymentBadge, TableWrap, TokoStatusBadge } from '../components/ui';
 
 export default function TransaksiDetail() {
   useDocTitle('Detail Transaksi');
@@ -69,7 +69,7 @@ function TxTable({ rows, channel, caption, tableRef }: { rows: Row[]; channel: C
               <tr key={`${r.do_no}-${r.product_code}-${i}`}>
                 <td className="font-mono">{r.do_date}</td>
                 <td><span className="tag-code">{r.dist_code}</span> {r.distributor_name || ''}</td>
-                <td>{r.customer_name || r.customer_code}</td>
+                <td>{r.customer_name || r.customer_code}{r.is_subdist && <> <Badge variant="neutral" className="ml-1" title="Subdist: tidak dihitung toko aktif / salesman">Subdist</Badge></>}</td>
                 <td>{r.product_name || r.product_code}</td>
                 <td>{r.salesman_name || r.salesman_code || '–'}</td>
                 <td className="num font-mono">{fmt(r.order_qty)}</td>
@@ -105,16 +105,26 @@ function SalesmanMode({ salesman, year, month, name }: { salesman: string; year:
 
   const calc = useMemo(() => {
     if (!data) return null;
-    const rows = data.yearRows.filter(r => {
+    const monthRows = data.yearRows.filter(r => {
       const d = new Date(r.do_date + 'T00:00:00');
       return d.getFullYear() === year && d.getMonth() + 1 === month;
     });
+    // Transaksi ke subdist (mis. MAJU di JMB) tidak dihitung ke salesman: tidak masuk angka maupun daftar
+    const rows = monthRows.filter(r => !r.is_subdist);
+    const subdist = new Map<string, { name: string; dos: Set<string>; ton: number }>();
+    monthRows.filter(r => r.is_subdist).forEach(r => {
+      const g = subdist.get(r.customer_code) || { name: r.customer_name || r.customer_code, dos: new Set<string>(), ton: 0 };
+      g.dos.add(r.do_no); g.ton += Number(r.tonase || 0); subdist.set(r.customer_code, g);
+    });
+    data.pegangan.filter((t: Row) => t.is_subdist && !subdist.has(t.cust_code))
+      .forEach((t: Row) => subdist.set(t.cust_code, { name: t.cust_name || t.cust_code, dos: new Set(), ton: 0 }));
     // Transaksi terakhir per toko (sepanjang tahun), dari data yang sama tanpa query tambahan
     const lastTxByStore: Record<string, string> = {};
     data.yearRows.forEach(r => {
       if (!lastTxByStore[r.customer_code] || r.do_date > lastTxByStore[r.customer_code]) lastTxByStore[r.customer_code] = r.do_date;
     });
-    const peganganList: Row[] = data.pegangan.map((t: Row) => ({ ...t, last_transaction: lastTxByStore[t.cust_code] || null }));
+    const peganganList: Row[] = data.pegangan.filter((t: Row) => !t.is_subdist)
+      .map((t: Row) => ({ ...t, last_transaction: lastTxByStore[t.cust_code] || null }));
     const mine = data.perfRows.filter(r => r.salesman_code === salesman).sort((a, b) => a.month - b.month);
     const trend = {
       months: mine.map(r => Number(r.month)),
@@ -123,12 +133,12 @@ function SalesmanMode({ salesman, year, month, name }: { salesman: string; year:
       actualTonase: mine.map(r => Number(r.actual_tonase || 0)),
       targetTonase: mine.map(r => (r.target_tonase > 0 ? Number(r.target_tonase) : null)),
     };
-    return { rows, peganganList, trend };
+    return { rows, peganganList, trend, subdist: [...subdist.values()] };
   }, [data, year, month, salesman]);
 
   if (error) return <ErrorBox error={error} />;
   if (!calc) return <PageSkeleton />;
-  const { rows, peganganList, trend } = calc;
+  const { rows, peganganList, trend, subdist } = calc;
 
   const title = `${name} · ${MONTHS_ID[month]} ${year}`;
   const peganganActive = peganganList.filter(t => t.is_active).length;
@@ -159,6 +169,14 @@ function SalesmanMode({ salesman, year, month, name }: { salesman: string; year:
         <Kpi title="Amount (IDR)" value={<AmountValue v={sum(rows, 'net_amount')} />} />
         <Kpi title="Toko Pegangan" value={fmt(peganganList.length)} delta={`${fmt(peganganActive)} aktif bulan ini`} />
       </div>
+      {subdist.length > 0 && (
+        <p className="text-[12.5px] text-soft mt-3">
+          Tidak dihitung ke salesman ini (subdist, bukan toko):{' '}
+          {subdist.map((g, i) => (
+            <span key={g.name}>{i > 0 && ', '}<b className="font-semibold">{g.name}</b>{g.dos.size > 0 && ` (${fmt(g.dos.size)} DO, ${fmt(g.ton, 1)} ton)`}</span>
+          ))}.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 max-lg:grid-cols-1 gap-4 mt-5">
         <Card>
