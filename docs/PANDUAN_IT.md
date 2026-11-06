@@ -123,3 +123,11 @@ Urutan pasang (keduanya wajib, kalau tidak Overview menampilkan pesan "Filter re
    (backend perlu dideploy ulang karena daftar view yang boleh dibaca bertambah). Dihitung dari transaksi J028 baris distributor,
    aturan aktif net ≥ Rp200.000 sebulan; customer di `sementrack.subdist_customer` (PGS, MGSS, MAJU, BSJ, Pangkalant, SIN, Dumai-Patent)
    TIDAK dihitung. Halaman lain (Overview, Rekap Harian, Daftar/Peta Toko, Tim Sales) BELUM membuang customer subdist ini.
+7. J073 (INSA 4094, PKB 9575) untuk Sell Out BNN: tabel `sementrack.sellout_j073` (hanya semen + white cement, cust group RETAIL),
+   aturan pembagian `sementrack.sellout_j073_aturan` (ACEH → INSA - ACEH; DO yang ada di J028 INSA-E → INSA-E; sisanya INSA;
+   customer 11733 → Dumai-Patent; gudang DUMAI → Dumai-PKB; sisanya PKB), fungsi `sellout_j073_simpan`, view `v_sellout_j073_baris`.
+   Upload lewat Kelola Data → Sell Out BNN → Upload J073 (endpoint sama: `POST /api/admin/data/sellout`, `dataset = j073`),
+   jadi backend perlu dideploy ulang. Isi awal Jan–5 Nov 2026 ada di file terpisah `sell_out_bnn_j073_awal.sql`
+   (tidak disimpan di repo karena berisi data transaksi per customer); jalankan setelah `sell_out_bnn.sql`.
+   Opsional: view Sell Out BNN ±0,5 detik tanpa JIT, ±2 detik dengan JIT bawaan Postgres. Kalau terasa lambat:
+   `alter database web_semen set jit = off;` (perlu hak superuser / pemilik database).

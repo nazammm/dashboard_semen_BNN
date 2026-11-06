@@ -88,6 +88,62 @@ insert into sementrack.subdist_customer (dist_code, customer_code, subdist) valu
 on conflict do nothing;
 
 -- ---------------------------------------------------------------------
+-- 1b. J073 (transaksi warehouse) untuk INSA dan PKB. Lebih rinci dari J028: ada kolom Warehouse.
+--     Yang disimpan hanya Product Category SEMEN / WHITE CEMENT dan Cust Group RETAIL (disaring saat upload).
+--     Setiap baris J073 masuk ke SATU baris peta: aturan dengan urutan terkecil yang cocok.
+--       gudang      = kolom Warehouse (null = semua gudang)
+--       customer    = hanya customer ini (null = semua)
+--       do_j028     = nomor DO-nya tercatat di transaksi J028 distributor ini (INSA-E dipisah lewat J028)
+-- ---------------------------------------------------------------------
+create table if not exists sementrack.sellout_j073_dist (
+  dist_code  text primary key,      -- kode distributor di J073
+  nama       text not null,
+  j028_dist  text                   -- kode yang sama di J028 (toko aktif tahun lalu, sebelum J073 dipakai)
+);
+insert into sementrack.sellout_j073_dist (dist_code, nama, j028_dist) values
+  ('4094', 'INSA', 'INSA'), ('9575', 'PKB', 'PKB')
+on conflict do nothing;
+
+create table if not exists sementrack.sellout_j073_aturan (
+  dist_code      text not null references sementrack.sellout_j073_dist (dist_code),
+  urutan         integer not null,
+  gudang         text,
+  customer_code  text,
+  do_j028        text,
+  peta_id        integer not null references sementrack.sellout_bnn_peta (id),
+  primary key (dist_code, urutan)
+);
+insert into sementrack.sellout_j073_aturan (dist_code, urutan, gudang, customer_code, do_j028, peta_id) values
+  ('4094', 10, 'ACEH',  null,    null,     13),   -- INSA - ACEH
+  ('4094', 20, null,    null,    'INSA-E', 12),   -- INSA-E (mulai Jul 2026): DO yang ada di J028 INSA-E
+  ('4094', 30, null,    null,    null,     11),   -- INSA: sisanya
+  ('9575', 10, null,    '11733', null,     16),   -- Dumai-Patent (subdist, customer PKB)
+  ('9575', 20, 'DUMAI', null,    null,     15),   -- Dumai-PKB
+  ('9575', 30, null,    null,    null,     14)    -- PKB: sisanya
+on conflict do nothing;
+
+create table if not exists sementrack.sellout_j073 (
+  dist_code      text not null,
+  do_date        date not null,
+  do_no          text not null,
+  customer_code  text not null,
+  customer_name  text,
+  product_code   text not null,
+  product_name   text,
+  order_qty      numeric not null,
+  net_amount     numeric not null default 0,
+  warehouse      text
+);
+create index if not exists sellout_j073_dist_tgl_idx on sementrack.sellout_j073 (dist_code, do_date);
+
+-- Tonase J073: kode yang dikenal calc_tonase, selain itu berat zak dari nama produk (default 40 kg)
+create or replace function sementrack.j073_ton(p_code text, p_name text, p_qty numeric)
+returns numeric language sql immutable parallel safe
+as $$
+  select coalesce(nullif(public.calc_tonase(p_code, p_qty), 0), p_qty * sementrack.sellin_kg(p_name) / 1000)
+$$;
+
+-- ---------------------------------------------------------------------
 -- 2. Data tempelan DO FAS dan Sub ERP (disimpan apa adanya, per tahun)
 -- ---------------------------------------------------------------------
 create table if not exists sementrack.sellout_dofas (
@@ -113,7 +169,7 @@ create index if not exists sellout_erp_tahun_idx on sementrack.sellout_erp (tahu
 
 -- log kelola data ikut mencatat tempelan DO FAS / Sub ERP
 alter table sementrack.kelola_log drop constraint if exists kelola_log_dataset_check;
-alter table sementrack.kelola_log add constraint kelola_log_dataset_check check (dataset in ('transaksi', 'sellin', 'dofas', 'erp'));
+alter table sementrack.kelola_log add constraint kelola_log_dataset_check check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073'));
 
 -- Ganti seluruh DO FAS satu tahun. p_rows = [[tipe, area, distributor, keterangan, jan..des], ...]
 create or replace function sementrack.sellout_dofas_simpan(p_tahun integer, p_rows json, p_user text)
@@ -199,6 +255,51 @@ begin
   return query select v_new, v_old, v_ton;
 end $$;
 
+-- Simpan J073: per distributor di p_rows, data lama pada rentang tanggal file (tanggal terkecil s.d. terbesar
+-- distributor itu) diganti. p_rows = [[dist_code, do_date, do_no, customer_code, customer_name,
+--                                     product_code, product_name, order_qty, net_amount, warehouse], ...]
+create or replace function sementrack.sellout_j073_simpan(p_rows json, p_user text, p_file text default null)
+returns table(rows_saved integer, rows_deleted integer, ton numeric, date_from date, date_to date, dist_codes text[])
+language plpgsql security definer
+set search_path to 'sementrack', 'public', 'pg_temp'
+as $$
+declare v_old integer; v_new integer; v_ton numeric; v_from date; v_to date; v_dists text[];
+begin
+  if json_typeof(p_rows) <> 'array' or json_array_length(p_rows) = 0 then raise exception 'Tidak ada baris J073' using errcode = '22023'; end if;
+  perform pg_advisory_xact_lock(hashtext('sellout_j073'));
+
+  create temp table _j073 on commit drop as
+  select r.ord::int as baris, btrim(r.val ->> 0) as dist_code, (r.val ->> 1)::date as do_date, btrim(r.val ->> 2) as do_no,
+         btrim(r.val ->> 3) as customer_code, nullif(btrim(r.val ->> 4), '') as customer_name,
+         upper(btrim(r.val ->> 5)) as product_code, nullif(btrim(r.val ->> 6), '') as product_name,
+         (r.val ->> 7)::numeric as order_qty, coalesce((r.val ->> 8)::numeric, 0) as net_amount,
+         nullif(upper(btrim(r.val ->> 9)), '') as warehouse
+  from json_array_elements(p_rows) with ordinality as r(val, ord);
+
+  if exists (select 1 from _j073 where coalesce(dist_code, '') = '' or do_date is null or coalesce(do_no, '') = ''
+                                     or coalesce(customer_code, '') = '' or coalesce(product_code, '') = '' or order_qty is null) then
+    raise exception 'Baris J073 tidak lengkap (baris %)', (select min(baris) from _j073 where coalesce(dist_code, '') = '' or do_date is null
+      or coalesce(do_no, '') = '' or coalesce(customer_code, '') = '' or coalesce(product_code, '') = '' or order_qty is null) using errcode = '22023';
+  end if;
+  if exists (select 1 from _j073 x where not exists (select 1 from sementrack.sellout_j073_dist d where d.dist_code = x.dist_code)) then
+    raise exception 'Kode distributor % belum dikenal untuk J073', (select min(x.dist_code) from _j073 x
+      where not exists (select 1 from sementrack.sellout_j073_dist d where d.dist_code = x.dist_code)) using errcode = '22023';
+  end if;
+
+  with r as (select x.dist_code, min(x.do_date) a, max(x.do_date) b from _j073 x group by 1),
+       d as (delete from sementrack.sellout_j073 j using r where j.dist_code = r.dist_code and j.do_date between r.a and r.b returning 1)
+  select count(*) into v_old from d;
+  insert into sementrack.sellout_j073 (dist_code, do_date, do_no, customer_code, customer_name, product_code, product_name, order_qty, net_amount, warehouse)
+  select x.dist_code, x.do_date, x.do_no, x.customer_code, x.customer_name, x.product_code, x.product_name, x.order_qty, x.net_amount, x.warehouse from _j073 x;
+  select count(*), coalesce(sum(sementrack.j073_ton(x.product_code, x.product_name, x.order_qty)), 0), min(x.do_date), max(x.do_date),
+         array_agg(distinct x.dist_code order by x.dist_code)
+    into v_new, v_ton, v_from, v_to, v_dists from _j073 x;
+
+  insert into sementrack.kelola_log (dataset, aksi, created_by, source, file_name, date_from, date_to, dist_codes, rows_read, rows_saved, rows_deleted, status, finished_at)
+  values ('j073', 'upload', p_user, 'file', p_file, v_from, v_to, v_dists, v_new, v_new, v_old, 'selesai', now());
+  return query select v_new, v_old, v_ton, v_from, v_to, v_dists;
+end $$;
+
 -- ---------------------------------------------------------------------
 -- 3. Hasil: sell out per baris peta x bulan x tipe x sumber (ton)
 -- ---------------------------------------------------------------------
@@ -210,11 +311,55 @@ select p.id, p.urutan, p.region, p.nama, p.target_region, p.target_key, p.dofas_
                           when 'hanya' then 'J028 ' || p.j028_dist || ' cust ' || array_to_string(p.j028_customers, ', ') end,
          case when p.dofas_kode is not null then 'DO FAS ' || array_to_string(p.dofas_kode, ', ') || coalesce(' (' || p.dofas_tipe || ')', '') end,
          case when p.erp_kode is not null then 'Sub ERP ' || p.erp_kode end,
-         case when p.j073 then 'J073 (belum tersedia)' end) as sumber,
+         case when p.j073 then coalesce((
+           select 'J073 ' || string_agg(a.dist_code || coalesce(' gudang ' || a.gudang, '') || coalesce(' cust ' || a.customer_code, '')
+                                        || coalesce(' DO di J028 ' || a.do_j028, '')
+                                        || case when a.gudang is null and a.customer_code is null and a.do_j028 is null then ' sisanya' else '' end, ', ')
+           from sementrack.sellout_j073_aturan a where a.peta_id = p.id), 'J073') end) as sumber,
        -- distributor = punya transaksi sendiri (J028 penuh / tanpa subdist, atau J073);
        -- subdist = dari DO FAS, Sub ERP, atau customer subdist yang menumpang di J028
-       case when p.j073 or p.j028_mode in ('penuh', 'tanpa') then 'dist' else 'subdist' end as jenis
+       case when exists (select 1 from sementrack.subdist_customer s where s.subdist = p.nama) then 'subdist'
+            when p.j073 or p.j028_mode in ('penuh', 'tanpa') then 'dist' else 'subdist' end as jenis
 from sementrack.sellout_bnn_peta p;
+
+-- Baris J073 per DO + baris peta tujuannya (aturan pertama yang cocok).
+-- asal 'J028' = transaksi J028 distributor yang sama untuk tahun lalu pada bulan yang belum punya J073
+-- (tanpa info gudang), hanya dipakai toko aktif tahun lalu.
+create or replace view sementrack.v_sellout_j073_baris as
+with thn as (select extract(year from current_date)::int as y),
+ada as (select distinct j.dist_code, date_trunc('month', j.do_date)::date as bln from sementrack.sellout_j073 j),
+src as (
+  select 'J073'::text as asal, j.dist_code, j.do_date, j.do_no, j.customer_code, j.product_code, j.product_name, j.order_qty, j.net_amount,
+         upper(btrim(j.warehouse)) as gudang
+  from sementrack.sellout_j073 j
+  union all
+  select 'J028', d.dist_code, t.do_date, t.do_no, t.customer_code, t.product_code, null, t.order_qty, coalesce(t.net_amount, 0), null
+  from sementrack.sellout_j073_dist d
+  join public.transaksi t on t.dist_code = d.j028_dist
+  cross join thn
+  where t.do_date >= make_date(thn.y - 1, 1, 1) and t.do_date < make_date(thn.y, 1, 1)
+    and t.customer_code is not null and btrim(t.customer_code) <> ''
+    and not exists (select 1 from ada where ada.dist_code = d.dist_code and ada.bln = date_trunc('month', t.do_date)::date)
+),
+dj as (   -- nomor DO di J028 untuk aturan do_j028 (mis. INSA-E)
+  select t.do_no, array_agg(distinct t.dist_code) as dists
+  from public.transaksi t cross join thn
+  where t.dist_code in (select a.do_j028 from sementrack.sellout_j073_aturan a where a.do_j028 is not null)
+    and t.do_date >= make_date(thn.y - 1, 1, 1)
+  group by t.do_no
+)
+select s.asal, s.dist_code, s.do_date, extract(year from s.do_date)::int as tahun, extract(month from s.do_date)::int as bulan,
+       s.do_no, s.customer_code, s.gudang,
+       case when upper(s.product_code) like 'RJW%' then 'RJW' when upper(s.product_code) like 'CWC%' then 'CWC' else 'STR' end as tipe,
+       sementrack.j073_ton(s.product_code, s.product_name, s.order_qty) as ton, s.net_amount as net,
+       (select a.peta_id from sementrack.sellout_j073_aturan a
+         where a.dist_code = s.dist_code
+           and (a.gudang is null or upper(a.gudang) = s.gudang)
+           and (a.customer_code is null or a.customer_code = s.customer_code)
+           and (a.do_j028 is null or a.do_j028 = any (dj.dists))
+         order by a.urutan limit 1) as peta_id
+from src s
+left join dj on dj.do_no = s.do_no;
 
 create or replace view sementrack.v_sellout_bnn_monthly as
 with subc as (
@@ -246,6 +391,11 @@ union all
 select p.id, e.tahun, e.bulan, e.tipe, sum(e.ton), 'Sub ERP'
 from sementrack.sellout_bnn_peta p
 join sementrack.sellout_erp e on e.kode = p.erp_kode
+group by 1, 2, 3, 4
+union all
+select b.peta_id, b.tahun, b.bulan, b.tipe, sum(b.ton), 'J073'
+from sementrack.v_sellout_j073_baris b
+where b.asal = 'J073' and b.peta_id is not null
 group by 1, 2, 3, 4;
 
 -- ---------------------------------------------------------------------
@@ -262,7 +412,8 @@ si as (select (select y from yr_si) y, max(v.month_num) m from public.v_delivery
 sync as (select (s.tanggal_update + coalesce(s.jam_update, time '00:00')) as ts, s.keterangan from public.status_sync s where s.id = 1),
 sellin_up as (select u.created_at, u.created_by from sementrack.sellin_bnn_upload u where u.status = 'selesai' order by u.id desc limit 1),
 dofas_up as (select l.created_at, l.created_by, l.date_from from sementrack.kelola_log l where l.dataset = 'dofas' and l.status = 'selesai' order by l.id desc limit 1),
-erp_up as (select l.created_at, l.created_by, l.date_from from sementrack.kelola_log l where l.dataset = 'erp' and l.status = 'selesai' order by l.id desc limit 1)
+erp_up as (select l.created_at, l.created_by, l.date_from from sementrack.kelola_log l where l.dataset = 'erp' and l.status = 'selesai' order by l.id desc limit 1),
+j073_up as (select l.created_at, l.created_by from sementrack.kelola_log l where l.dataset = 'j073' and l.status = 'selesai' order by l.id desc limit 1)
 select 'transaksi'::text as sumber, 'Transaksi distributor'::text as nama, 'harian'::text as frekuensi,
        (select max(do_date) from public.transaksi) as data_sampai,
        (select to_char(ts, 'YYYY-MM-DD"T"HH24:MI') from sync) as diperbarui,
@@ -288,14 +439,21 @@ union all
 select 'erp', 'Sub ERP', 'harian',
        (select (created_at at time zone 'Asia/Jakarta')::date from erp_up),
        (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from erp_up),
-       (select 'Tempel data ' || extract(year from date_from) || ' oleh ' || created_by from erp_up);
+       (select 'Tempel data ' || extract(year from date_from) || ' oleh ' || created_by from erp_up)
+union all
+select 'j073', 'J073 (INSA, PKB)', 'harian',
+       (select max(do_date) from sementrack.sellout_j073),
+       (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from j073_up),
+       (select 'Upload oleh ' || created_by from j073_up);
 
--- Toko aktif Sell Out BNN: dari transaksi J028 baris distributor (bukan subdist).
+-- Toko aktif Sell Out BNN: dari transaksi J028 dan J073 baris distributor (bukan subdist).
 -- Customer subdist (sementrack.subdist_customer, mis. PGS/MGSS/MAJU di JMB) TIDAK dihitung toko aktif.
 -- Aturan aktif sama dengan dashboard: net amount sebulan >= 200.000. Per tipe: net tipe itu >= 200.000.
 -- ta_sd = aktif s.d. hari yang sama dengan tanggal transaksi terakhir (untuk banding bulan berjalan vs tahun lalu).
 create or replace view sementrack.v_sellout_bnn_ta as
 with cut as (select extract(day from max(do_date))::int as hari from public.transaksi),
+jb as materialized (select * from sementrack.v_sellout_j073_baris where peta_id is not null),
+dist_ids as materialized (select id from sementrack.v_sellout_bnn_peta where jenis = 'dist'),
 base as (
   select p.id as peta_id, extract(year from t.do_date)::int as tahun, extract(month from t.do_date)::int as bulan, t.customer_code,
          case when upper(t.product_code) like 'RJW%' then 'RJW' when upper(t.product_code) like 'CWC%' then 'CWC' else 'STR' end as tipe,
@@ -308,6 +466,13 @@ base as (
     and t.customer_code is not null and btrim(t.customer_code) <> ''
     and not (t.customer_code = any (coalesce(p.j028_customers, '{}')))
     and not exists (select 1 from sementrack.subdist_customer s where s.dist_code = t.dist_code and s.customer_code = t.customer_code)
+  union all
+  -- J073 (INSA, PKB): per gudang; tahun lalu dari J028 distributor yang sama
+  select b.peta_id, b.tahun, b.bulan, b.customer_code, b.tipe, b.net, extract(day from b.do_date)::int <= (select hari from cut)
+  from jb b
+  join dist_ids pv on pv.id = b.peta_id
+  where not exists (select 1 from sementrack.sellout_j073_dist d join sementrack.subdist_customer s on s.dist_code = d.j028_dist
+                    where d.dist_code = b.dist_code and s.customer_code = b.customer_code)
 ),
 per as (
   select peta_id, tahun, bulan, customer_code, coalesce(tipe, 'ALL') as tipe,

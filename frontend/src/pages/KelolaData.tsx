@@ -16,6 +16,7 @@ import { TransaksiUpload, StatusSyncForm } from './kelola/TransaksiPanel';
 import { SellinUpload } from './kelola/SellinPanel';
 import { HapusPanel } from './kelola/HapusPanel';
 import { SelloutPaste } from './kelola/SelloutPanel';
+import { J073Upload } from './kelola/J073Panel';
 
 type Tab = 'transaksi' | 'sellin' | 'sellout' | 'riwayat';
 const TABS: { id: Tab; label: string; icon: string }[] = [
@@ -27,7 +28,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 const MENUS: Record<Exclude<Tab, 'riwayat'>, { id: string; label: string }[]> = {
   transaksi: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }, { id: 'sinkron', label: 'Waktu pembaruan' }],
   sellin: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }],
-  sellout: [{ id: 'dofas', label: 'Tempel DO FAS' }, { id: 'erp', label: 'Tempel Sub ERP' }],
+  sellout: [{ id: 'dofas', label: 'Tempel DO FAS' }, { id: 'erp', label: 'Tempel Sub ERP' }, { id: 'j073', label: 'Upload J073' }],
 };
 
 export default function KelolaData() {
@@ -40,7 +41,7 @@ export default function KelolaData() {
   const [version, setVersion] = useState(0);   // naik setiap data berubah → riwayat dimuat ulang
   const changed = useCallback(() => setVersion(v => v + 1), []);
   const { rows: status } = useDataStatus();
-  // Sell Out BNN: status mengikuti menu yang dibuka (DO FAS / Sub ERP)
+  // Sell Out BNN: status mengikuti menu yang dibuka (DO FAS / Sub ERP / J073)
   const statusRow = status?.find(r => r.sumber === (tab === 'sellout' ? menu : tab)) || null;
 
   return (
@@ -78,6 +79,7 @@ export default function KelolaData() {
           {tab === 'sellin' && menu === 'upload' && <SellinUpload onChanged={changed} />}
           {tab === 'sellin' && menu === 'hapus' && <HapusPanel dataset="sellin" lastDate={statusRow?.data_sampai ? String(statusRow.data_sampai).slice(0, 10) : null} onChanged={changed} />}
           {tab === 'sellout' && (menu === 'dofas' || menu === 'erp') && <SelloutPaste dataset={menu} onChanged={changed} />}
+          {tab === 'sellout' && menu === 'j073' && <J073Upload onChanged={changed} />}
           {tab === 'riwayat' && <Riwayat version={version} />}
         </div>
 
@@ -119,8 +121,8 @@ function StatusStrip({ row }: { row: Row | null }) {
 /* ---------------------------------------------------------------------------
    Riwayat upload & hapus (Transaksi + Sell In BNN)
 --------------------------------------------------------------------------- */
-const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP' };
-const inFilter = (f: string, ds: unknown) => f === 'all' || ds === f || (f === 'sellout' && (ds === 'dofas' || ds === 'erp'));
+const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073' };
+const inFilter = (f: string, ds: unknown) => f === 'all' || ds === f || (f === 'sellout' && (ds === 'dofas' || ds === 'erp' || ds === 'j073'));
 
 function Riwayat({ version, dataset, limit, compact }: { version: number; dataset?: string; limit?: number; compact?: boolean }) {
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -169,7 +171,7 @@ function Riwayat({ version, dataset, limit, compact }: { version: number; datase
                   </td>
                   <td>{r.created_by || '–'}</td>
                   <td className="whitespace-nowrap">{r.date_from ? fmtRange({ from: String(r.date_from), to: String(r.date_to) }) : '–'}</td>
-                  {!compact && <td className="text-[12px]" title={dists.join(', ')}>{r.dataset !== 'transaksi' ? '–' : dists.length ? (dists.length > 3 ? `${dists.slice(0, 3).join(', ')} +${dists.length - 3}` : dists.join(', ')) : 'Semua'}</td>}
+                  {!compact && <td className="text-[12px]" title={dists.join(', ')}>{r.dataset !== 'transaksi' && r.dataset !== 'j073' ? '–' : dists.length ? (dists.length > 3 ? `${dists.slice(0, 3).join(', ')} +${dists.length - 3}` : dists.join(', ')) : 'Semua'}</td>}
                   <td className="num font-mono">{cell(r.rows_saved)}</td>
                   <td className="num font-mono">{cell(r.rows_deleted)}</td>
                   <td><StatusBadge s={String(r.status)} at={r.created_at} /></td>

@@ -154,7 +154,26 @@ export function useImport<R extends ImportResult>(dataset: Dataset) {
     }
   };
 
-  return { phase, error, setError, readFile, readText, rereadDates, cancelRead, reset, save };
+  /** Simpan pratinjau dengan satu permintaan sendiri (mis. J073), bukan paket begin/stage/commit. */
+  const saveWith = async (send: () => Promise<Row>) => {
+    if (phase.kind !== 'preview') return false;
+    const { res, source, name } = phase;
+    const total = res.rows.length;
+    setError(null);
+    setPhase({ kind: 'saving', res, source, name, sent: 0, total, step: 'simpan' });
+    try {
+      const result = await send();
+      afterDataChanged();
+      setPhase({ kind: 'done', result, name });
+      return true;
+    } catch (e) {
+      setError('Gagal menyimpan: ' + errText(e) + ' Data lama tidak berubah.');
+      setPhase({ kind: 'preview', res, source, name });
+      return false;
+    }
+  };
+
+  return { phase, error, setError, readFile, readText, rereadDates, cancelRead, reset, save, saveWith };
 }
 
 /* ---------------------------------------------------------------------------

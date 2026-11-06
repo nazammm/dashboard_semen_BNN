@@ -13,9 +13,9 @@ import { exportRowsToExcel } from '../lib/xlsx';
 
 /* ============================================================================
    Sell Out BNN: per baris distributor/subdist dari peta sementrack.sellout_bnn_peta
-   (J028 transaksi, DO FAS, Sub ERP; J073 belum tersedia = 0), per bulan.
+   (J028 transaksi, DO FAS, Sub ERP, J073 untuk INSA & PKB per gudang), per bulan.
    Target & realisasi tahun lalu dari data Sell Out bulanan (v_cement_targets_ext).
-   Toko aktif dari transaksi J028 baris distributor saja (v_sellout_bnn_ta): subdist tidak dihitung,
+   Toko aktif dari transaksi J028 / J073 baris distributor saja (v_sellout_bnn_ta): subdist tidak dihitung,
    termasuk customer subdist di transaksi distributor induk (PGS, MGSS, MAJU di JMB, dst.).
    Bulan berjalan: target = sebulan penuh; tahun lalu dibandingkan pada tanggal yang sama
    (diperkirakan dari total bulan dibagi jumlah hari).
@@ -100,6 +100,7 @@ function Body({ peta, monthly, targets, status, ta }: { peta: Peta[]; monthly: R
   const resetFilter = () => { setRegion('all'); setBaris('all'); setTipe('all'); setMFrom(1); setMTo(lastMonth); };
   const groupBy: 'region' | 'baris' = region === 'all' ? 'region' : 'baris';
 
+  const j073Ready = useMemo(() => monthly.some(r => Number(r.tahun) === Y && r.sumber === 'J073'), [monthly, Y]);
   const v = useMemo(() => {
     const inScope = (p: Peta) => (region === 'all' || p.region === region) && (baris === 'all' || String(p.id) === baris);
     const scoped = peta.filter(inScope);
@@ -134,13 +135,13 @@ function Body({ peta, monthly, targets, status, ta }: { peta: Peta[]; monthly: R
 
     const months = Array.from({ length: mTo - mFrom + 1 }, (_, i) => mFrom + i);
     const isPartial = (m: number) => partial && m === lastMonth;
-    const prevSame = (q: number[], m: number) => (isPartial(m) ? q[m] * cutDay / daysInMonth(P, m) : q[m]);
+    const prevSame = (q: number[], m: number) => { const x = q[m] || 0; return isPartial(m) ? x * cutDay / daysInMonth(P, m) : x; };
     const get = (map: Map<number, number[]>, id: number, m: number) => map.get(id)?.[m] || 0;
     const sumOver = (fn: (id: number, m: number) => number, idList = scoped.map(p => p.id), ms = months) =>
       idList.reduce((a, id) => a + ms.reduce((b, m) => b + fn(id, m), 0), 0);
 
-    // J073 (INSA, PKB) belum ada datanya: target & tahun lalunya tidak ikut dibandingkan
-    const live = scoped.filter(p => !p.j073).map(p => p.id);
+    // J073 (INSA, PKB) belum diupload untuk tahun ini: target & tahun lalunya tidak ikut dibandingkan
+    const live = scoped.filter(p => !p.j073 || j073Ready).map(p => p.id);
     const ton = sumOver((id, m) => get(cur, id, m));
     const target = sumOver((id, m) => get(tgt, id, m), live);
     const prev = sumOver((id, m) => prevSame(prv.get(id) || [], m), live);
@@ -166,9 +167,9 @@ function Body({ peta, monthly, targets, status, ta }: { peta: Peta[]; monthly: R
       return [...g.entries()].map(([label, value]) => ({ label, value })).filter(x => x.value > 0).sort((a, b) => b.value - a.value);
     };
 
-    // toko aktif: hanya baris distributor (subdist tidak dihitung), J073 belum ada datanya
+    // toko aktif: hanya baris distributor (subdist tidak dihitung); J073 ikut kalau sudah diupload
     const taKey = tipe === 'all' ? 'ALL' : tipe;
-    const taIds = scoped.filter(p => !isSubdist(p) && !p.j073).map(p => p.id);
+    const taIds = scoped.filter(p => !isSubdist(p) && (!p.j073 || j073Ready)).map(p => p.id);
     const taSet = new Set(taIds);
     const taCur = new Map<number, number[]>(), taPrev = new Map<number, number[]>(), taPrevSd = new Map<number, number[]>();
     (ta || []).forEach(r => {
@@ -198,12 +199,13 @@ function Body({ peta, monthly, targets, status, ta }: { peta: Peta[]; monthly: R
     // sumber tempelan yang belum ada sama sekali untuk tahun ini → baris subdist-nya masih 0
     const has = (src: string) => monthly.some(r => Number(r.tahun) === Y && r.sumber === src);
     const kosong = [
-      !has('DO FAS') && { src: 'DO FAS', menu: 'dofas', rows: scoped.filter(p => p.dofas_kode?.length) },
-      !has('Sub ERP') && { src: 'Sub ERP', menu: 'erp', rows: scoped.filter(p => p.erp_kode) },
-    ].filter((x): x is { src: string; menu: string; rows: Peta[] } => !!x && x.rows.length > 0);
+      !has('DO FAS') && { src: 'DO FAS', verb: 'ditempel', act: 'Tempel DO FAS', menu: 'dofas', rows: scoped.filter(p => p.dofas_kode?.length) },
+      !has('Sub ERP') && { src: 'Sub ERP', verb: 'ditempel', act: 'Tempel Sub ERP', menu: 'erp', rows: scoped.filter(p => p.erp_kode) },
+      !j073Ready && { src: 'J073', verb: 'diupload', act: 'Upload J073', menu: 'j073', rows: scoped.filter(p => p.j073) },
+    ].filter((x): x is { src: string; verb: string; act: string; menu: string; rows: Peta[] } => !!x && x.rows.length > 0);
     return { ton, target, prev, hasTarget, months, monthLabel, trend, monthRows, drillGroups, untyped, byId, kosong,
       taTrend, taRows, taTotal, taHasTarget, taDrill, taIds, subdistNames };
-  }, [peta, monthly, targets, ta, region, baris, tipe, mFrom, mTo, Y, P, kTgt, kPrev, kTgtTa, partial, lastMonth, cutDay, groupBy]);
+  }, [peta, monthly, targets, ta, region, baris, tipe, mFrom, mTo, Y, P, kTgt, kPrev, kTgtTa, partial, lastMonth, cutDay, groupBy, j073Ready]);
 
   /* ---------- Download Excel: Region | Distributor | Month | Type Cement | Target DO | DO P | DO Y ---------- */
   const downloadExcel = () => {
@@ -229,7 +231,7 @@ function Body({ peta, monthly, targets, status, ta }: { peta: Peta[]; monthly: R
         // baris DO FAS khusus satu tipe (Rosalia) hanya tipenya sendiri; CWC & Total hanya kalau ada angka
         if (p.dofas_tipe && t !== p.dofas_tipe && !c && !tg && !pv) return;
         if ((t === 'CWC' || t === 'Total') && !c && !tg && !pv) return;
-        rows.push([p.region, p.nama, MONTH_EN[m], t, p.target_key ? tg : null, p.target_key ? pv : null, p.j073 ? null : c]);
+        rows.push([p.region, p.nama, MONTH_EN[m], t, p.target_key ? tg : null, p.target_key ? pv : null, p.j073 && !j073Ready ? null : c]);
       }));
     }
     const per = mFrom === mTo ? MONTH_EN[mFrom] : `${MONTH_EN[mFrom]}-${MONTH_EN[mTo]}`;
@@ -246,7 +248,7 @@ function Body({ peta, monthly, targets, status, ta }: { peta: Peta[]; monthly: R
 
   return (
     <>
-      <PageHeader title="Sell Out BNN" status={<DataBadge source={['transaksi', 'dofas', 'erp']} />} />
+      <PageHeader title="Sell Out BNN" status={<DataBadge source={['transaksi', 'dofas', 'erp', 'j073']} />} />
 
       <FilterBar label="Filter Sell Out BNN" stickyMobile={false} className="max-[880px]:grid max-[880px]:grid-cols-2 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0 max-[880px]:[&_select]:text-[12px]">
         <Select label="Dari" value={mFrom} onChange={e => { const x = +e.target.value; setMFrom(x); if (x > mTo) setMTo(x); }} options={monthOpts} />
@@ -269,8 +271,8 @@ function Body({ peta, monthly, targets, status, ta }: { peta: Peta[]; monthly: R
 
       {v.kosong.map(k => (
         <div key={k.src} className="upl-note is-warn mb-3.5" role="status">
-          <span><b>{k.src} {Y} belum ditempel</b>, jadi {k.rows.map(p => p.nama).filter((n, i, a) => a.indexOf(n) === i).join(', ')} masih 0.
-            {pageAllowed('kelola-data') && <> <Link to={`/kelola-data?data=sellout&menu=${k.menu}`}>Tempel {k.src}</Link></>}</span>
+          <span><b>{k.src} {Y} belum {k.verb}</b>, jadi {k.rows.map(p => p.nama).filter((n, i, a) => a.indexOf(n) === i).join(', ')} masih 0.
+            {pageAllowed('kelola-data') && <> <Link to={`/kelola-data?data=sellout&menu=${k.menu}`}>{k.act}</Link></>}</span>
         </div>
       ))}
 

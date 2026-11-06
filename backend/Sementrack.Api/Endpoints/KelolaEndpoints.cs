@@ -99,7 +99,8 @@ internal static class KelolaEndpoints
             return Helpers.Json(new { deleted = rows[0]["n"] });
         }));
 
-        // Tempelan Sell Out BNN (DO FAS / Sub ERP): ganti seluruh data satu tahun, paket kecil (±100 baris) dalam 1 permintaan.
+        // Sell Out BNN: tempelan DO FAS / Sub ERP (ganti seluruh data satu tahun) dan upload J073
+        // (baris transaksi warehouse INSA/PKB yang sudah disaring; diganti per distributor pada rentang tanggal file).
         d.MapPost("/sellout", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) =>
         {
             var limit = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
@@ -107,10 +108,18 @@ internal static class KelolaEndpoints
             return SellinEndpoints.Run(ctx, auth, log, "sellout", async s =>
             {
                 var b = await Helpers.ReadBodyAsync(ctx.Request);
-                var fn = b.GetString("dataset") switch { "dofas" => "sellout_dofas_simpan", "erp" => "sellout_erp_simpan", _ => null };
-                if (fn is null) return Helpers.Error(400, "dataset harus dofas atau erp");
+                var dataset = b.GetString("dataset");
                 var rowsEl = b.Get("rows");
                 if (rowsEl is not { ValueKind: JsonValueKind.Array }) return Helpers.Error(400, "baris tidak valid");
+                if (dataset == "j073")
+                {
+                    var r = await db.QueryAsync("select * from sementrack.sellout_j073_simpan($1::json, $2, $3)",
+                        new object?[] { rowsEl.Value.GetRawText(), s.Username, b.GetString("file_name") }, timeoutSeconds: LongQuery);
+                    db.ClearCache();
+                    return Helpers.Json(r[0]);
+                }
+                var fn = dataset switch { "dofas" => "sellout_dofas_simpan", "erp" => "sellout_erp_simpan", _ => null };
+                if (fn is null) return Helpers.Error(400, "dataset harus dofas, erp, atau j073");
                 var rows = await db.QueryAsync($"select * from sementrack.{fn}($1::int, $2::json, $3)",
                     new object?[] { b.GetString("tahun"), rowsEl.Value.GetRawText(), s.Username });
                 db.ClearCache();
