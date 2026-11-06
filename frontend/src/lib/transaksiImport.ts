@@ -3,7 +3,7 @@
    Murni (tanpa DOM) supaya bisa jalan di Web Worker dan diuji di Node.
    Urutan kolom yang dikirim = urutan argumen sementrack.transaksi_stage.
 ============================================================================ */
-import { normHeader, toISODate, toNumber, type RowCollector } from './sellin';
+import { DateOrderDetector, isAmbiguousDate, normHeader, toISODate, toNumber, type DateOrder, type DateOrderInfo, type RowCollector } from './sellin';
 
 export const TRX_FIELDS = [
   { key: 'dist_code', required: true },
@@ -41,6 +41,7 @@ export interface TrxStats {
   dateTo: string | null;
   perDist: Record<string, TrxDistStat>;
   distNames: Record<string, string>;
+  dateOrder?: DateOrderInfo;   // urutan tanggal yang dipakai (hari/bulan atau bulan/hari)
 }
 export interface TrxParseResult { ok: boolean; error?: string; missing?: string[]; rows: TrxRow[]; stats: TrxStats }
 
@@ -54,6 +55,9 @@ export class TransaksiCollector implements RowCollector<TrxParseResult> {
   private missing: string[] = [];
   private ready = false;
   private dos = new Map<string, Set<string>>();
+  private dates = new DateOrderDetector();
+  private recheck: [number, string][] = [];   // [baris, teks] do_date yang bisa dibaca dua arah
+  constructor(private order?: DateOrder | null) {}
 
   header(cells: unknown[]) {
     const idx = new Map<string, number>();
@@ -81,6 +85,8 @@ export class TransaksiCollector implements RowCollector<TrxParseResult> {
       if ('kind' in f && f.kind === 'date') {
         const d = toISODate(v);
         if (!d) { this.bad(rowNumber, `${f.key} tidak terbaca ("${String(v ?? '')}")`); return; }
+        this.dates.note(v);
+        if (isAmbiguousDate(v)) this.recheck.push([this.rows.length, String(v)]);
         out.push(d);
       } else if ('kind' in f && f.kind === 'number') {
         if (v == null || (typeof v === 'string' && EMPTY_NUM.test(v))) {
@@ -99,10 +105,8 @@ export class TransaksiCollector implements RowCollector<TrxParseResult> {
     }
     this.rows.push(out);
 
-    const st = this.stats, dist = String(out[I.dist_code]), date = String(out[I.do_date]);
+    const st = this.stats, dist = String(out[I.dist_code]);
     st.rowsUsed++;
-    if (!st.dateFrom || date < st.dateFrom) st.dateFrom = date;
-    if (!st.dateTo || date > st.dateTo) st.dateTo = date;
     const pd = st.perDist[dist] || (st.perDist[dist] = { rows: 0, dos: 0, qty: 0 });
     pd.rows++; pd.qty += Number(out[I.order_qty] || 0);
     const set = this.dos.get(dist) || new Set<string>(); this.dos.set(dist, set);
@@ -113,6 +117,15 @@ export class TransaksiCollector implements RowCollector<TrxParseResult> {
   result(): TrxParseResult {
     if (this.missing.length) return { ok: false, error: 'Kolom wajib tidak ditemukan di baris judul.', missing: this.missing, rows: [], stats: this.stats };
     if (!this.cols.length) return { ok: false, error: 'Baris judul tidak ditemukan.', rows: [], stats: this.stats };
-    return { ok: true, rows: this.rows, stats: this.stats };
+    // urutan tanggal diputuskan dari seluruh kolom, lalu tanggal yang bisa dibaca dua arah dihitung ulang
+    const st = this.stats, info = st.dateOrder = this.dates.decide(this.order);
+    if (info.used === 'mdy') for (const [r, raw] of this.recheck) this.rows[r][I.do_date] = toISODate(raw, 'mdy');
+    st.dateFrom = null; st.dateTo = null;
+    for (const row of this.rows) {
+      const d = String(row[I.do_date]);
+      if (!st.dateFrom || d < st.dateFrom) st.dateFrom = d;
+      if (!st.dateTo || d > st.dateTo) st.dateTo = d;
+    }
+    return { ok: true, rows: this.rows, stats: st };
   }
 }

@@ -7,11 +7,11 @@ import { Link } from 'react-router-dom';
 import { adminApi } from '../../lib/api';
 import { fmt, MONTHS_ID } from '../../lib/format';
 import { dayCount, fmtRange } from '../../lib/dates';
-import type { SellinParseResult } from '../../lib/sellin';
+import type { DateOrder, SellinParseResult } from '../../lib/sellin';
 import type { Row } from '../../lib/types';
 import { ErrorBox, cx } from '../../components/ui';
 import {
-  DoneCard, ErrorLine, ICON, InvalidRows, Note, PreviewFrame, SourcePicker, Steps, Unusable, afterDataChanged, errText, fmtTon, type ImportPhase, useImport,
+  DateOrderNote, DoneCard, ErrorLine, ICON, InvalidRows, Note, PreviewFrame, SourcePicker, Steps, Unusable, afterDataChanged, errText, fmtTon, type ImportPhase, useImport,
 } from './shared';
 
 const regionList = (m: Row[] | null) => [...new Set((m || []).map(r => String(r.region)))].sort((a, b) => a.localeCompare(b));
@@ -57,7 +57,7 @@ export function SellinUpload({ onChanged }: { onChanged: () => void }) {
 
       {(phase.kind === 'preview' || phase.kind === 'saving') && (
         phase.res.ok
-          ? <SellinPreview phase={phase} regionMap={region.regionMap} onRegionSaved={region.reload} onSave={save} onCancel={reset} />
+          ? <SellinPreview phase={phase} regionMap={region.regionMap} onRegionSaved={region.reload} onSave={save} onCancel={reset} onDateOrder={imp.rereadDates} />
           : <Unusable error={phase.res.error} missing={phase.res.missing} onCancel={reset}
               hint="Pastikan baris pertama berisi judul kolom persis seperti export raw sell in, dan baris judul ikut tersalin." />
       )}
@@ -82,9 +82,9 @@ export function SellinUpload({ onChanged }: { onChanged: () => void }) {
   );
 }
 
-function SellinPreview({ phase, regionMap, onRegionSaved, onSave, onCancel }: {
+function SellinPreview({ phase, regionMap, onRegionSaved, onSave, onCancel, onDateOrder }: {
   phase: Extract<ImportPhase<SellinParseResult>, { kind: 'preview' } | { kind: 'saving' }>;
-  regionMap: Row[] | null; onRegionSaved: () => void; onSave: () => void; onCancel: () => void;
+  regionMap: Row[] | null; onRegionSaved: () => void; onSave: () => void; onCancel: () => void; onDateOrder: (o: DateOrder) => void;
 }) {
   const st = phase.res.stats;
   const [impact, setImpact] = useState<Row | null>(null);
@@ -145,6 +145,7 @@ function SellinPreview({ phase, regionMap, onRegionSaved, onSave, onCancel }: {
         </div>
 
         <div className="flex flex-col gap-3">
+          <DateOrderNote info={st.dateOrder} onSwitch={onDateOrder} disabled={phase.kind === 'saving'} />
           <Note tone={existing ? 'warn' : 'info'}>
             {impact == null ? 'Memeriksa data yang sudah ada…'
               : existing

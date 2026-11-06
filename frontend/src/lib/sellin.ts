@@ -61,8 +61,15 @@ export function excelSerialToISO(n: number) {
   const t = new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000);
   return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
 }
-/** Tanggal dari sel: angka seri Excel, "2026-11-03", "03/11/2026" (hari/bulan; bulan/hari hanya bila hari > 12), "3 Nov 2026". */
-export function toISODate(v: unknown): string | null {
+/** Urutan tanggal bergaris miring: hari/bulan (Indonesia) atau bulan/hari (Excel berbahasa Inggris/US). */
+export type DateOrder = 'dmy' | 'mdy';
+const SLASH_DATE = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})(?!\d)/;
+
+/**
+ * Tanggal dari sel: angka seri Excel, "2026-11-03", "03/11/2026", "3 Nov 2026".
+ * Bentuk garis miring dibaca sesuai `order`; kalau salah satu angka > 12, urutannya sudah pasti dari angka itu.
+ */
+export function toISODate(v: unknown, order: DateOrder = 'dmy'): string | null {
   if (v == null) return null;
   if (typeof v === 'number') return excelSerialToISO(v);
   const s = String(v).trim();
@@ -70,12 +77,13 @@ export function toISODate(v: unknown): string | null {
   if (/^\d+(\.\d+)?$/.test(s)) return excelSerialToISO(Number(s));
   let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
   if (m) return validYMD(+m[1], +m[2], +m[3]);
-  m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/.exec(s);
+  m = SLASH_DATE.exec(s);
   if (m) {
-    let a = +m[1], b = +m[2], y = +m[3];
+    const a = +m[1], b = +m[2];
+    let y = +m[3];
     if (y < 100) y += 2000;
-    if (b > 12 && a <= 12) [a, b] = [b, a];          // jelas bulan/hari
-    return validYMD(y, b, a);
+    const mdy = b > 12 && a <= 12 ? true : a > 12 && b <= 12 ? false : order === 'mdy';
+    return mdy ? validYMD(y, a, b) : validYMD(y, b, a);
   }
   m = /^(\d{1,2})[\s-]+([A-Za-z]{3,})[\s-]+(\d{2,4})/.exec(s);
   if (m) {
@@ -84,6 +92,97 @@ export function toISODate(v: unknown): string | null {
     return mo ? validYMD(y, mo, +m[1]) : null;
   }
   return null;
+}
+
+/** Hasil penentuan urutan tanggal untuk satu impor. */
+export interface DateOrderInfo {
+  used: DateOrder;        // urutan yang dipakai
+  auto: DateOrder;        // hasil deteksi otomatis
+  forced: boolean;        // dipilih manual oleh pengguna
+  sure: boolean;          // ada bukti pasti (angka > 12)
+  mixed: boolean;         // ada bukti untuk kedua urutan (data bercampur)
+  slash: number;          // jumlah sel tanggal bergaris miring
+  ambiguous: number;      // sel yang bisa dibaca dua arah (kedua angka ≤ 12 dan berbeda)
+  example: string | null; // contoh sel yang bisa dibaca dua arah
+  exampleDmy: { raw: string; iso: string } | null;   // contoh bukti hari/bulan
+  exampleMdy: { raw: string; iso: string } | null;   // contoh bukti bulan/hari
+}
+
+const dayNum = (iso: string) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 86400000;
+export function localTodayISO() {
+  const t = new Date();
+  return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+}
+
+/**
+ * Menentukan urutan tanggal dari SELURUH kolom, bukan per sel:
+ *   1. Ada angka pertama > 12 (25/10) → hari/bulan; ada angka kedua > 12 (10/25) → bulan/hari.
+ *   2. Kalau semua sel ≤ 12 (mis. 11/05/2026), pilih urutan yang tidak menghasilkan tanggal masa depan,
+ *      lalu yang rentangnya paling rapat, lalu yang paling dekat dengan hari ini. Seri: hari/bulan.
+ */
+export class DateOrderDetector {
+  private dmyOnly = 0;
+  private mdyOnly = 0;
+  private slash = 0;
+  private ambiguous = 0;
+  private distinct = new Map<string, [number, number, number]>();   // a/b/y unik (dibatasi)
+  private example: string | null = null;
+  private exDmy: { raw: string; iso: string } | null = null;
+  private exMdy: { raw: string; iso: string } | null = null;
+
+  note(v: unknown) {
+    if (typeof v !== 'string') return;
+    const s = v.trim();
+    const m = SLASH_DATE.exec(s);
+    if (!m) return;
+    const a = +m[1], b = +m[2];
+    let y = +m[3]; if (y < 100) y += 2000;
+    this.slash++;
+    if (a > 12 && b <= 12) { this.dmyOnly++; if (!this.exDmy) this.exDmy = { raw: s, iso: validYMD(y, b, a) || '' }; return; }
+    if (b > 12 && a <= 12) { this.mdyOnly++; if (!this.exMdy) this.exMdy = { raw: s, iso: validYMD(y, a, b) || '' }; return; }
+    if (a !== b) { this.ambiguous++; if (!this.example) this.example = s; }
+    const k = `${a}/${b}/${y}`;
+    if (this.distinct.size < 5000 && !this.distinct.has(k)) this.distinct.set(k, [a, b, y]);
+  }
+
+  private guess(today: string): DateOrder {
+    const t = dayNum(today);
+    const score = (mdy: boolean) => {
+      let future = 0, lo = Infinity, hi = -Infinity;
+      for (const [a, b, y] of this.distinct.values()) {
+        const iso = mdy ? validYMD(y, a, b) : validYMD(y, b, a);
+        if (!iso) continue;
+        const n = dayNum(iso);
+        if (n > t + 1) future++;          // toleransi 1 hari (zona waktu)
+        lo = Math.min(lo, n); hi = Math.max(hi, n);
+      }
+      return { future, span: hi - lo, dist: Math.abs(t - hi) };
+    };
+    const d = score(false), m = score(true);
+    if (m.future !== d.future) return m.future < d.future ? 'mdy' : 'dmy';
+    if (m.span !== d.span) return m.span < d.span ? 'mdy' : 'dmy';
+    if (m.dist !== d.dist) return m.dist < d.dist ? 'mdy' : 'dmy';
+    return 'dmy';
+  }
+
+  decide(forced?: DateOrder | null, today = localTodayISO()): DateOrderInfo {
+    const mixed = this.dmyOnly > 0 && this.mdyOnly > 0;
+    const sure = !mixed && (this.dmyOnly > 0 || this.mdyOnly > 0);
+    const auto: DateOrder = mixed ? (this.mdyOnly > this.dmyOnly ? 'mdy' : 'dmy')
+      : this.mdyOnly > 0 ? 'mdy' : this.dmyOnly > 0 ? 'dmy'
+      : this.ambiguous ? this.guess(today) : 'dmy';
+    return {
+      used: forced || auto, auto, forced: !!forced && forced !== auto, sure, mixed, slash: this.slash, ambiguous: this.ambiguous,
+      example: this.example, exampleDmy: this.exDmy, exampleMdy: this.exMdy,
+    };
+  }
+}
+
+/** True kalau sel tanggal bergaris miring bisa dibaca dua arah (perlu dihitung ulang setelah urutan diputuskan). */
+export function isAmbiguousDate(v: unknown) {
+  if (typeof v !== 'string') return false;
+  const m = SLASH_DATE.exec(v.trim());
+  return !!m && +m[1] <= 12 && +m[2] <= 12 && +m[1] !== +m[2];
 }
 /** Angka dari sel: 14000, "14000", "14.000" (ribuan Indonesia), "14,000", "12,5". */
 export function toNumber(v: unknown): number | null {
@@ -131,6 +230,7 @@ export interface SellinStats {
   byMonth: Record<string, { ton: number; rows: number }>;
   byTipe: Record<string, number>;  // ton per tipe pesanan (baris terpakai)
   customers: Record<string, string>;   // kode customer Gudang -> nama (untuk cek peta region; toko/project PM otomatis Sumsel)
+  dateOrder?: DateOrderInfo;           // urutan tanggal yang dipakai (hari/bulan atau bulan/hari)
 }
 export interface SellinParseResult { ok: boolean; error?: string; missing?: string[]; rows: SellinRow[]; stats: SellinStats }
 
@@ -149,6 +249,10 @@ export class SellinCollector implements RowCollector<SellinParseResult> {
   cols: number[] = [];
   missing: string[] = [];
   private ready = false;
+  private tons: number[] = [];                                  // ton per baris tersimpan (untuk ringkasan per bulan)
+  private dates = new DateOrderDetector();
+  private recheck: [number, number, string][] = [];             // [baris, kolom, teks] tanggal yang bisa dibaca dua arah
+  constructor(private order?: DateOrder | null) {}
 
   header(cells: unknown[]) {
     const { cols, missing } = mapHeaders(cells);
@@ -164,6 +268,7 @@ export class SellinCollector implements RowCollector<SellinParseResult> {
     // baris kosong total (mis. sisa format di bawah tabel) diabaikan tanpa dihitung
     if (get('distributor') == null && get('kode_customer') == null && get('tipe_pesanan') == null && get('tanggal') == null) return;
     st.rowsRead++;
+    this.dates.note(get('tanggal'));   // semua baris ikut menentukan urutan tanggal, termasuk yang tidak dipakai
 
     const tipe = get('tipe_pesanan'), dist = get('distributor'), asal = get('asal_pengiriman');
     if (!passesRule(tipe, dist, asal)) {
@@ -192,7 +297,10 @@ export class SellinCollector implements RowCollector<SellinParseResult> {
       const src = c[i];
       const v = src >= 0 ? cells[src] : null;
       if (v == null) return null;
-      if ('kind' in f && f.kind === 'date') return toISODate(v);
+      if ('kind' in f && f.kind === 'date') {
+        if (isAmbiguousDate(v)) this.recheck.push([this.rows.length, i, String(v)]);
+        return toISODate(v);
+      }
       if ('kind' in f && f.kind === 'number') return toNumber(v);
       const s = String(v).trim();
       return s === '' ? null : s;
@@ -201,14 +309,10 @@ export class SellinCollector implements RowCollector<SellinParseResult> {
     this.rows.push(out);
 
     const ton = (qty as number) * kgPerZak(produk) / 1000;
+    this.tons.push(ton);
     st.rowsUsed++;
     if (low(tipe) === 'gudang') st.usedGudang++; else st.usedPmTokoProject++;
     st.ton += ton;
-    if (!st.dateFrom || tanggal! < st.dateFrom) st.dateFrom = tanggal;
-    if (!st.dateTo || tanggal! > st.dateTo) st.dateTo = tanggal;
-    const mk = tanggal!.slice(0, 7);
-    const bm = st.byMonth[mk] || (st.byMonth[mk] = { ton: 0, rows: 0 });
-    bm.ton += ton; bm.rows++;
     const tk = String(tipe).trim().replace(/^\w/, ch => ch.toUpperCase());
     st.byTipe[tk] = (st.byTipe[tk] || 0) + ton;
     if (low(tipe) === 'gudang' && !(kode in st.customers)) st.customers[kode] = String(get('nama_customer') ?? '').trim();
@@ -217,7 +321,18 @@ export class SellinCollector implements RowCollector<SellinParseResult> {
   result(): SellinParseResult {
     if (this.missing.length) return { ok: false, error: 'Kolom wajib tidak ditemukan di baris judul.', missing: this.missing, rows: [], stats: this.stats };
     if (!this.cols.length) return { ok: false, error: 'Baris judul tidak ditemukan.', rows: [], stats: this.stats };
-    return { ok: true, rows: this.rows, stats: this.stats };
+    // urutan tanggal diputuskan dari seluruh kolom, lalu tanggal yang bisa dibaca dua arah dihitung ulang
+    const st = this.stats, info = st.dateOrder = this.dates.decide(this.order);
+    if (info.used === 'mdy') for (const [r, c, raw] of this.recheck) this.rows[r][c] = toISODate(raw, 'mdy');
+    st.dateFrom = null; st.dateTo = null; st.byMonth = {};
+    this.rows.forEach((row, i) => {
+      const tgl = String(row[F.tanggal]);
+      if (!st.dateFrom || tgl < st.dateFrom) st.dateFrom = tgl;
+      if (!st.dateTo || tgl > st.dateTo) st.dateTo = tgl;
+      const bm = st.byMonth[tgl.slice(0, 7)] || (st.byMonth[tgl.slice(0, 7)] = { ton: 0, rows: 0 });
+      bm.ton += this.tons[i]; bm.rows++;
+    });
+    return { ok: true, rows: this.rows, stats: st };
   }
 }
 

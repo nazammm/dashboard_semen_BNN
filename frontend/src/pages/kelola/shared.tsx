@@ -7,6 +7,8 @@ import { adminApi, ApiError } from '../../lib/api';
 import { forgetAllData } from '../../lib/data';
 import { fmt } from '../../lib/format';
 import type { Dataset, ImportResult, ImportWorkerIn, ImportWorkerOut } from '../../lib/importer.worker';
+import type { DateOrder, DateOrderInfo } from '../../lib/sellin';
+import { fmtDate } from '../../lib/dates';
 import type { Row } from '../../lib/types';
 import { notifyDataStatusChanged } from '../../components/DataStatus';
 import { ErrorBox, cx } from '../../components/ui';
@@ -86,6 +88,7 @@ export function useImport<R extends ImportResult>(dataset: Dataset) {
   const [phase, setPhase] = useState<ImportPhase<R>>({ kind: 'idle' });
   const [error, setError] = useState<string | null>(null);
   const workerRef = useRef<Worker | null>(null);
+  const lastRead = useRef<{ msg: ImportWorkerIn; name: string; size: number } | null>(null);
   useEffect(() => () => workerRef.current?.terminate(), []);
 
   // cegah tab tertutup saat menyimpan
@@ -99,6 +102,7 @@ export function useImport<R extends ImportResult>(dataset: Dataset) {
 
   const read = (msg: ImportWorkerIn, name: string, size: number) => {
     setError(null);
+    lastRead.current = { msg, name, size };
     workerRef.current?.terminate();
     const w = new Worker(new URL('../../lib/importer.worker.ts', import.meta.url), { type: 'module' });
     workerRef.current = w;
@@ -121,6 +125,11 @@ export function useImport<R extends ImportResult>(dataset: Dataset) {
     read({ dataset, kind: 'file', file: f }, f.name, f.size);
   };
   const readText = (text: string) => read({ dataset, kind: 'text', text }, 'Data tempelan', text.length);
+  /** Baca ulang data yang sama dengan urutan tanggal tertentu (hari/bulan atau bulan/hari). */
+  const rereadDates = (order: DateOrder) => {
+    const l = lastRead.current;
+    if (l) read({ ...l.msg, dateOrder: order }, l.name, l.size);
+  };
   const cancelRead = () => { workerRef.current?.terminate(); workerRef.current = null; setPhase({ kind: 'idle' }); };
   const reset = () => { setPhase({ kind: 'idle' }); setError(null); };
 
@@ -145,7 +154,7 @@ export function useImport<R extends ImportResult>(dataset: Dataset) {
     }
   };
 
-  return { phase, error, setError, readFile, readText, cancelRead, reset, save };
+  return { phase, error, setError, readFile, readText, rereadDates, cancelRead, reset, save };
 }
 
 /* ---------------------------------------------------------------------------
@@ -318,4 +327,54 @@ export function DoneCard({ title = 'Data tersimpan', children, actions }: { titl
 
 export function ErrorLine({ error }: { error: string | null }) {
   return error ? <div className="mb-4"><ErrorBox error={error} /></div> : null;
+}
+
+/* ---------------------------------------------------------------------------
+   Urutan tanggal (hari/bulan vs bulan/hari) yang dipakai saat membaca data
+--------------------------------------------------------------------------- */
+const ORDER_LABEL: Record<DateOrder, string> = { dmy: 'hari/bulan/tahun', mdy: 'bulan/hari/tahun' };
+/** "11/05/2026" dibaca dengan urutan tertentu → "5 Nov 2026". */
+function readAs(raw: string, order: DateOrder) {
+  const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/.exec(raw.trim());
+  if (!m) return '';
+  let y = +m[3]; if (y < 100) y += 2000;
+  const [d, mo] = order === 'mdy' ? [+m[2], +m[1]] : [+m[1], +m[2]];
+  return fmtDate(`${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+}
+
+export function DateOrderNote({ info, onSwitch, disabled }: { info?: DateOrderInfo; onSwitch: (o: DateOrder) => void; disabled?: boolean }) {
+  if (!info || !info.slash || (!info.ambiguous && !info.mixed && !info.forced)) return null;
+  const other: DateOrder = info.used === 'mdy' ? 'dmy' : 'mdy';
+  const ex = info.example;
+  const sample = ex ? <> Contoh: <b className="font-mono">{ex}</b> = <b>{readAs(ex, info.used)}</b>.</> : null;
+  const btn = (
+    <button type="button" className="btn btn-sm mt-2" disabled={disabled} onClick={() => onSwitch(other)}>
+      Baca sebagai {ORDER_LABEL[other]}{ex ? ` (${ex} = ${readAs(ex, other)})` : ''}
+    </button>
+  );
+  if (info.mixed) {
+    return (
+      <Note tone="bad">
+        <b>Format tanggal bercampur.</b> Ada tanggal hari/bulan ({info.exampleDmy?.raw}) dan bulan/hari ({info.exampleMdy?.raw}) di data yang sama.
+        Dibaca sebagai <b>{ORDER_LABEL[info.used]}</b> (paling banyak); tanggal yang angkanya &gt; 12 tetap dibaca sesuai angkanya.{sample} Periksa kolom tanggal di Excel.
+        <div>{btn}</div>
+      </Note>
+    );
+  }
+  if (info.sure && !info.forced) {
+    const proof = info.used === 'mdy' ? info.exampleMdy : info.exampleDmy;
+    return (
+      <Note tone="info">
+        Tanggal dibaca sebagai <b>{ORDER_LABEL[info.used]}</b>{proof ? <> (terlihat dari <span className="font-mono">{proof.raw}</span>)</> : null}.{sample}
+      </Note>
+    );
+  }
+  return (
+    <Note tone="warn">
+      {info.forced
+        ? <>Tanggal dibaca sebagai <b>{ORDER_LABEL[info.used]}</b> sesuai pilihanmu.{sample}</>
+        : <>Format tanggal tidak bisa dipastikan dari isinya (semua angka ≤ 12), jadi dibaca sebagai <b>{ORDER_LABEL[info.used]}</b>.{sample} Pastikan Periode di atas sudah benar.</>}
+      <div>{btn}</div>
+    </Note>
+  );
 }

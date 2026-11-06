@@ -7,12 +7,13 @@ import { Link } from 'react-router-dom';
 import { adminApi } from '../../lib/api';
 import { fmt } from '../../lib/format';
 import { dayCount, fmtRange } from '../../lib/dates';
+import type { DateOrder } from '../../lib/sellin';
 import type { TrxParseResult } from '../../lib/transaksiImport';
 import type { Row } from '../../lib/types';
 import { ErrorBox, cx } from '../../components/ui';
 import { todayWIB } from '../../components/DataStatus';
 import {
-  DoneCard, ErrorLine, InvalidRows, Note, PreviewFrame, SourcePicker, Steps, Unusable, afterDataChanged, errText, type ImportPhase, useImport,
+  DateOrderNote, DoneCard, ErrorLine, InvalidRows, Note, PreviewFrame, SourcePicker, Steps, Unusable, afterDataChanged, errText, type ImportPhase, useImport,
 } from './shared';
 
 export function TransaksiUpload({ onChanged }: { onChanged: () => void }) {
@@ -48,7 +49,7 @@ export function TransaksiUpload({ onChanged }: { onChanged: () => void }) {
                 : <p className="text-soft text-[13px]">File hanya berisi baris judul.</p>}
             </Unusable>
           : phase.res.ok
-          ? <TrxPreview phase={phase} onSave={save} onCancel={imp.reset} />
+          ? <TrxPreview phase={phase} onSave={save} onCancel={imp.reset} onDateOrder={imp.rereadDates} />
           : <Unusable error={phase.res.error} missing={phase.res.missing} onCancel={imp.reset}
               hint="Baris pertama harus berisi nama kolom template (dist_code, do_date, do_no, customer_code, product_code, order_qty, …) dan ikut tersalin." />
       )}
@@ -65,8 +66,8 @@ export function TransaksiUpload({ onChanged }: { onChanged: () => void }) {
   );
 }
 
-function TrxPreview({ phase, onSave, onCancel }: {
-  phase: Extract<ImportPhase<TrxParseResult>, { kind: 'preview' } | { kind: 'saving' }>; onSave: () => void; onCancel: () => void;
+function TrxPreview({ phase, onSave, onCancel, onDateOrder }: {
+  phase: Extract<ImportPhase<TrxParseResult>, { kind: 'preview' } | { kind: 'saving' }>; onSave: () => void; onCancel: () => void; onDateOrder: (o: DateOrder) => void;
 }) {
   const st = phase.res.stats;
   const dists = Object.keys(st.perDist).sort();
@@ -144,6 +145,7 @@ function TrxPreview({ phase, onSave, onCancel }: {
         </div>
 
         <div className="flex flex-col gap-3">
+          <DateOrderNote info={st.dateOrder} onSwitch={onDateOrder} disabled={phase.kind === 'saving'} />
           {impactErr ? <ErrorBox error={impactErr} /> : (
             <Note tone={oldRows ? 'warn' : 'info'}>
               {oldRows == null ? 'Memeriksa data yang sudah ada…'
