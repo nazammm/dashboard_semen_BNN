@@ -8,13 +8,15 @@ import { daysInMonth } from '../lib/dates';
 import type { Row } from '../lib/types';
 import { DataBadge, todayWIB } from '../components/DataStatus';
 import { GrowthTable } from '../components/GrowthTable';
-import { Capaian, Card, ChartBox, ErrorBox, FileIcon, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, cx } from '../components/ui';
+import { Capaian, Card, ChartBox, ErrorBox, FileIcon, FilterBar, Kpi, PageHeader, PageSkeleton, Select } from '../components/ui';
 import { exportRowsToExcel } from '../lib/xlsx';
 
 /* ============================================================================
    Sell Out BNN: per baris distributor/subdist dari peta sementrack.sellout_bnn_peta
    (J028 transaksi, DO FAS, Sub ERP; J073 belum tersedia = 0), per bulan.
    Target & realisasi tahun lalu dari data Sell Out bulanan (v_cement_targets_ext).
+   Toko aktif dari transaksi J028 baris distributor saja (v_sellout_bnn_ta): subdist tidak dihitung,
+   termasuk customer subdist di transaksi distributor induk (PGS, MGSS, MAJU di JMB, dst.).
    Bulan berjalan: target = sebulan penuh; tahun lalu dibandingkan pada tanggal yang sama
    (diperkirakan dari total bulan dibagi jumlah hari).
 ============================================================================ */
@@ -46,16 +48,17 @@ function detectYear(rows: Row[], fallback: number) {
 export default function SellOutBnn() {
   useDocTitle('Sell Out BNN');
   const load = useAsync(async () => {
-    const [peta, monthly, targets, status] = await Promise.all([
+    const [peta, monthly, targets, status, ta] = await Promise.all([
       DataSource.selloutPeta(), DataSource.selloutMonthly(), DataSource.cementTargets(), DataSource.dataStatus().catch(() => [] as Row[]),
+      DataSource.selloutTa().catch(() => null),
     ]);
-    return { peta: peta as unknown as Peta[], monthly, targets, status };
+    return { peta: peta as unknown as Peta[], monthly, targets, status, ta };
   }, []);
   if (load.error) return <ErrorBox error={load.error} />;
   if (!load.data) return <PageSkeleton />;
-  const { peta, monthly, targets, status } = load.data;
+  const { peta, monthly, targets, status, ta } = load.data;
   if (!peta.length) return <EmptyState />;
-  return <Body peta={peta} monthly={monthly} targets={targets} status={status} />;
+  return <Body peta={peta} monthly={monthly} targets={targets} status={status} ta={ta} />;
 }
 
 function EmptyState() {
@@ -72,11 +75,11 @@ function EmptyState() {
   );
 }
 
-function Body({ peta, monthly, targets, status }: { peta: Peta[]; monthly: Row[]; targets: Row[]; status: Row[] }) {
+function Body({ peta, monthly, targets, status, ta }: { peta: Peta[]; monthly: Row[]; targets: Row[]; status: Row[]; ta: Row[] | null }) {
   const { pageAllowed, canDownload } = useAuth();
   const today = todayWIB();
   const Y = detectYear(targets, Number(today.slice(0, 4))), P = Y - 1;
-  const kTgt = `target_do_${Y}`, kPrev = `do_${P}`;
+  const kTgt = `target_do_${Y}`, kPrev = `do_${P}`, kTgtTa = `target_ta_${Y}`;
 
   // bulan terakhir berisi data tahun ini & tanggal potong bulan berjalan (dari transaksi harian)
   const lastMonth = useMemo(() => monthly.reduce((a, r) => (Number(r.tahun) === Y && Number(r.ton) > 0 ? Math.max(a, Number(r.bulan)) : a), 0) || 1, [monthly, Y]);
@@ -115,17 +118,18 @@ function Body({ peta, monthly, targets, status }: { peta: Peta[]; monthly: Row[]
       cur.set(Number(r.peta_id), arr);
     });
     // target & tahun lalu per baris x bulan
-    const tgt = new Map<number, number[]>(), prv = new Map<number, number[]>();
+    const tgt = new Map<number, number[]>(), prv = new Map<number, number[]>(), tgtTa = new Map<number, number[]>();
     scoped.forEach(p => {
       if (!p.target_key) return;
-      const t = new Array(13).fill(0), q = new Array(13).fill(0);
+      const t = new Array(13).fill(0), q = new Array(13).fill(0), tt = new Array(13).fill(0);
       targets.forEach(r => {
         if (r.region !== p.target_region || r.distributor !== p.target_key) return;
-        if (tipe !== 'all' && r.type_cement !== tgtType(tipe)) return;
         const m = Number(r.month_num); if (!(m >= 1 && m <= 12)) return;
+        tt[m] += Number(r[kTgtTa] || 0);   // target toko aktif hanya ada di level semua tipe
+        if (tipe !== 'all' && r.type_cement !== tgtType(tipe)) return;
         t[m] += Number(r[kTgt] || 0); q[m] += Number(r[kPrev] || 0);
       });
-      tgt.set(p.id, t); prv.set(p.id, q);
+      tgt.set(p.id, t); prv.set(p.id, q); tgtTa.set(p.id, tt);
     });
 
     const months = Array.from({ length: mTo - mFrom + 1 }, (_, i) => mFrom + i);
@@ -162,19 +166,44 @@ function Body({ peta, monthly, targets, status }: { peta: Peta[]; monthly: Row[]
       return [...g.entries()].map(([label, value]) => ({ label, value })).filter(x => x.value > 0).sort((a, b) => b.value - a.value);
     };
 
-    // tabel per baris peta, dikelompokkan per region
-    const perBaris = scoped.map(p => ({
-      p, target: months.reduce((a, m) => a + get(tgt, p.id, m), 0), ton: months.reduce((a, m) => a + get(cur, p.id, m), 0),
-      prev: months.reduce((a, m) => a + prevSame(prv.get(p.id) || [], m), 0),
+    // toko aktif: hanya baris distributor (subdist tidak dihitung), J073 belum ada datanya
+    const taKey = tipe === 'all' ? 'ALL' : tipe;
+    const taIds = scoped.filter(p => !isSubdist(p) && !p.j073).map(p => p.id);
+    const taSet = new Set(taIds);
+    const taCur = new Map<number, number[]>(), taPrev = new Map<number, number[]>(), taPrevSd = new Map<number, number[]>();
+    (ta || []).forEach(r => {
+      const id = Number(r.peta_id), y = Number(r.tahun), m = Number(r.bulan);
+      if (!taSet.has(id) || r.tipe !== taKey || !(m >= 1 && m <= 12)) return;
+      const put = (map: Map<number, number[]>, x: unknown) => { const a = map.get(id) || new Array(13).fill(0); a[m] += Number(x || 0); map.set(id, a); };
+      if (y === Y) put(taCur, r.ta);
+      else if (y === P) { put(taPrev, r.ta); put(taPrevSd, r.ta_sd); }
+    });
+    const taPrevSame = (id: number, m: number) => (isPartial(m) ? get(taPrevSd, id, m) : get(taPrev, id, m));
+    const taHasTarget = tipe === 'all' && sumOver((id, m) => get(tgtTa, id, m), taIds) > 0;
+    const taTrend = {
+      cur: months.map(m => sumOver(id => get(taCur, id, m), taIds, [m])),
+      target: months.map(m => (taHasTarget ? sumOver(id => get(tgtTa, id, m), taIds, [m]) : 0)),
+      prev: months.map(m => sumOver(id => get(taPrev, id, m), taIds, [m])),   // tahun lalu sebulan penuh
+    };
+    const taRows = months.map((m, i) => ({
+      month_num: m, target: taTrend.target[i], prev: sumOver(id => taPrevSame(id, m), taIds, [m]), cur: taTrend.cur[i],
     }));
+    const taTotal = { cur: sumArr(taTrend.cur), target: sumArr(taTrend.target), prev: sumArr(taRows.map(r => r.prev)) };
+    const taDrill = (m: number) => {
+      const g = new Map<string, number>();
+      scoped.forEach(p => { if (!taSet.has(p.id)) return; const k = groupBy === 'region' ? p.region : `${p.nama} · ${p.region}`; g.set(k, (g.get(k) || 0) + get(taCur, p.id, m)); });
+      return [...g.entries()].map(([label, value]) => ({ label, value })).filter(x => x.value > 0).sort((a, b) => b.value - a.value);
+    };
+    const subdistNames = [...new Set(scoped.filter(isSubdist).map(p => p.nama))];
     // sumber tempelan yang belum ada sama sekali untuk tahun ini → baris subdist-nya masih 0
     const has = (src: string) => monthly.some(r => Number(r.tahun) === Y && r.sumber === src);
     const kosong = [
       !has('DO FAS') && { src: 'DO FAS', menu: 'dofas', rows: scoped.filter(p => p.dofas_kode?.length) },
       !has('Sub ERP') && { src: 'Sub ERP', menu: 'erp', rows: scoped.filter(p => p.erp_kode) },
     ].filter((x): x is { src: string; menu: string; rows: Peta[] } => !!x && x.rows.length > 0);
-    return { ton, target, prev, hasTarget, months, monthLabel, trend, monthRows, drillGroups, perBaris, untyped, byId, kosong };
-  }, [peta, monthly, targets, region, baris, tipe, mFrom, mTo, Y, P, kTgt, kPrev, partial, lastMonth, cutDay, groupBy]);
+    return { ton, target, prev, hasTarget, months, monthLabel, trend, monthRows, drillGroups, untyped, byId, kosong,
+      taTrend, taRows, taTotal, taHasTarget, taDrill, taIds, subdistNames };
+  }, [peta, monthly, targets, ta, region, baris, tipe, mFrom, mTo, Y, P, kTgt, kPrev, kTgtTa, partial, lastMonth, cutDay, groupBy]);
 
   /* ---------- Download Excel: Region | Distributor | Month | Type Cement | Target DO | DO P | DO Y ---------- */
   const downloadExcel = () => {
@@ -250,38 +279,69 @@ function Body({ peta, monthly, targets, status }: { peta: Peta[]; monthly: Row[]
         <Kpi title={`Realisasi ${Y}`} value={fmtTon(v.ton)} unit="ton" delta={v.hasTarget ? <Capaian actual={v.ton} target={v.target} /> : undefined}>
           <div className="text-[12px] text-soft mt-1.5 font-mono">Dist {fmtTon(sumArr(v.trend.dist))} · Subdist {fmtTon(sumArr(v.trend.sub))}</div>
         </Kpi>
-        <Kpi title={`Pertumbuhan vs ${P}`} value={<span className={growth == null ? '' : growth >= 0 ? 'text-green' : 'text-red'}>{fmtPct(growth)}</span>} />
-        <Kpi title={`Realisasi ${P} Tanggal Sama`} value={v.prev > 0 ? fmtTon(v.prev) : '–'} unit={v.prev > 0 ? 'ton' : undefined} />
+        <Kpi title={`Pertumbuhan vs ${P}`} value={<span className={growth == null ? '' : growth >= 0 ? 'text-green' : 'text-red'}>{fmtPct(growth)}</span>}
+          delta={v.prev > 0 ? `${P} tanggal sama: ${fmtTon(v.prev)} ton` : undefined} />
+        <Kpi title={`Toko Aktif ${Y}`} value={ta && v.taIds.length ? fmt(v.taTotal.cur) : '–'}
+          delta={!ta || !v.taIds.length ? undefined : v.taHasTarget ? <Capaian actual={v.taTotal.cur} target={v.taTotal.target} /> : tipe !== 'all' ? `${tipe} · tanpa target` : undefined}>
+          <div className="text-[12px] text-soft mt-1.5">{!v.taIds.length ? 'Subdist tidak dihitung toko aktif' : `${v.months.length > 1 ? `Jumlah ${v.months.length} bulan · ` : ''}distributor saja, subdist tidak dihitung`}</div>
+        </Kpi>
       </div>
 
-      <Card className="mt-3.5">
-        <div className="card-title">Sell Out Bulanan (Ton) · {scope}</div>
-        <div className="legend">
-          {v.hasTarget && <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target {Y}</span>}
-          <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Distributor {Y}</span>
-          <span><i style={{ background: SUB_COLOR }} aria-hidden="true" />Subdist {Y}</span>
-          <span><i style={{ background: COLORS.ink, opacity: .35 }} aria-hidden="true" />Realisasi {P}</span>
-        </div>
-        <ChartBox className="tall" label={chartSRSummary(v.trend.labels, v.trend.cur, `ton sell out ${Y}`)}
-          deps={[v.trend.labels.join('|'), v.trend.dist.join('|'), v.trend.sub.join('|'), v.trend.target.join('|'), v.trend.prev.join('|'), v.hasTarget]}
-          build={() => ({
-            type: 'bar',
-            data: { labels: v.trend.labels, datasets: [
-              { label: `Target ${Y}`, data: v.trend.target, type: 'line', stack: 'target', borderColor: COLORS.blueMid, backgroundColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3, order: 1, hidden: !v.hasTarget },
-              // realisasi tahun ini = batang bertumpuk distributor + subdist
-              { label: `Distributor ${Y}`, data: v.trend.dist, stack: 'cur', backgroundColor: COLORS.accent, maxBarThickness: 26, order: 2 },
-              { label: `Subdist ${Y}`, data: v.trend.sub, stack: 'cur', backgroundColor: SUB_COLOR, borderRadius: { topLeft: 3, topRight: 3 }, maxBarThickness: 26, order: 2 },
-              { label: `Realisasi ${P}`, data: v.trend.prev, stack: 'prev', backgroundColor: 'rgba(33,30,25,.22)', borderRadius: 3, maxBarThickness: 26, order: 3 },
-            ] } as any,
-            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-              scales: { y: { stacked: true, beginAtZero: true, grid: { color: COLORS.line }, ticks: { callback: (x: any) => fmtCompact(x) } }, x: { stacked: true, grid: { display: false }, ticks: { autoSkip: false, maxRotation: 0 } } },
-              plugins: { tooltip: { callbacks: {
-                label: (c: any) => ` ${c.dataset.label}: ${fmt(c.parsed.y)} ton`,
-                footer: (items: any[]) => (items.length ? `Total ${Y}: ${fmt(v.trend.cur[items[0].dataIndex])} ton` : ''),
-              } } } },
-          })} />
-        {v.untyped > 0 && <p className="text-faint text-[12px] mt-2">{fmtTon(v.untyped)} ton Sub ERP masih tersimpan tanpa tipe (ditempel versi total), jadi tidak ikut saat filter tipe. Tempel ulang Sub ERP per tipe untuk memisahkannya.</p>}
-      </Card>
+      <div className="grid grid-cols-2 gap-4 mt-3.5 max-[1000px]:grid-cols-1">
+        <Card title={`Sell Out per Bulan (Ton) · ${scope}`}>
+          <div className="legend">
+            {v.hasTarget && <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target {Y}</span>}
+            <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Distributor {Y}</span>
+            <span><i style={{ background: SUB_COLOR }} aria-hidden="true" />Subdist {Y}</span>
+            <span><i style={{ background: COLORS.ink, opacity: .35 }} aria-hidden="true" />Realisasi {P}</span>
+          </div>
+          <ChartBox className="tall" label={chartSRSummary(v.trend.labels, v.trend.cur, `ton sell out ${Y}`)}
+            deps={[v.trend.labels.join('|'), v.trend.dist.join('|'), v.trend.sub.join('|'), v.trend.target.join('|'), v.trend.prev.join('|'), v.hasTarget]}
+            build={() => ({
+              type: 'bar',
+              data: { labels: v.trend.labels, datasets: [
+                { label: `Target ${Y}`, data: v.trend.target, type: 'line', stack: 'target', borderColor: COLORS.blueMid, backgroundColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3, order: 1, hidden: !v.hasTarget },
+                // realisasi tahun ini = batang bertumpuk distributor + subdist
+                { label: `Distributor ${Y}`, data: v.trend.dist, stack: 'cur', backgroundColor: COLORS.accent, maxBarThickness: 26, order: 2 },
+                { label: `Subdist ${Y}`, data: v.trend.sub, stack: 'cur', backgroundColor: SUB_COLOR, borderRadius: { topLeft: 3, topRight: 3 }, maxBarThickness: 26, order: 2 },
+                { label: `Realisasi ${P}`, data: v.trend.prev, stack: 'prev', backgroundColor: 'rgba(33,30,25,.22)', borderRadius: 3, maxBarThickness: 26, order: 3 },
+              ] } as any,
+              options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+                scales: { y: { stacked: true, beginAtZero: true, grid: { color: COLORS.line }, ticks: { callback: (x: any) => fmtCompact(x) } }, x: { stacked: true, grid: { display: false }, ticks: { autoSkip: false, maxRotation: 0 } } },
+                plugins: { tooltip: { callbacks: {
+                  label: (c: any) => ` ${c.dataset.label}: ${fmt(c.parsed.y)} ton`,
+                  footer: (items: any[]) => (items.length ? `Total ${Y}: ${fmt(v.trend.cur[items[0].dataIndex])} ton` : ''),
+                } } } },
+            })} />
+          {v.untyped > 0 && <p className="text-faint text-[12px] mt-2">{fmtTon(v.untyped)} ton Sub ERP masih tersimpan tanpa tipe (ditempel versi total), jadi tidak ikut saat filter tipe. Tempel ulang Sub ERP per tipe untuk memisahkannya.</p>}
+        </Card>
+
+        <Card title={`Toko Aktif per Bulan · ${scope}`}>
+          <div className="legend">
+            {v.taHasTarget && <span><i style={{ background: COLORS.blueMid }} aria-hidden="true" />Target {Y}</span>}
+            <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Realisasi {Y}{tipe !== 'all' ? ` (${tipe}, tanpa target)` : ''}</span>
+            <span><i style={{ background: COLORS.ink, opacity: .35 }} aria-hidden="true" />Realisasi {P}</span>
+          </div>
+          {!ta ? <p className="text-soft text-[13px] py-10 text-center">Data toko aktif belum tersedia. Jalankan ulang docs/sql/sell_out_bnn.sql.</p>
+            : !v.taIds.length ? <p className="text-soft text-[13px] py-10 text-center">{scope} adalah subdist: tidak dihitung toko aktif.</p>
+            : <ChartBox className="tall" label={chartSRSummary(v.trend.labels, v.taTrend.cur, `toko aktif ${Y}`)}
+                deps={[v.trend.labels.join('|'), v.taTrend.cur.join('|'), v.taTrend.target.join('|'), v.taTrend.prev.join('|'), v.taHasTarget]}
+                build={() => ({
+                  type: 'bar',
+                  data: { labels: v.trend.labels, datasets: [
+                    { label: `Target ${Y}`, data: v.taTrend.target, type: 'line', borderColor: COLORS.blueMid, backgroundColor: COLORS.blueMid, borderDash: [4, 3], borderWidth: 2, pointRadius: 2, fill: false, tension: .3, order: 1, hidden: !v.taHasTarget },
+                    { label: `Realisasi ${Y}`, data: v.taTrend.cur, backgroundColor: COLORS.accent, maxBarThickness: 26, order: 2 },
+                    { label: `Realisasi ${P}`, data: v.taTrend.prev, backgroundColor: 'rgba(33,30,25,.22)', borderRadius: 3, maxBarThickness: 26, order: 3 },
+                  ] } as any,
+                  options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+                    scales: { y: { beginAtZero: true, grid: { color: COLORS.line }, ticks: { callback: (x: any) => fmtCompact(x) } }, x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 0 } } },
+                    plugins: { tooltip: { callbacks: { label: (c: any) => ` ${c.dataset.label}: ${fmt(c.parsed.y)} toko` } } } },
+                })} />}
+          {ta && v.taIds.length > 0 && v.subdistNames.length > 0 && (
+            <p className="text-faint text-[12px] mt-2">Subdist ({v.subdistNames.join(', ')}) tidak dihitung, termasuk saat tercatat sebagai customer di transaksi distributor induk.</p>
+          )}
+        </Card>
+      </div>
 
       <h2 className="section-title">Rincian per Bulan · Sell Out (Ton)</h2>
       <GrowthTable caption={`Rincian sell out per bulan: target, realisasi ${P} dan ${Y}, pertumbuhan, capaian`}
@@ -290,80 +350,17 @@ function Body({ peta, monthly, targets, status }: { peta: Peta[]; monthly: Row[]
           heading: m => `Komposisi Sell Out ${v.monthLabel(m)} ${Y} · per ${groupBy === 'region' ? 'Region' : 'Distributor'}`,
           title: m => `Lihat komposisi sell out ${MONTHS_ID[m]}` }} />
 
-      <h2 className="section-title">Per Distributor · {monthsLabel} (Ton)</h2>
-      <TableWrap>
-        <table>
-          <caption className="sr-only">Sell out per distributor dan subdist</caption>
-          <thead><tr>
-            <th>Region</th><th>Distributor</th><th>Sumber</th>
-            <th className="num">Target</th><th className="num">{P}</th><th className="num">{Y}</th><th className="num">Growth</th><th>Capaian</th>
-          </tr></thead>
-          <tbody>
-            {regionGroups(v.perBaris).map(([reg, items]) => {
-              const live = items.filter(x => !x.p.j073);
-              const t = live.reduce((a, x) => a + x.target, 0), c = items.reduce((a, x) => a + x.ton, 0), q = live.reduce((a, x) => a + x.prev, 0);
-              return [
-                ...items.map(x => {
-                  const g = growthPct(x.ton, x.prev);
-                  return (
-                    <tr key={x.p.id}>
-                      <td className="text-soft whitespace-nowrap">{x.p.region}</td>
-                      <td className="font-semibold whitespace-nowrap">{x.p.nama}{isSubdist(x.p) && <span className="sob-sub">Subdist</span>}</td>
-                      <td className="text-faint text-[12px] max-w-[300px]">{x.p.sumber}</td>
-                      <td className="num font-mono">{x.target ? fmtTon(x.target) : '–'}</td>
-                      <td className="num font-mono">{x.prev ? fmtTon(x.prev) : '–'}</td>
-                      <td className="num font-mono font-semibold">{x.p.j073 ? <span className="text-faint font-normal" title="J073 (tabel warehouse) belum tersedia">belum ada</span> : fmtTon(x.ton)}</td>
-                      <td className={cx('num font-mono', g == null || x.p.j073 ? 'text-faint' : g >= 0 ? 'text-green' : 'text-red')}>{x.p.j073 ? '–' : fmtPct(g)}</td>
-                      <td>{x.p.j073 ? <span className="text-faint">–</span> : <Capaian actual={x.ton} target={x.target} />}</td>
-                    </tr>
-                  );
-                }),
-                items.length > 1 && live.length > 0 && (
-                  <tr key={reg + '-sub'} className="bg-surface2/70">
-                    <td colSpan={3} className="font-semibold">Subtotal {reg}</td>
-                    <td className="num font-mono font-semibold">{t ? fmtTon(t) : '–'}</td>
-                    <td className="num font-mono font-semibold">{q ? fmtTon(q) : '–'}</td>
-                    <td className="num font-mono font-semibold">{fmtTon(c)}</td>
-                    <td className={cx('num font-mono font-semibold', growthPct(c, q) == null ? 'text-faint' : growthPct(c, q)! >= 0 ? 'text-green' : 'text-red')}>{fmtPct(growthPct(c, q))}</td>
-                    <td><Capaian actual={c} target={t} /></td>
-                  </tr>
-                ),
-              ];
-            })}
-          </tbody>
-          <tfoot>
-            {totalRows(v.perBaris).map(r => {
-              const g = growthPct(r.ton, r.prev);
-              return (
-                <tr key={r.label} className={cx('sob-total', r.grand && 'sob-grand')}>
-                  <td colSpan={3} className="font-semibold">{r.label}</td>
-                  <td className="num font-mono font-semibold">{r.target ? fmtTon(r.target) : '–'}</td>
-                  <td className="num font-mono font-semibold">{r.prev ? fmtTon(r.prev) : '–'}</td>
-                  <td className="num font-mono font-semibold">{fmtTon(r.ton)}</td>
-                  <td className={cx('num font-mono font-semibold', g == null ? 'text-faint' : g >= 0 ? 'text-green' : 'text-red')}>{fmtPct(g)}</td>
-                  <td><Capaian actual={r.ton} target={r.target} /></td>
-                </tr>
-              );
-            })}
-          </tfoot>
-        </table>
-      </TableWrap>
+      {ta && v.taIds.length > 0 && (
+        <>
+          <h2 className="section-title">Rincian per Bulan · Toko Aktif</h2>
+          {tipe !== 'all' && <p className="text-xs text-faint -mt-2 mb-3">Tipe {tipe}: toko dengan pembelian {tipe} minimal Rp200.000 sebulan, tanpa target (target TA hanya ada di level semua tipe).</p>}
+          <GrowthTable caption={`Rincian toko aktif per bulan: target, realisasi ${P} dan ${Y}, pertumbuhan, capaian`}
+            rows={v.taRows} Y={Y} P={P} hasTarget={v.taHasTarget} labels={{ target: 'Target TA', value: 'TA', capaian: 'Capaian TA' }} monthLabel={v.monthLabel}
+            drill={{ enabled: true, groupsFor: v.taDrill, unit: 'toko',
+              heading: m => `Komposisi Toko Aktif ${v.monthLabel(m)} ${Y} · per ${groupBy === 'region' ? 'Region' : 'Distributor'}`,
+              title: m => `Lihat komposisi toko aktif ${MONTHS_ID[m]}` }} />
+        </>
+      )}
     </>
   );
-}
-
-/** Baris total di bawah tabel: Distributor, Subdist, dan Sell Out BNN (J073 tidak ikut target / tahun lalu). */
-function totalRows(rows: { p: Peta; target: number; ton: number; prev: number }[]) {
-  const agg = (label: string, xs: typeof rows, grand = false) => {
-    const live = xs.filter(x => !x.p.j073);
-    return { label, grand, target: live.reduce((a, x) => a + x.target, 0), prev: live.reduce((a, x) => a + x.prev, 0), ton: xs.reduce((a, x) => a + x.ton, 0), n: xs.length };
-  };
-  const dist = agg('Total Distributor', rows.filter(x => !isSubdist(x.p))), sub = agg('Total Subdist', rows.filter(x => isSubdist(x.p)));
-  return dist.n && sub.n ? [dist, sub, agg('Total Sell Out BNN', rows, true)] : [agg('Total Sell Out BNN', rows, true)];
-}
-
-function regionGroups<T extends { p: Peta }>(rows: T[]): [string, T[]][] {
-  const m = new Map<string, T[]>();
-  rows.forEach(r => { const a = m.get(r.p.region) || []; a.push(r); m.set(r.p.region, a); });
-  return [...m.entries()];
 }

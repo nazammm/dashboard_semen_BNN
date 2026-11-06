@@ -290,7 +290,38 @@ select 'erp', 'Sub ERP', 'harian',
        (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from erp_up),
        (select 'Tempel data ' || extract(year from date_from) || ' oleh ' || created_by from erp_up);
 
-grant select on sementrack.v_data_status, sementrack.v_sellout_bnn_peta, sementrack.v_sellout_bnn_monthly to public;
+-- Toko aktif Sell Out BNN: dari transaksi J028 baris distributor (bukan subdist).
+-- Customer subdist (sementrack.subdist_customer, mis. PGS/MGSS/MAJU di JMB) TIDAK dihitung toko aktif.
+-- Aturan aktif sama dengan dashboard: net amount sebulan >= 200.000. Per tipe: net tipe itu >= 200.000.
+-- ta_sd = aktif s.d. hari yang sama dengan tanggal transaksi terakhir (untuk banding bulan berjalan vs tahun lalu).
+create or replace view sementrack.v_sellout_bnn_ta as
+with cut as (select extract(day from max(do_date))::int as hari from public.transaksi),
+base as (
+  select p.id as peta_id, extract(year from t.do_date)::int as tahun, extract(month from t.do_date)::int as bulan, t.customer_code,
+         case when upper(t.product_code) like 'RJW%' then 'RJW' when upper(t.product_code) like 'CWC%' then 'CWC' else 'STR' end as tipe,
+         coalesce(t.net_amount, 0) as net,
+         extract(day from t.do_date)::int <= (select hari from cut) as sd
+  from sementrack.sellout_bnn_peta p
+  join public.transaksi t on t.dist_code = p.j028_dist
+  where p.j028_mode in ('penuh', 'tanpa')
+    and t.do_date >= make_date(extract(year from current_date)::int - 1, 1, 1)
+    and t.customer_code is not null and btrim(t.customer_code) <> ''
+    and not (t.customer_code = any (coalesce(p.j028_customers, '{}')))
+    and not exists (select 1 from sementrack.subdist_customer s where s.dist_code = t.dist_code and s.customer_code = t.customer_code)
+),
+per as (
+  select peta_id, tahun, bulan, customer_code, coalesce(tipe, 'ALL') as tipe,
+         sum(net) as net, sum(net) filter (where sd) as net_sd
+  from base
+  group by grouping sets ((peta_id, tahun, bulan, customer_code, tipe), (peta_id, tahun, bulan, customer_code))
+)
+select peta_id, tahun, bulan, tipe,
+       count(*) filter (where net >= 200000) as ta,
+       count(*) filter (where coalesce(net_sd, 0) >= 200000) as ta_sd
+from per
+group by 1, 2, 3, 4;
+
+grant select on sementrack.v_data_status, sementrack.v_sellout_bnn_peta, sementrack.v_sellout_bnn_monthly, sementrack.v_sellout_bnn_ta to public;
 
 -- ---------------------------------------------------------------------
 -- 5. Isi awal 2026: DO FAS (tempelan 5 Nov 2026) & Sub ERP per tipe (Jan–Okt), supaya baris subdist

@@ -60,7 +60,7 @@ public static class AccessRules
         "v_dist_monthly_totals", "produk", "v_target_dist", "v_delivery_ext",
         "v_transaksi_detail", "v_toko_pegangan_sales", "status_sync", "toko",
         "distributor_target_salesman", "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_data_status",
-        "v_sellout_bnn_monthly", "v_sellout_bnn_peta",
+        "v_sellout_bnn_monthly", "v_sellout_bnn_peta", "v_sellout_bnn_ta",
     };
 
     /// <summary>Tabel di atas yang punya kolom dist_code -> filter distributor DIPAKSA server untuk spv/sales.</summary>
@@ -82,6 +82,7 @@ public static class AccessRules
         ["v_data_status"] = "sementrack.v_data_status",
         ["v_sellout_bnn_monthly"] = "sementrack.v_sellout_bnn_monthly",
         ["v_sellout_bnn_peta"] = "sementrack.v_sellout_bnn_peta",
+        ["v_sellout_bnn_ta"] = "sementrack.v_sellout_bnn_ta",
     };
 
     /// <summary>Fungsi yang versi barunya ada di schema sementrack.</summary>
@@ -130,7 +131,7 @@ public static class AccessRules
                     "dashboard_payment_breakdown_range", "dashboard_delivery_type_breakdown_range", "dashboard_product_breakdown_range" }),
         ["performa-daerah"] = new(new[] { "v_cement_targets_ext" }, Array.Empty<string>()),
         ["sell-in-bnn"] = new(new[] { "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_delivery_ext" }, Array.Empty<string>()),
-        ["sell-out-bnn"] = new(new[] { "v_sellout_bnn_monthly", "v_sellout_bnn_peta", "v_cement_targets_ext" }, Array.Empty<string>()),
+        ["sell-out-bnn"] = new(new[] { "v_sellout_bnn_monthly", "v_sellout_bnn_peta", "v_sellout_bnn_ta", "v_cement_targets_ext" }, Array.Empty<string>()),
         ["rekap-harian"] = new(new[] { "v_distributor_summary", "v_monthly_totals", "produk", "v_target_dist" }, new[] { "dashboard_daily_matrix" }),
         ["tim-sales"] = new(new[] { "v_salesman_performance", "distributor_target_salesman" }, Array.Empty<string>()),
         ["peta-toko"] = new(new[] { "v_monthly_totals" }, new[] { "dashboard_toko_monthly_v2" }),

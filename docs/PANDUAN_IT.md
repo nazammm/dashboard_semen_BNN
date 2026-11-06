@@ -119,3 +119,7 @@ Urutan pasang (keduanya wajib, kalau tidak Overview menampilkan pesan "Filter re
    (`dist` / `subdist`) untuk grafik bertumpuk dan baris total di halaman. Kolom Area di DO FAS tidak dipakai.
 5. Sub ERP bisa ditempel per tipe (blok per bulan: JANUARI … lalu "S006 - Nama | PCC / PCC – RJW | ton").
    Halaman Sell In BNN dan Sell Out BNN punya tombol Download Excel (ikut hak download per halaman di Kelola Akses).
+6. Toko aktif Sell Out BNN: view baru `sementrack.v_sellout_bnn_ta` (ada di `sell_out_bnn.sql`), dibaca lewat GET `/api/v_sellout_bnn_ta`
+   (backend perlu dideploy ulang karena daftar view yang boleh dibaca bertambah). Dihitung dari transaksi J028 baris distributor,
+   aturan aktif net ≥ Rp200.000 sebulan; customer di `sementrack.subdist_customer` (PGS, MGSS, MAJU, BSJ, Pangkalant, SIN, Dumai-Patent)
+   TIDAK dihitung. Halaman lain (Overview, Rekap Harian, Daftar/Peta Toko, Tim Sales) BELUM membuang customer subdist ini.
