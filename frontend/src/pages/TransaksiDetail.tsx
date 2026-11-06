@@ -4,7 +4,7 @@ import { DataSource } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, fmtIDR, isOnlineTransaction, relDate } from '../lib/format';
 import type { Row } from '../lib/types';
-import { Badge, Card, Chip, ChartBox, ErrorBox, ExportButton, Kpi, OnlineBadge, PageHeader, PageSkeleton, PaymentBadge, TableWrap } from '../components/ui';
+import { Card, Chip, ChartBox, ErrorBox, ExportButton, Kpi, OnlineBadge, PageHeader, PageSkeleton, PaymentBadge, TableWrap, TokoStatusBadge } from '../components/ui';
 
 export default function TransaksiDetail() {
   useDocTitle('Detail Transaksi');
@@ -206,7 +206,7 @@ function SalesmanMode({ salesman, year, month, name }: { salesman: string; year:
                     <tr key={`${t.cust_code}-${t.dist_code}-${i}`}>
                       <td>{t.cust_name || t.cust_code}<br /><span className="font-mono text-faint text-[11px]">{t.cust_code}</span></td>
                       <td><span className="tag-code">{t.dist_code}</span> {t.dist_name || ''}</td>
-                      <td>{t.is_active ? <Badge variant="good">Aktif</Badge> : <Badge variant="bad">Nonaktif</Badge>}</td>
+                      <td><TokoStatusBadge active={t.is_active} subdist={t.is_subdist} /></td>
                       <td className="num font-mono">{fmt(t.num_do)}</td>
                       <td className="num font-mono">{fmtIDR(t.net_amount)}</td>
                       <td className="num font-mono">{fmt(t.omset, 2)}</td>

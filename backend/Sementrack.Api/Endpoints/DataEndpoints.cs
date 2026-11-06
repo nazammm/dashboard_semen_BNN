@@ -104,14 +104,15 @@ internal static class DataEndpoints
                 if (!access.Tables.Contains(table)) return Helpers.Error(403, "role ini tidak boleh mengakses data ini");
 
                 var pars = new List<object?>();
-                var where = "";
+                // Subdist (sementrack.subdist_customer) bukan toko: tidak ikut jumlah toko terdaftar.
+                var where = " WHERE NOT EXISTS (SELECT 1 FROM sementrack.subdist_customer s WHERE s.dist_code = a.dist_code AND s.customer_code = a.cust_code)";
                 if (AccessRules.DistScopedRoles.Contains(s.Role) && AccessRules.TablesWithDistCode.Contains(table))
                 {
                     if (string.IsNullOrEmpty(s.DistCode)) return Helpers.Json(new { count = 0 });
                     pars.Add(s.DistCode);
-                    where = " WHERE \"dist_code\" IN ($1)";
+                    where += " AND a.\"dist_code\" IN ($1)";
                 }
-                var rows = await db.QueryAsync($"SELECT COUNT(DISTINCT \"cust_code\")::int AS c FROM {sqlTable}{where}", pars);
+                var rows = await db.QueryAsync($"SELECT COUNT(DISTINCT a.\"cust_code\")::int AS c FROM {sqlTable} a{where}", pars);
                 return Helpers.Json(new { count = rows.Count > 0 ? rows[0]["c"] : 0 });
             }
             catch (Exception e) { log.LogError(e, "[toko-count]"); return Helpers.Error(500, "Gagal menghitung toko."); }

@@ -79,6 +79,9 @@ Check(!sales.Tables.Contains("v_sellout_bnn_monthly"), "sales: TIDAK boleh sell 
 Check(AccessRules.ReadAlias["v_sellout_bnn_monthly"] == "sementrack.v_sellout_bnn_monthly", "view sell out di schema sementrack");
 Check(mo.Tables.Contains("v_sellout_bnn_ta") && !sales.Tables.Contains("v_sellout_bnn_ta"), "toko aktif sell out BNN ikut halaman sell-out-bnn");
 Check(AccessRules.ReadAlias["v_sellout_bnn_ta"] == "sementrack.v_sellout_bnn_ta", "view toko aktif sell out di schema sementrack");
+Check(AccessRules.ReadAlias["v_salesman_performance"] == "sementrack.v_salesman_performance", "TA salesman tanpa subdist di schema sementrack");
+Check(AccessRules.ReadAlias["v_toko_pegangan_sales"] == "sementrack.v_toko_pegangan_sales", "toko pegangan tanpa subdist di schema sementrack");
+Check(AccessRules.RpcSchema["dashboard_store_year"] == "sementrack", "detail toko tanpa subdist di schema sementrack");
 
 Check(AccessRules.DefaultPermFor("sales", "daftar-toko") is { CanViewDetail: true, CanDownload: false }, "perm sales daftar-toko");
 Check(AccessRules.DefaultPermFor("spv", "rekap-harian") is { CanViewDetail: false, CanDownload: false }, "perm spv rekap");

@@ -10,7 +10,7 @@ import { useAsync, useDocTitle } from '../lib/hooks';
 import { DataBadge } from '../components/DataStatus';
 import { useChart, donutPercentPlugins } from '../lib/chart';
 import {
-  Card, Chip, CellLink, ChartBox, ErrorBox, PageSkeleton, Select, TableWrap, Th, cx,
+  Badge, Card, Chip, CellLink, ChartBox, ErrorBox, PageSkeleton, Select, TableWrap, Th, cx,
 } from '../components/ui';
 import type { Row } from '../lib/types';
 
@@ -429,7 +429,7 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
           <>
             <Card title={`Toko Aktif · ${periodLabel}`}>
               <div className="kpi-value">{fmt(d.cur.num_active_stores)}</div>
-              <div className="kpi-delta">Belanja minimal Rp200 rb dalam sebulan</div>
+              <div className="kpi-delta">Belanja minimal Rp200 rb dalam sebulan · subdist tidak dihitung</div>
             </Card>
             <Card title="Cakupan Toko Aktif">
               <div className="kpi-value">{kpi.coverage == null ? '–' : kpi.coverage.toFixed(1) + '%'}</div>
@@ -558,7 +558,7 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
             {top.data && top.data.map((c, i) => (
               <tr key={c.customer_code + '-' + i}>
                 <td className="num font-mono">{i + 1}</td>
-                <td><CellLink to={`/toko-detail?code=${encodeURIComponent(c.customer_code)}&from=beranda`}>{c.cust_name || c.customer_code}</CellLink></td>
+                <td><CellLink to={`/toko-detail?code=${encodeURIComponent(c.customer_code)}&from=beranda`}>{c.cust_name || c.customer_code}</CellLink>{c.is_subdist && <> <Badge variant="neutral" className="ml-1" title="Subdist: tidak dihitung toko aktif">Subdist</Badge></>}</td>
                 <td>{String(c.dist_code || '').split(', ').filter(Boolean).map(code => <span key={code} className="tag-code mr-1">{code}</span>)} {c.dist_name || ''}</td>
                 <td className="num font-mono">{fmt(c.num_do)}</td>
                 <td className="num font-mono">{fmtIDR(c.net_amount)}</td>

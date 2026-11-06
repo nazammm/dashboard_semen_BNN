@@ -83,6 +83,9 @@ public static class AccessRules
         ["v_sellout_bnn_monthly"] = "sementrack.v_sellout_bnn_monthly",
         ["v_sellout_bnn_peta"] = "sementrack.v_sellout_bnn_peta",
         ["v_sellout_bnn_ta"] = "sementrack.v_sellout_bnn_ta",
+        // Toko aktif tanpa subdist (toko_aktif_subdist.sql)
+        ["v_salesman_performance"] = "sementrack.v_salesman_performance",
+        ["v_toko_pegangan_sales"] = "sementrack.v_toko_pegangan_sales",
     };
 
     /// <summary>Fungsi yang versi barunya ada di schema sementrack.</summary>
@@ -90,6 +93,7 @@ public static class AccessRules
     {
         ["dashboard_toko_monthly_v2"] = "sementrack",
         ["dashboard_top_customers_v2"] = "sementrack",
+        ["dashboard_store_year"] = "sementrack",   // toko aktif tanpa subdist
         // Overview dengan filter rentang tanggal
         ["dashboard_period_summary_range"] = "sementrack",
         ["dashboard_top_customers_range"] = "sementrack",

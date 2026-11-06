@@ -124,7 +124,7 @@ function TimSalesBody({ rows, freshnessData, targets }: { rows: Row[]; freshness
               delta={<span className="inline-flex items-center gap-2 flex-wrap"><Capaian actual={salesAktif} target={targetSales} /><span className="text-faint">{MONTHS_ID[month]} {year}</span></span>} />
           : <Kpi title="Salesman Aktif" value={fmt(salesAktif)} delta={`${MONTHS_ID[month]} ${year} · status Sales Real`} />}
         <Kpi title="Capaian TA Tim" value={tTA > 0 ? (aTA / tTA * 100).toFixed(0) + '%' : '–'}
-          delta={tTA > 0 ? `${fmt(aTA)} dari ${fmt(tTA)} toko aktif` : 'Belum ada target TA'} />
+          delta={tTA > 0 ? `${fmt(aTA)} dari ${fmt(tTA)} toko aktif · tanpa subdist` : 'Belum ada target TA'} />
         <Kpi title="Capaian Tonase Tim" value={tTon > 0 ? (aTon / tTon * 100).toFixed(0) + '%' : '–'}
           delta={tTon > 0 ? `${fmt(aTon, 1)} dari ${fmt(tTon, 1)} ton` : 'Belum ada target tonase'} />
         <Kpi title="Capai Target" value={fmt(reached)} unit={`/ ${fmt(scored.length)}`} delta="Salesman dengan skor ≥ 100%" />

@@ -62,19 +62,21 @@ export function chartSRSummary(labels: string[], values: number[], unit?: string
 /** Cegah formula injection di Excel (sel diawali = + - @ tab CR). */
 export const xlsxSafeCell = (text: string) => (/^[=+\-@\t\r]/.test(text) ? "'" + text : text);
 
-/** Toko UNIK dari baris per (toko, distributor). */
+/** Toko UNIK dari baris per (toko, distributor).
+ *  Subdist (is_subdist di SEMUA distributornya) bukan toko: tidak masuk total / aktif / nonaktif, dihitung terpisah. */
 export function uniqueTokoStats(rows: Row[], hasGeoFn: (r: Row) => boolean) {
-  const m = new Map<string, { active: boolean; geo: boolean; row: Row }>();
+  const m = new Map<string, { active: boolean; geo: boolean; toko: boolean; row: Row }>();
   rows.forEach(t => {
-    const g = m.get(t.cust_code) || { active: false, geo: false, row: t };
+    const g = m.get(t.cust_code) || { active: false, geo: false, toko: false, row: t };
     if (t.is_active) g.active = true;
+    if (!t.is_subdist) g.toko = true;
     if (hasGeoFn(t)) g.geo = true;
     m.set(t.cust_code, g);
   });
-  let active = 0;
+  let active = 0, total = 0;
   const noGeoRows: Row[] = [];
-  m.forEach(g => { if (g.active) active++; if (!g.geo) noGeoRows.push(g.row); });
-  return { total: m.size, active, noGeo: noGeoRows.length, noGeoRows };
+  m.forEach(g => { if (g.toko) total++; if (g.active) active++; if (!g.geo) noGeoRows.push(g.row); });
+  return { total, active, subdist: m.size - total, noGeo: noGeoRows.length, noGeoRows };
 }
 
 // Hari libur nasional 2026 (SKB 3 Menteri), hanya libur nasional.

@@ -5,7 +5,7 @@ import { DataSource } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { MONTHS_ID, fmt, fmtIDR, relDate, uniqueTokoStats } from '../lib/format';
 import type { Row } from '../lib/types';
-import { Badge, Chip, ErrorBox, ExportButton, FilterBar, Kpi, PageHeader, PageSkeleton, Th } from '../components/ui';
+import { Chip, ErrorBox, ExportButton, FilterBar, Kpi, PageHeader, PageSkeleton, Th, TokoStatusBadge } from '../components/ui';
 import { DateRangePicker, type RangePreset } from '../components/DateRangePicker';
 import { addDays, addMonths, endOfMonth, isISO, startOfMonth } from '../lib/dates';
 
@@ -16,7 +16,7 @@ const hasGeo = (t: Row) => {
   return Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
 };
 
-interface Filters { q: string; dist: string; zona: string; status: 'all' | 'active' | 'inactive'; dateFrom: string; dateTo: string }
+interface Filters { q: string; dist: string; zona: string; status: 'all' | 'active' | 'inactive' | 'subdist'; dateFrom: string; dateTo: string }
 const EMPTY: Filters = { q: '', dist: 'all', zona: 'all', status: 'all', dateFrom: '', dateTo: '' };
 
 /** Opsi Wilayah hanya dari toko milik distributor terpilih; sebaliknya untuk Distributor (saling menyempitkan). */
@@ -51,7 +51,7 @@ export default function DaftarToko() {
     const statsByCode = new Map(tokoStats.map(t => [t.cust_code + '|' + t.dist_code, t]));
     const merged: Row[] = tokoMaster.map(t => {
       const s = statsByCode.get(t.cust_code + '|' + t.dist_code);
-      return { ...t, total_qty: Number(s?.total_qty || 0), net_amount: Number(s?.net_amount || 0), is_active: !!s?.is_active, last_transaction: s?.last_transaction || null };
+      return { ...t, total_qty: Number(s?.total_qty || 0), net_amount: Number(s?.net_amount || 0), is_active: !!s?.is_active, is_subdist: !!s?.is_subdist, last_transaction: s?.last_transaction || null };
     });
     const raw = String(freshnessData?.max_do_date ?? '').slice(0, 10);
     return { year, month, merged, lastDay: isISO(raw) ? raw : '' };
@@ -111,7 +111,8 @@ function DaftarTokoView({ year, month, merged, lastDay }: { year: number; month:
       if (f.dist !== 'all' && t.dist_code !== f.dist) return false;
       if (f.zona !== 'all' && t.zona !== f.zona) return false;
       if (f.status === 'active' && !t.is_active) return false;
-      if (f.status === 'inactive' && t.is_active) return false;
+      if (f.status === 'inactive' && (t.is_active || t.is_subdist)) return false;
+      if (f.status === 'subdist' && !t.is_subdist) return false;
       // last_transaction string mentah "YYYY-MM-DD": bisa dibandingkan langsung dengan <input type=date>
       if (f.dateFrom && (!t.last_transaction || t.last_transaction < f.dateFrom)) return false;
       if (f.dateTo && (!t.last_transaction || t.last_transaction > f.dateTo)) return false;
@@ -125,6 +126,7 @@ function DaftarTokoView({ year, month, merged, lastDay }: { year: number; month:
   // KPI = toko UNIK (toko >1 distributor dihitung sekali); tabel tetap satu baris per (toko, distributor)
   const us = useMemo(() => uniqueTokoStats(filtered, hasGeo), [filtered]);
   const totalUnik = useMemo(() => uniqueTokoStats(merged, hasGeo).total, [merged]);
+  const hasSubdist = useMemo(() => merged.some(t => t.is_subdist), [merged]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const cur = Math.min(Math.max(1, page), totalPages);
@@ -146,7 +148,7 @@ function DaftarTokoView({ year, month, merged, lastDay }: { year: number; month:
     addRow(['Kode', 'Nama Toko', 'Kode Distributor', 'Distributor', 'Wilayah', `Status ${MONTHS_ID[month]}`, 'Tonase', 'Amount', 'Transaksi Terakhir'], head);
     sorted.forEach(t => addRow([
       String(t.cust_code ?? ''), String(t.cust_name ?? ''), String(t.dist_code ?? ''), String(t.dist_name ?? ''), String(t.zona ?? ''),
-      t.is_active ? 'Aktif' : 'Nonaktif', String(Math.round(t.total_qty * 100) / 100), String(Math.round(t.net_amount)), t.last_transaction || '',
+      t.is_subdist ? 'Subdist' : t.is_active ? 'Aktif' : 'Nonaktif', String(Math.round(t.total_qty * 100) / 100), String(Math.round(t.net_amount)), t.last_transaction || '',
     ], body));
     tbl.append(head, body);
     return tbl;
@@ -181,6 +183,7 @@ function DaftarTokoView({ year, month, merged, lastDay }: { year: number; month:
             <Chip active={f.status === 'all'} onClick={() => set({ status: 'all' })}>Semua</Chip>
             <Chip active={f.status === 'active'} onClick={() => set({ status: 'active' })}>Aktif</Chip>
             <Chip active={f.status === 'inactive'} onClick={() => set({ status: 'inactive' })}>Nonaktif</Chip>
+            {hasSubdist && <Chip active={f.status === 'subdist'} onClick={() => set({ status: 'subdist' })}>Subdist</Chip>}
           </div>
         </div>
         <DateRangePicker label="Transaksi Terakhir" value={{ from: f.dateFrom, to: f.dateTo }} placeholder="Semua tanggal" allowClear
@@ -195,8 +198,10 @@ function DaftarTokoView({ year, month, merged, lastDay }: { year: number; month:
       </FilterBar>
 
       <div className="grid-kpi mt-5 mb-[22px]">
-        <Kpi title={anyFilter ? 'Toko Cocok Filter' : 'Toko Terdaftar'} value={fmt(us.total)}
-          delta={anyFilter ? `dari ${fmt(totalUnik)} total toko` : undefined} />
+        {f.status === 'subdist'
+          ? <Kpi title="Subdist Cocok Filter" value={fmt(us.subdist)} delta="Bukan toko: tidak dihitung toko aktif" />
+          : <Kpi title={anyFilter ? 'Toko Cocok Filter' : 'Toko Terdaftar'} value={fmt(us.total)}
+              delta={[anyFilter ? `dari ${fmt(totalUnik)} total toko` : '', us.subdist ? `${fmt(us.subdist)} subdist tidak dihitung` : ''].filter(Boolean).join(' · ') || undefined} />}
         <Kpi title={`Aktif ${MONTHS_ID[month]} ${year}`} value={fmt(us.active)}
           delta={`${us.total ? (us.active / us.total * 100).toFixed(1) : '0.0'}% dari toko ini`} />
         <Kpi title={`Nonaktif ${MONTHS_ID[month]} ${year}`} value={fmt(us.total - us.active)} />
@@ -229,7 +234,7 @@ function DaftarTokoView({ year, month, merged, lastDay }: { year: number; month:
                 </td>
                 <td><span className="tag-code">{t.dist_code || '–'}</span> {t.dist_name || ''}</td>
                 <td>{t.zona || '–'}</td>
-                <td>{t.is_active ? <Badge variant="good">Aktif</Badge> : <Badge variant="bad">Nonaktif</Badge>}</td>
+                <td><TokoStatusBadge active={t.is_active} subdist={t.is_subdist} /></td>
                 <td className="num mono">{fmt(t.total_qty, 1)}</td>
                 <td className="num mono">{fmtIDR(t.net_amount)}</td>
                 <td>{relDate(t.last_transaction)}</td>

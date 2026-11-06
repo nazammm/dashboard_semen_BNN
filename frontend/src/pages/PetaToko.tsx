@@ -65,7 +65,9 @@ function popupGroupEl(rows: Row[], month: number, canView: boolean, navigate: (t
     if (multi) root.append(' ', el('span', { text: `(${t.dist_code})`, style: "font-family:'IBM Plex Mono',monospace;font-size:11px;" }));
     root.append(
       el('br'), 'Status: ',
-      el('strong', { text: `${t.is_active ? 'Aktif' : 'Nonaktif'} bulan ini`, style: `color:${t.is_active ? COLORS.green : COLORS.red}` }),
+      t.is_subdist
+        ? el('strong', { text: 'Subdist (tidak dihitung toko aktif)', style: `color:${COLORS.blueMid}` })
+        : el('strong', { text: `${t.is_active ? 'Aktif' : 'Nonaktif'} bulan ini`, style: `color:${t.is_active ? COLORS.green : COLORS.red}` }),
       el('br'), `Amount ${MONTHS_ID[month]}: ${fmtIDR(t.net_amount)}`,
       el('br'), `Tonase ${MONTHS_ID[month]}: ${fmt(t.total_qty, 1)} ton`,
       el('br'), `Jumlah DO: ${fmt(t.num_do)}`,
@@ -147,7 +149,8 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
   const scoped = useMemo(() => (dist === 'all' ? tokoAll : tokoAll.filter(t => t.dist_code === dist)), [tokoAll, dist]);
   // Toko UNIK: toko yang dilayani >1 distributor hanya dihitung sekali
   const us = useMemo(() => uniqueTokoStats(scoped, hasGeo), [scoped]);
-  const filtered = useMemo(() => scoped.filter(t => (show === 'active' ? t.is_active : show === 'inactive' ? !t.is_active : true)), [scoped, show]);
+  // Subdist bukan toko: tidak muncul di "Aktif" maupun "Nonaktif", hanya di "Semua Toko"
+  const filtered = useMemo(() => scoped.filter(t => (show === 'active' ? t.is_active : show === 'inactive' ? !t.is_active && !t.is_subdist : true)), [scoped, show]);
 
   const distsOf = (code: string) => tokoAll.filter(x => x.cust_code === code);
   const openGroupPopup = (code: string, at: [number, number]) => {
@@ -179,11 +182,12 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
     groups.forEach((rows, code) => {
       const t = rows[0];
       const anyActive = rows.some(r => r.is_active);
+      const subdist = rows.every(r => r.is_subdist);
       const m = L.circleMarker(latlng(t), {
         renderer: canvas,
-        radius: rows.length > 1 ? 6 : (anyActive ? 4.5 : 3.5), weight: rows.length > 1 ? 2 : 1,
-        color: anyActive ? '#2F6B44' : '#8F3823',
-        fillColor: anyActive ? COLORS.green : COLORS.red, fillOpacity: 0.8,
+        radius: rows.length > 1 ? 6 : (anyActive || subdist ? 4.5 : 3.5), weight: rows.length > 1 ? 2 : 1,
+        color: subdist ? COLORS.blue : anyActive ? '#2F6B44' : '#8F3823',
+        fillColor: subdist ? COLORS.blueMid : anyActive ? COLORS.green : COLORS.red, fillOpacity: 0.8,
       });
       // Popup dibangun saat dibuka (lazy) supaya ribuan marker tidak membangun DOM di muka
       m.bindPopup(() => popupGroupEl(rows, month, canViewRef.current, navRef.current));
@@ -272,7 +276,7 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
       </FilterBar>
 
       <div className="grid-kpi">
-        <div className="card"><div className="card-title">Total Toko{dist === 'all' ? ' Terdaftar' : ' · ' + dist}</div><div className="kpi-value">{fmt(us.total)}</div></div>
+        <div className="card"><div className="card-title">Total Toko{dist === 'all' ? ' Terdaftar' : ' · ' + dist}</div><div className="kpi-value">{fmt(us.total)}</div>{us.subdist > 0 && <div className="kpi-delta">{fmt(us.subdist)} subdist tidak dihitung</div>}</div>
         <div className="card"><div className="card-title">Aktif Bulan Ini</div><div className="kpi-value">{fmt(us.active)}</div><div className="kpi-delta">{activePct}% dari toko ini</div></div>
         <div className="card"><div className="card-title">Nonaktif Bulan Ini</div><div className="kpi-value">{fmt(us.total - us.active)}</div><div className="kpi-delta">Tidak aktif {MONTHS_ID[month]}</div></div>
         <button type="button" className="card cursor-pointer text-left w-full hover:border-accent" aria-expanded={showMissing} onClick={() => setShowMissing(v => !v)}>
@@ -311,6 +315,7 @@ function PetaTokoView({ data, focusCode, navigate, canView }: {
         <div className="absolute bottom-3.5 left-3.5 z-[1001] bg-surface border border-line-strong rounded-md px-3 py-2 flex gap-3.5 text-[11.5px] text-soft shadow-[0_2px_6px_rgba(33,30,25,.12)]">
           <span className="inline-flex items-center gap-1.5"><i className="w-[9px] h-[9px] rounded-full inline-block" style={{ background: COLORS.green }} aria-hidden="true" />Aktif bulan ini</span>
           <span className="inline-flex items-center gap-1.5"><i className="w-[9px] h-[9px] rounded-full inline-block" style={{ background: COLORS.red }} aria-hidden="true" />Nonaktif bulan ini</span>
+          {us.subdist > 0 && <span className="inline-flex items-center gap-1.5"><i className="w-[9px] h-[9px] rounded-full inline-block" style={{ background: COLORS.blueMid }} aria-hidden="true" />Subdist</span>}
         </div>
         <button
           type="button" title="Kembalikan tampilan peta" aria-label="Kembalikan tampilan peta"

@@ -122,7 +122,7 @@ Urutan pasang (keduanya wajib, kalau tidak Overview menampilkan pesan "Filter re
 6. Toko aktif Sell Out BNN: view baru `sementrack.v_sellout_bnn_ta` (ada di `sell_out_bnn.sql`), dibaca lewat GET `/api/v_sellout_bnn_ta`
    (backend perlu dideploy ulang karena daftar view yang boleh dibaca bertambah). Dihitung dari transaksi J028 baris distributor,
    aturan aktif net ≥ Rp200.000 sebulan; customer di `sementrack.subdist_customer` (PGS, MGSS, MAJU, BSJ, Pangkalant, SIN, Dumai-Patent)
-   TIDAK dihitung. Halaman lain (Overview, Rekap Harian, Daftar/Peta Toko, Tim Sales) BELUM membuang customer subdist ini.
+   TIDAK dihitung. Halaman lain ikut sejak `toko_aktif_subdist.sql` (lihat bagian 11).
 7. J073 (INSA 4094, PKB 9575) untuk Sell Out BNN: tabel `sementrack.sellout_j073` (hanya semen + white cement, cust group RETAIL),
    aturan pembagian `sementrack.sellout_j073_aturan` (ACEH → INSA - ACEH; DO yang ada di J028 INSA-E → INSA-E; sisanya INSA;
    customer 11733 → Dumai-Patent; gudang DUMAI → Dumai-PKB; sisanya PKB), fungsi `sellout_j073_simpan`, view `v_sellout_j073_baris`.
@@ -131,3 +131,15 @@ Urutan pasang (keduanya wajib, kalau tidak Overview menampilkan pesan "Filter re
    (tidak disimpan di repo karena berisi data transaksi per customer); jalankan setelah `sell_out_bnn.sql`.
    Opsional: view Sell Out BNN ±0,5 detik tanpa JIT, ±2 detik dengan JIT bawaan Postgres. Kalau terasa lambat:
    `alter database web_semen set jit = off;` (perlu hak superuser / pemilik database).
+
+## 11. Update Nov 2026: subdist tidak dihitung toko aktif di semua halaman
+1. Jalankan `docs/sql/toko_aktif_subdist.sql` di `web_semen` SETELAH `sell_out_bnn.sql`, sebagai pemilik tabel (nazamudin).
+   Aman dijalankan ulang, tidak mengubah data. Objek `public` TIDAK diubah (laporan PPT tetap memakai versi lama).
+   Isinya (schema `sementrack`): `dashboard_period_summary_range` (Overview: toko aktif), `dashboard_top_customers_range`
+   (+ kolom `is_subdist`), `dashboard_toko_monthly_v2` (+ `is_subdist`, subdist selalu tidak aktif), dan versi baru
+   `dashboard_store_year`, `v_salesman_performance`, `v_toko_pegangan_sales`.
+2. JALANKAN SQL DULU, baru deploy ulang backend + frontend. Backend baru membaca `v_salesman_performance`,
+   `v_toko_pegangan_sales` dan `dashboard_store_year` dari schema `sementrack`, dan `/api/toko-count` (Cakupan Toko Aktif)
+   tidak menghitung subdist. Kalau backend dideploy sebelum SQL dijalankan, Tim Sales / Detail Toko / Overview akan error.
+3. Daftar subdist = tabel `sementrack.subdist_customer` (pasangan distributor + kode customer). Tambah subdist baru cukup
+   insert baris ke tabel ini; semua halaman ikut otomatis. Transaksinya tetap dihitung tonase / amount.

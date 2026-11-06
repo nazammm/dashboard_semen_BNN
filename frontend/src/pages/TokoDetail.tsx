@@ -2,7 +2,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { DataSource } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, fmtIDR, relDate } from '../lib/format';
-import { Badge, Card, ChartBox, ErrorBox, Kpi, OnlineBadge, PageHeader, PageSkeleton, PaymentBadge, TableWrap } from '../components/ui';
+import { Card, ChartBox, ErrorBox, Kpi, OnlineBadge, PageHeader, PageSkeleton, PaymentBadge, TableWrap, TokoStatusBadge } from '../components/ui';
 
 // Tombol "Kembali" mengikuti ?from= (Link biasa, bukan history.back()).
 const FROM_LABEL: Record<string, string> = {
@@ -77,8 +77,8 @@ function TokoBody({ code, back }: { code: string; back: React.ReactNode }) {
 
       <div className="grid-kpi">
         <Kpi title={`Status ${curMonth ? MONTHS_ID[curMonth] + ' ' + YEAR : 'Bulan Ini'}`}
-          value={curRow && curRow.is_active ? <Badge variant="good">Aktif</Badge> : <Badge variant="bad">Nonaktif</Badge>}
-          delta="Ambang batas Rp200.000/bulan" />
+          value={<TokoStatusBadge active={!!curRow?.is_active} subdist={!!curRow?.is_subdist} />}
+          delta={curRow?.is_subdist ? 'Subdist, tidak dihitung toko aktif' : 'Ambang batas Rp200.000/bulan'} />
         <Kpi title={`Amount ${YEAR}`} value={<span className="text-[22px]">{fmtIDR(totalNetYear)}</span>} delta="Akumulasi tahun berjalan" />
         <Kpi title={`Tonase ${YEAR}`} value={fmt(totalTonaseYear, 2)} unit="ton" />
         <Kpi title="Bulan Aktif" value={fmt(activeMonthsCount)} unit={`/ ${fmt(months.length)}`} delta={`Transaksi terakhir: ${relDate(lastTx)}`} />

@@ -87,6 +87,11 @@ export function CapaianAvg({ p }: { p: number | null | undefined }) {
 }
 
 /* ---------- Badge domain ---------- */
+/** Status toko bulan itu. Subdist bukan toko: tidak dihitung toko aktif. */
+export function TokoStatusBadge({ active, subdist }: { active?: boolean; subdist?: boolean }) {
+  if (subdist) return <Badge variant="neutral" title="Subdist: transaksinya tetap dihitung, tetapi tidak dihitung toko aktif">Subdist</Badge>;
+  return active ? <Badge variant="good">Aktif</Badge> : <Badge variant="bad">Nonaktif</Badge>;
+}
 export function PaymentBadge({ payment }: { payment?: string | null }) {
   if (!payment) return <span className="font-mono text-faint">–</span>;
   return <Badge variant={/cash/i.test(payment) ? 'good' : 'warn'}>{payment}</Badge>;
