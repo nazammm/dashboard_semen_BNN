@@ -165,6 +165,10 @@
   .ds-side-date{ @apply text-faint whitespace-nowrap; }
   .ds-side-more{ @apply text-[11.5px] text-faint pl-[30px] pr-3 pb-1.5 flex flex-col gap-0.5; }
 
+  /* Outstanding DO: tabel laporan per daerah x jalur x tipe */
+  .otb th, .otb td{ @apply !px-3; }
+  .otb thead tr:not(:last-child) th{ @apply border-b border-line; }
+  .otb .otb-sep{ border-left:1px solid #CBD1D9; }
   /* Overview: panel rangkuman */
   .ov-k{ @apply text-[12.5px] text-soft; }
   .ov-sub{ @apply flex items-baseline justify-between gap-3 text-[13px] mt-3 pt-2.5 border-t border-line; }

@@ -239,8 +239,23 @@ language sql immutable parallel safe as $$
     '(^|[\s,.])(PT|UD|FA|CV)\.?(?=$|[\s,.])', ' ', 'gi'), '[\s,.]+$|^[\s,.]+', '', 'g')))
 $$;
 
--- Satu baris per order yang masih punya sisa (outstanding & belum diverifikasi)
-create or replace view sementrack.v_outstanding_do as
+/** Jalur pengiriman dari Asal Pengiriman: FAS Kapal (Sunda Kelapa, Marunda), FAS Container (CCY, Tanjung Priok),
+    Terminal (ITP-... Terminal), Pabrik (ITP-Citeureup). */
+create or replace function sementrack.sellin_jalur(p_asal text) returns text
+language sql immutable parallel safe as $$
+  select case
+    when coalesce(p_asal, '') ~* '(SUNDA KELAPA|MARUNDA)' then 'FAS Kapal'
+    when coalesce(p_asal, '') ~* '(CONTAINER|CCY|PRIOK)' then 'FAS Container'
+    when coalesce(p_asal, '') ~* 'TERMINAL' then 'Terminal'
+    when coalesce(p_asal, '') ~* 'CITEUREUP' then 'Pabrik'
+    else 'Lainnya' end
+$$;
+
+-- Satu baris per order yang masih punya sisa (outstanding & belum diverifikasi).
+-- View ringkas bergantung pada view ini: dibuat ulang di bawah.
+drop view if exists sementrack.v_outstanding_do_ringkas;
+drop view if exists sementrack.v_outstanding_do;
+create view sementrack.v_outstanding_do as
 select p.upload_id,
        sementrack.sellin_region(m.region, p.tipe_pesanan, p.distributor) as region,
        p.distributor,
@@ -253,6 +268,7 @@ select p.upload_id,
        (u.posisi - p.tanggal_order) as umur_hari,
        case when p.estimasi_kirim is not null and p.estimasi_kirim < u.posisi then u.posisi - p.estimasi_kirim else 0 end as lewat_hari,
        p.kode_customer, p.nama_customer, p.kode_tujuan, p.nama_tujuan, p.asal_pengiriman,
+       sementrack.sellin_jalur(p.asal_pengiriman) as jalur,
        initcap(lower(p.tipe_pesanan)) as tipe_pesanan,
        coalesce(nullif(initcap(lower(p.loco_franco)), ''), 'Tidak diisi') as loco_franco,
        p.order_qty, p.delivery_qty,
@@ -267,11 +283,11 @@ where lower(p.status_order) in ('verified', 'partially delivered', 'not verified
   and not sementrack.sellin_is_mortar(p.tipe_produk);
 
 -- Ringkasan kecil untuk halaman (dibaca utuh lalu diolah di browser)
-create or replace view sementrack.v_outstanding_do_ringkas as
-select region, distributor, dist_nama, semen, status, tanggal_order, estimasi_kirim, posisi,
+create view sementrack.v_outstanding_do_ringkas as
+select region, distributor, dist_nama, semen, status, jalur, tanggal_order, estimasi_kirim, posisi,
        count(*)::int as orders, round(sum(sisa_ton), 3) as ton
 from sementrack.v_outstanding_do
-group by 1, 2, 3, 4, 5, 6, 7, 8;
+group by 1, 2, 3, 4, 5, 6, 7, 8, 9;
 
 -- Order per bulan tanggal order (semua status kecuali reject): masuk, terkirim, sisa
 drop view if exists sementrack.v_sellin_po_bulanan;

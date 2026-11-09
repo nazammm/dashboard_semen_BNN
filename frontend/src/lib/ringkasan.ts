@@ -155,6 +155,11 @@ export function sellOutRingkasan(peta: Peta[], monthly: Row[], targets: Row[], t
    Outstanding DO (v_outstanding_do_ringkas)
 --------------------------------------------------------------------------- */
 export const OPEN_STATUS = ['Belum dikirim', 'Terkirim sebagian'];
+/** Jalur pengiriman (sementrack.sellin_jalur): FAS = dari pelabuhan Jakarta, sisanya terminal & pabrik. */
+export const JALUR_FAS = ['FAS Kapal', 'FAS Container'];
+export const JALUR_DARAT = ['Terminal', 'Pabrik', 'Lainnya'];
+/** Urutan daerah seperti laporan outstanding (utara ke selatan, lalu Kalbar). Daerah lain menyusul menurut tonase. */
+export const REGION_ORDER = ['Sumut', 'Padang', 'Pekanbaru', 'Kepri', 'Jambi', 'Sumsel', 'Babel', 'Bengkulu', 'Lampung', 'Kalbar'];
 export const UMUR_BUCKETS: { label: string; max: number }[] = [
   { label: '0–7 hari', max: 7 }, { label: '8–14 hari', max: 14 }, { label: '15–30 hari', max: 30 },
   { label: '31–60 hari', max: 60 }, { label: 'Lebih dari 60 hari', max: Infinity },
@@ -162,7 +167,7 @@ export const UMUR_BUCKETS: { label: string; max: number }[] = [
 const dayDiff = (a: string, b: string) => Math.round((Date.parse(a) - Date.parse(b)) / 86400000);
 
 export interface OutRec {
-  region: string; sub?: string; distributor: string; dist_nama: string; semen: string; status: string;
+  region: string; sub?: string; distributor: string; dist_nama: string; semen: string; status: string; jalur: string;
   tanggal_order: string; estimasi: string | null; posisi: string; orders: number; ton: number;
   umur: number; lewat: boolean;
 }
@@ -170,7 +175,7 @@ export const outRecs = (rows: Row[]): OutRec[] => rows.map(r => {
   const t = String(r.tanggal_order).slice(0, 10), posisi = String(r.posisi).slice(0, 10), est = r.estimasi_kirim ? String(r.estimasi_kirim).slice(0, 10) : null;
   return {
     region: String(r.region || UNMAPPED), distributor: String(r.distributor), dist_nama: String(r.dist_nama || r.distributor), semen: String(r.semen),
-    status: String(r.status), tanggal_order: t, estimasi: est, posisi, orders: Number(r.orders || 0), ton: Number(r.ton || 0),
+    status: String(r.status), jalur: String(r.jalur || 'Lainnya'), tanggal_order: t, estimasi: est, posisi, orders: Number(r.orders || 0), ton: Number(r.ton || 0),
     umur: dayDiff(posisi, t), lewat: !!est && est < posisi,
   };
 });

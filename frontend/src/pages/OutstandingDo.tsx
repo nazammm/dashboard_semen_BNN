@@ -10,7 +10,7 @@ import type { Row } from '../lib/types';
 import { DataBadge } from '../components/DataStatus';
 import { Badge, Card, ChartBox, ErrorBox, FileIcon, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th, cx } from '../components/ui';
 import { exportRowsToExcel } from '../lib/xlsx';
-import { OPEN_STATUS, UMUR_BUCKETS, UNMAPPED, key, outRecs, outSummary, sellinGeo, type OutRec } from '../lib/ringkasan';
+import { JALUR_DARAT, JALUR_FAS, OPEN_STATUS, REGION_ORDER, UNMAPPED, key, outRecs, outSummary, sellinGeo, type OutRec } from '../lib/ringkasan';
 
 /* ============================================================================
    Outstanding DO (sell in): order ke pabrik yang belum terkirim, dari upload raw sell in
@@ -18,7 +18,10 @@ import { OPEN_STATUS, UMUR_BUCKETS, UNMAPPED, key, outRecs, outSummary, sellinGe
    Aturan baris sama dengan Sell In BNN (Gudang + PM toko/project dari ITP-Palembang).
    Outstanding = sisa order Verified (belum dikirim) + Partially Delivered (terkirim sebagian).
    Not Verified dihitung terpisah karena belum disetujui.
-   Umur = posisi data - tanggal order. Lewat estimasi = estimasi tanggal pengiriman sudah lewat.
+   Tabel utama mengikuti laporan outstanding: per daerah x jalur (FAS Kapal = Sunda Kelapa, FAS Container = CCY & Tanjung Priok)
+   x tipe semen, untuk semua order dan untuk order satu bulan (default bulan order terakhir).
+   Terminal & pabrik (ITP Lampung/Palembang/Pontianak Terminal, ITP-Citeureup) di tabel terpisah.
+   Lewat estimasi = estimasi tanggal pengiriman sudah lewat dari posisi data.
 ============================================================================ */
 
 const fmtTon = (t: number) => fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0);
@@ -80,42 +83,37 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
   const [dist, setDist] = useState('all');
   const [semen, setSemen] = useState('all');
   const [status, setStatus] = useState('open');
+  const bulanOpts = useMemo(() => [...new Set(recs.map(r => r.tanggal_order.slice(0, 7)))].sort().reverse(), [recs]);
+  const [bulan, setBulan] = useState(() => bulanOpts[0] || '');
   const opts = useMemo(() => {
     const regions = new Map<string, number>(), dists = new Map<string, { nama: string; ton: number }>();
     recs.forEach(r => {
-      if (!OPEN_STATUS.includes(r.status) && r.status !== 'Belum diverifikasi') return;
       regions.set(r.region, (regions.get(r.region) || 0) + r.ton);
       if (region === 'all' || r.region === region) {
         const d = dists.get(r.distributor) || { nama: r.dist_nama, ton: 0 }; d.ton += r.ton; dists.set(r.distributor, d);
       }
     });
     return {
-      regions: [...regions.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k),
+      regions: sortRegions([...regions.entries()]),
       dists: [...dists.entries()].sort((a, b) => b[1].ton - a[1].ton).map(([k, v]) => ({ value: k, label: v.nama })),
     };
   }, [recs, region]);
   const changeRegion = (v: string) => { setRegion(v); if (v !== 'all' && dist !== 'all' && !recs.some(r => r.region === v && r.distributor === dist)) setDist('all'); };
   const filterActive = region !== 'all' || dist !== 'all' || semen !== 'all' || status !== 'open';
   const resetFilter = () => { setRegion('all'); setDist('all'); setSemen('all'); setStatus('open'); };
-  const groupBy: 'region' | 'dist' = region === 'all' && dist === 'all' ? 'region' : 'dist';
 
   const v = useMemo(() => {
-    const geoOk = (r: OutRec) => (region === 'all' || r.region === region) && (dist === 'all' || r.distributor === dist) && (semen === 'all' || r.semen === semen);
     const wanted = new Set(statusList(status));
-    const cur = recs.filter(r => geoOk(r) && wanted.has(r.status));
-    const sum = outSummary(cur);
-    const nv = outSummary(recs.filter(r => geoOk(r) && r.status === 'Belum diverifikasi'));
-
-    // per region / distributor
-    const g = new Map<string, { label: string; recs: OutRec[] }>();
-    cur.forEach(r => {
-      const k = groupBy === 'region' ? r.region : r.distributor;
-      const x = g.get(k) || { label: groupBy === 'region' ? r.region : r.dist_nama, recs: [] };
-      x.recs.push(r); g.set(k, x);
-    });
-    const groups = [...g.entries()].map(([k, x]) => ({ key: k, label: x.label, ...outSummary(x.recs) })).sort((a, b) => b.ton - a.ton);
-    return { cur, sum, nv, groups };
-  }, [recs, region, dist, semen, status, groupBy]);
+    const cur = recs.filter(r => (region === 'all' || r.region === region) && (dist === 'all' || r.distributor === dist) && (semen === 'all' || r.semen === semen) && wanted.has(r.status));
+    const of = (jalurs: string[]) => cur.filter(r => jalurs.includes(r.jalur));
+    const byDist = new Map<string, { label: string; recs: OutRec[] }>();
+    cur.forEach(r => { const x = byDist.get(r.distributor) || { label: r.dist_nama, recs: [] }; x.recs.push(r); byDist.set(r.distributor, x); });
+    return {
+      cur, sum: outSummary(cur), fas: outSummary(of(JALUR_FAS)), kapal: outSummary(of(['FAS Kapal'])), container: outSummary(of(['FAS Container'])),
+      darat: outSummary(of(JALUR_DARAT)), bulanSum: outSummary(cur.filter(r => r.tanggal_order.startsWith(bulan))),
+      dists: [...byDist.entries()].map(([k, x]) => ({ key: k, label: x.label, ...outSummary(x.recs) })).sort((a, b) => b.ton - a.ton),
+    };
+  }, [recs, region, dist, semen, status, bulan]);
 
   /* ---------- order per bulan (tanggal order): terkirim, outstanding, belum diverifikasi ---------- */
   const monthly = useMemo(() => {
@@ -136,7 +134,7 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
   }, [bulanan, region, dist, semen, parentOf]);
 
   /* ---------- daftar order (dimuat per filter) ---------- */
-  const subs = region === 'all' ? undefined : [...new Set(recs.filter(r => r.region === region).map(r => r.sub))];
+  const subs = region === 'all' ? undefined : [...new Set(recs.filter(r => r.region === region).map(r => String(r.sub)))];
   const listFilter = { regions: subs, distributor: dist === 'all' ? undefined : dist, semen: semen === 'all' ? undefined : semen, status: statusList(status) };
   const list = useAsync(() => DataSource.outstandingList(listFilter, LIST_LIMIT), [region, dist, semen, status]);
   const [busy, setBusy] = useState(false);
@@ -147,12 +145,13 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
       const all = await DataSource.outstandingList(listFilter, null);
       await exportRowsToExcel([{
         name: 'Outstanding DO',
-        header: ['Tanggal Order', 'Umur (hari)', 'Estimasi Kirim', 'Lewat (hari)', 'Status', 'Region', 'Sub Region', 'Distributor', 'Order No', 'Produk',
-          'Kode Customer', 'Nama Customer', 'Tujuan', 'Asal Pengiriman', 'Loco/Franco', 'Order (zak)', 'Terkirim (zak)', 'Sisa (zak)', 'Sisa (ton)'],
+        header: ['Tanggal Order', 'Umur (hari)', 'Estimasi Kirim', 'Lewat (hari)', 'Status', 'Region', 'Sub Region', 'Jalur', 'Asal Pengiriman', 'Distributor', 'Order No', 'Produk', 'Tipe',
+          'Kode Customer', 'Nama Customer', 'Tujuan', 'Loco/Franco', 'Order (zak)', 'Terkirim (zak)', 'Sisa (zak)', 'Sisa (ton)'],
         rows: all.map(r => [String(r.tanggal_order).slice(0, 10), Number(r.umur_hari), r.estimasi_kirim ? String(r.estimasi_kirim).slice(0, 10) : null, Number(r.lewat_hari),
-          String(r.status), parentOf(r.region), String(r.region), String(r.dist_nama), String(r.order_no), String(r.produk), String(r.kode_customer), r.nama_customer as string | null,
-          r.nama_tujuan as string | null, r.asal_pengiriman as string | null, String(r.loco_franco), Number(r.order_qty), Number(r.delivery_qty), Number(r.sisa_zak), Number(r.sisa_ton)]),
-        widths: [12, 10, 12, 10, 16, 12, 14, 26, 16, 22, 12, 30, 30, 26, 11, 11, 12, 10, 10],
+          String(r.status), parentOf(r.region), String(r.region), String(r.jalur), r.asal_pengiriman as string | null, String(r.dist_nama), String(r.order_no), String(r.produk), String(r.semen),
+          String(r.kode_customer), r.nama_customer as string | null, r.nama_tujuan as string | null, String(r.loco_franco),
+          Number(r.order_qty), Number(r.delivery_qty), Number(r.sisa_zak), Number(r.sisa_ton)]),
+        widths: [12, 10, 12, 10, 16, 12, 14, 14, 26, 26, 16, 22, 6, 12, 30, 30, 11, 11, 12, 10, 10],
       }], `Outstanding_DO_posisi_${posisi}.xlsx`, 'outstanding-do');
     } catch (e) { setDlErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
@@ -160,7 +159,7 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
   const s = v.sum;
   const statusLabel = STATUS_OPTS.find(o => o.value === status)!.label;
   const scope = [dist !== 'all' ? opts.dists.find(o => o.value === dist)?.label : region !== 'all' && region, semen !== 'all' && semen].filter(Boolean).join(' · ') || 'Semua';
-  const bucketLabels = UMUR_BUCKETS.map(b => b.label);
+  const bulanLabel = bulan ? `Order ${MONTHS_ID[+bulan.slice(5)]} ${bulan.slice(0, 4)}` : '';
 
   return (
     <>
@@ -178,32 +177,26 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
           options={[{ value: 'all', label: 'Semua Distributor' }, ...opts.dists]} />
         <Select label="Tipe Semen" value={semen} onChange={e => setSemen(e.target.value)} style={{ minWidth: 120 }} options={SEMEN_OPTS} />
         <Select label="Status" value={status} onChange={e => setStatus(e.target.value)} style={{ minWidth: 150 }} options={STATUS_OPTS} />
+        <Select label="Bulan order (kolom kanan)" value={bulan} onChange={e => setBulan(e.target.value)} style={{ minWidth: 130 }}
+          options={bulanOpts.map(b => ({ value: b, label: `${MONTHS_ID[+b.slice(5)]} ${b.slice(0, 4)}` }))} />
         {filterActive && <button type="button" className="btn btn-sm self-end max-[880px]:col-span-2 max-[880px]:justify-center" onClick={resetFilter}>Reset filter</button>}
       </FilterBar>
 
       <div className="grid-kpi">
         <Kpi title={status === 'open' ? 'Outstanding' : statusLabel} value={fmtTon(s.ton)} unit="ton"
-          delta={`${fmt(s.orders)} order${s.umurRata != null ? ` · umur rata-rata ${fmt(s.umurRata)} hari` : ''}`} />
-        <Kpi title="Lewat estimasi kirim" value={fmtTon(s.lewat)} unit="ton" delta={`${share(s.lewat, s.ton)} dari ${status === 'open' ? 'outstanding' : statusLabel.toLowerCase()}`} />
-        <Kpi title="Umur lebih dari 30 hari" value={fmtTon(s.tua)} unit="ton" delta={s.tertua ? `Order tertua ${fmtDate(s.tertua)}` : undefined} />
-        <Kpi title="Belum diverifikasi" value={fmtTon(v.nv.ton)} unit="ton"
-          delta={status === 'Belum diverifikasi' ? 'Ditampilkan di atas' : `${fmt(v.nv.orders)} order, tidak termasuk outstanding`} />
+          delta={`${fmt(s.orders)} order · ${fmtTon(s.lewat)} ton lewat estimasi kirim`} />
+        <Kpi title="FAS Kapal" value={fmtTon(v.kapal.ton)} unit="ton" delta={`${share(v.kapal.ton, s.ton)} · ${fmt(v.kapal.orders)} order`} />
+        <Kpi title="FAS Container" value={fmtTon(v.container.ton)} unit="ton" delta={`${share(v.container.ton, s.ton)} · ${fmt(v.container.orders)} order`} />
+        <Kpi title="Terminal & pabrik" value={fmtTon(v.darat.ton)} unit="ton" delta={`${share(v.darat.ton, s.ton)} · ${fmt(v.darat.orders)} order`} />
       </div>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] max-[1100px]:grid-cols-1 gap-4 mt-4">
-        <Card title={`Umur order · ${statusLabel} · ${scope}`}>
-          <ChartBox label={chartSRSummary(bucketLabels, s.buckets, 'ton')} deps={[s.buckets.join('|')]}
-            build={() => ({
-              type: 'bar',
-              data: { labels: bucketLabels, datasets: [{ data: s.buckets, backgroundColor: UMUR_BUCKETS.map(b => (b.max > 30 ? COLORS.blue : COLORS.accent)), maxBarThickness: 22 }] },
-              options: {
-                indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-                scales: { x: { beginAtZero: true, grid: { color: COLORS.line }, border: { display: false }, ticks: { callback: (x: any) => fmtCompact(x) } }, y: { grid: { display: false } } },
-                plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c: any) => ` ${fmt(c.parsed.x)} ton (${share(c.parsed.x, s.ton)})` } } },
-              },
-            } as ChartConfiguration)} />
-          <p className="text-faint text-[12px] mt-2">Umur dihitung dari tanggal order sampai posisi data.</p>
-        </Card>
+      <h2 className="section-title">Outstanding FAS per daerah <span className="n">ton · {statusLabel.toLowerCase()} · {scope}</span></h2>
+      <JalurTable recs={v.cur} jalurs={JALUR_FAS} bulan={bulan} bulanLabel={bulanLabel} caption="Outstanding FAS Kapal dan FAS Container per daerah dan tipe semen" />
+
+      <h2 className="section-title">Outstanding terminal & pabrik per daerah <span className="n">ton · ITP Terminal (Lampung, Palembang, Pontianak) dan ITP-Citeureup</span></h2>
+      <JalurTable recs={v.cur} jalurs={JALUR_DARAT} bulan={bulan} bulanLabel={bulanLabel} caption="Outstanding dari terminal dan pabrik per daerah dan tipe semen" />
+
+      <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] max-[1100px]:grid-cols-1 gap-4 mt-9">
         <Card title={`Order per bulan tanggal order · ${scope}`}>
           <div className="legend">
             <span><i style={{ background: COLORS.prev }} aria-hidden="true" />Terkirim</span>
@@ -226,47 +219,27 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
             } as ChartConfiguration)} />
           <p className="text-faint text-[12px] mt-2">Tinggi batang = order masuk bulan itu (tanpa reject).</p>
         </Card>
+        <Card className="!p-0 overflow-hidden">
+          <div className="card-title px-4 pt-3.5 !mb-2">Per distributor · {statusLabel.toLowerCase()}</div>
+          <div className="max-h-[360px] overflow-auto border-t border-line">
+            <table className="tbl-dense !min-w-0">
+              <caption className="sr-only">Outstanding per distributor</caption>
+              <thead><tr><th>Distributor</th><th className="num">Order</th><th className="num">Ton</th><th className="num">Lewat estimasi</th></tr></thead>
+              <tbody>
+                {v.dists.length === 0 && <tr><td colSpan={4} className="!text-center !text-faint !p-5">Tidak ada order pada filter ini.</td></tr>}
+                {v.dists.map(d => (
+                  <tr key={d.key}>
+                    <td><button type="button" className="link-btn !no-underline font-medium text-left" onClick={() => setDist(d.key)}>{d.label}</button></td>
+                    <td className="num font-mono">{fmt(d.orders)}</td>
+                    <td className="num font-mono font-semibold">{fmtTon(d.ton)}</td>
+                    <td className="num font-mono">{fmtTon(d.lewat)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       </div>
-
-      <h2 className="section-title">Per {groupBy === 'region' ? 'region' : 'distributor'} <span className="n">{statusLabel.toLowerCase()} · {scope}</span></h2>
-      <TableWrap>
-        <table>
-          <caption className="sr-only">Outstanding per {groupBy === 'region' ? 'region' : 'distributor'}</caption>
-          <thead>
-            <tr>
-              <Th>{groupBy === 'region' ? 'Region' : 'Distributor'}</Th><Th num>Order</Th><Th num>{statusLabel} (ton)</Th><Th num>Lewat estimasi (ton)</Th>
-              <Th num>Umur &gt; 30 hari (ton)</Th><Th num>Umur rata-rata</Th><Th>Order tertua</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {v.groups.length === 0 && <tr><td colSpan={7} className="!text-center !text-faint !p-5">Tidak ada order pada filter ini.</td></tr>}
-            {v.groups.map(g => (
-              <tr key={g.key}>
-                <td>
-                  {groupBy === 'region'
-                    ? <button type="button" className="link-btn !no-underline font-medium" onClick={() => changeRegion(g.key)}>{g.label}</button>
-                    : <span className="font-medium">{g.label}</span>}
-                </td>
-                <td className="num font-mono">{fmt(g.orders)}</td>
-                <td className="num font-mono font-semibold">{fmtTon(g.ton)}</td>
-                <td className="num font-mono">{fmtTon(g.lewat)} <span className="text-faint text-[11.5px]">{share(g.lewat, g.ton)}</span></td>
-                <td className="num font-mono">{fmtTon(g.tua)}</td>
-                <td className="num font-mono whitespace-nowrap">{g.umurRata == null ? '–' : `${fmt(g.umurRata)} hari`}</td>
-                <td className="whitespace-nowrap">{g.tertua ? fmtDate(g.tertua) : '–'}</td>
-              </tr>
-            ))}
-          </tbody>
-          {v.groups.length > 1 && (
-            <tfoot>
-              <tr>
-                <td>Total</td><td className="num font-mono">{fmt(s.orders)}</td><td className="num font-mono">{fmtTon(s.ton)}</td>
-                <td className="num font-mono">{fmtTon(s.lewat)}</td><td className="num font-mono">{fmtTon(s.tua)}</td>
-                <td className="num font-mono">{s.umurRata == null ? '–' : `${fmt(s.umurRata)} hari`}</td><td>{s.tertua ? fmtDate(s.tertua) : '–'}</td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </TableWrap>
 
       <div className="flex items-baseline justify-between flex-wrap gap-2.5 mt-[38px] mb-3.5">
         <h2 className="section-title !m-0">Order tertua <span className="n">{fmt(Math.min(LIST_LIMIT, s.orders))} dari {fmt(s.orders)} order · {statusLabel.toLowerCase()} · {scope}</span></h2>
@@ -282,14 +255,14 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
           <caption className="sr-only">Order outstanding paling lama</caption>
           <thead>
             <tr>
-              <Th>Tanggal order</Th><Th num>Umur</Th><Th>Estimasi kirim</Th><Th>Distributor</Th><Th>Tujuan</Th><Th>Produk</Th>
+              <Th>Tanggal order</Th><Th num>Umur</Th><Th>Estimasi kirim</Th><Th>Distributor</Th><Th>Tujuan</Th><Th>Jalur</Th><Th>Produk</Th>
               <Th num>Order (zak)</Th><Th num>Sisa (ton)</Th><Th>Status</Th>
             </tr>
           </thead>
           <tbody>
-            {list.error && <tr><td colSpan={9} className="!text-center !text-red !p-5">{list.error.message}</td></tr>}
-            {!list.data && !list.error && <tr><td colSpan={9} className="!text-center !text-faint !p-5">Memuat…</td></tr>}
-            {list.data && list.data.length === 0 && <tr><td colSpan={9} className="!text-center !text-faint !p-5">Tidak ada order pada filter ini.</td></tr>}
+            {list.error && <tr><td colSpan={10} className="!text-center !text-red !p-5">{list.error.message}</td></tr>}
+            {!list.data && !list.error && <tr><td colSpan={10} className="!text-center !text-faint !p-5">Memuat…</td></tr>}
+            {list.data && list.data.length === 0 && <tr><td colSpan={10} className="!text-center !text-faint !p-5">Tidak ada order pada filter ini.</td></tr>}
             {list.data && list.data.map(r => (
               <tr key={`${r.distributor}|${r.order_no}|${r.produk}`}>
                 <td className="whitespace-nowrap">{fmtDate(String(r.tanggal_order).slice(0, 10))}</td>
@@ -299,7 +272,8 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
                   {Number(r.lewat_hari) > 0 && <span className="text-red text-[11.5px]"> lewat {fmt(r.lewat_hari)} hari</span>}
                 </td>
                 <td className="whitespace-nowrap">{String(r.dist_nama)}</td>
-                <td className="max-w-[260px] truncate" title={String(r.nama_tujuan || r.nama_customer || '')}>{String(r.nama_tujuan || r.nama_customer || '–')}</td>
+                <td className="max-w-[240px] truncate" title={String(r.nama_tujuan || r.nama_customer || '')}>{String(r.nama_tujuan || r.nama_customer || '–')}</td>
+                <td className="whitespace-nowrap">{String(r.jalur)}</td>
                 <td className="whitespace-nowrap">{String(r.produk).replace(/^NEW\s*-\s*/i, '')}</td>
                 <td className="num font-mono">{fmt(r.order_qty)}</td>
                 <td className="num font-mono font-semibold">{fmtTon(Number(r.sisa_ton))}</td>
@@ -310,5 +284,73 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
         </table>
       </TableWrap>
     </>
+  );
+}
+
+/** Urutan daerah seperti laporan; daerah di luar daftar menyusul menurut tonase. */
+function sortRegions(entries: [string, number][]) {
+  const rank = (r: string) => { const i = REGION_ORDER.indexOf(r); return i < 0 ? REGION_ORDER.length : i; };
+  return entries.sort((a, b) => rank(a[0]) - rank(b[0]) || b[1] - a[1]).map(([k]) => k);
+}
+
+const SEMEN_ORDER = ['STR', 'RJW', 'CWC'];
+/**
+ * Tabel laporan outstanding: baris = daerah, kolom = [semua order | order satu bulan] x jalur x tipe semen.
+ * Kolom tipe semen hanya yang ada isinya (CWC biasanya hanya dari pabrik).
+ */
+function JalurTable({ recs, jalurs, bulan, bulanLabel, caption }: { recs: OutRec[]; jalurs: string[]; bulan: string; bulanLabel: string; caption: string }) {
+  const t = useMemo(() => {
+    const rows = recs.filter(r => jalurs.includes(r.jalur));
+    const usedJalur = jalurs.filter(j => rows.some(r => r.jalur === j));
+    const semenOf = (j: string) => SEMEN_ORDER.filter(sm => rows.some(r => r.jalur === j && r.semen === sm));
+    const cols = usedJalur.flatMap(j => semenOf(j).map(sm => ({ j, sm })));
+    const regTon = new Map<string, number>();
+    const cell = new Map<string, number>();
+    const add = (k: string, ton: number) => cell.set(k, (cell.get(k) || 0) + ton);
+    rows.forEach(r => {
+      regTon.set(r.region, (regTon.get(r.region) || 0) + r.ton);
+      const inBulan = r.tanggal_order.startsWith(bulan);
+      for (const reg of [r.region, '__total']) {
+        add(`a|${reg}|${r.jalur}|${r.semen}`, r.ton); add(`a|${reg}|sum`, r.ton);
+        if (inBulan) { add(`b|${reg}|${r.jalur}|${r.semen}`, r.ton); add(`b|${reg}|sum`, r.ton); }
+      }
+    });
+    return { usedJalur, semenOf, cols, regions: sortRegions([...regTon.entries()]), get: (k: string) => cell.get(k) || 0 };
+  }, [recs, jalurs, bulan]);
+
+  if (!t.cols.length) return <div className="card text-faint text-[13px]">Tidak ada outstanding pada filter ini.</div>;
+  const num = (x: number) => (x ? fmtTon(x) : '–');
+  const blocks: { id: 'a' | 'b'; label: string }[] = [{ id: 'a', label: 'Semua order' }, { id: 'b', label: bulanLabel }];
+  const line = (reg: string, strong?: boolean) => blocks.flatMap(b => [
+    ...t.cols.map(c => <td key={`${b.id}${c.j}${c.sm}`} className={cx('num font-mono', b.id === 'b' && c === t.cols[0] && 'otb-sep')}>{num(t.get(`${b.id}|${reg}|${c.j}|${c.sm}`))}</td>),
+    <td key={`${b.id}sum`} className={cx('num font-mono', strong !== false && 'font-semibold')}>{num(t.get(`${b.id}|${reg}|sum`))}</td>,
+  ]);
+  return (
+    <TableWrap>
+      <table className="tbl-dense otb">
+        <caption className="sr-only">{caption}</caption>
+        <thead>
+          <tr>
+            <th rowSpan={3} className="align-bottom">Daerah</th>
+            {blocks.map(b => <th key={b.id} colSpan={t.cols.length + 1} className={cx('!text-center', b.id === 'b' && 'otb-sep')}>{b.label}</th>)}
+          </tr>
+          <tr>
+            {blocks.flatMap(b => [
+              ...t.usedJalur.map((j, i) => <th key={b.id + j} colSpan={t.semenOf(j).length} className={cx('!text-center', b.id === 'b' && i === 0 && 'otb-sep')}>{j}</th>),
+              <th key={b.id + 'tot'} rowSpan={2} className="num align-bottom">Total</th>,
+            ])}
+          </tr>
+          <tr>
+            {blocks.flatMap(b => t.cols.map((c, i) => <th key={`${b.id}${c.j}${c.sm}`} className={cx('num', b.id === 'b' && i === 0 && 'otb-sep')}>{c.sm}</th>))}
+          </tr>
+        </thead>
+        <tbody>
+          {t.regions.map(reg => <tr key={reg}><td className="font-medium">{reg}</td>{line(reg, false)}</tr>)}
+        </tbody>
+        <tfoot>
+          <tr><td>Total</td>{line('__total')}</tr>
+        </tfoot>
+      </table>
+    </TableWrap>
   );
 }

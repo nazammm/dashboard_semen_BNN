@@ -177,6 +177,8 @@ Lalu deploy ulang backend + frontend (SQL dulu).
 - Sumber data: export raw sell in menurut TANGGAL ORDER (semua status), diupload di Kelola Data → Sell In BNN → Outstanding DO.
   Aturan baris sama dengan Sell In BNN (Gudang + PM toko/project dari ITP-Palembang, tanpa mortar). Upload mengganti order
   dengan tanggal order di rentang file. Outstanding = sisa order Verified + Partially Delivered; Not Verified terpisah.
+- Jalur dari Asal Pengiriman (`sementrack.sellin_jalur`): FAS Kapal = Sunda Kelapa / Marunda, FAS Container = CCY / Tanjung Priok,
+  Terminal = ITP-... Terminal, Pabrik = ITP-Citeureup. Asal pengiriman baru yang tidak cocok masuk "Lainnya": tambah polanya di fungsi itu.
 - Endpoint baru (admin): `GET /api/admin/outstanding/impact`, `POST /api/admin/outstanding/begin|stage|commit|abort`.
 - Halaman baru: `overview` (rangkuman Sell In, Sell Out, Outstanding; halaman awal admin & management) dan `outstanding-do`
   (grup Sell In). Halaman lama `beranda` tetap ada dengan nama "Penjualan Toko" di grup Sell Out.

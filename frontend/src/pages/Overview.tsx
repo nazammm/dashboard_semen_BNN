@@ -9,7 +9,7 @@ import { fmtDate, fmtRange, toISO, daysInMonth } from '../lib/dates';
 import { DataBadge, todayWIB, type DataSourceId } from '../components/DataStatus';
 import { Capaian, Card, ChartBox, Chip, ErrorBox, PageHeader, PageSkeleton, TableWrap, cx } from '../components/ui';
 import {
-  OPEN_STATUS, fmtPct, growthPct, key, outRecs, outSummary, ringkas, sellInRingkasan, sellOutRingkasan,
+  JALUR_DARAT, OPEN_STATUS, fmtPct, growthPct, key, outRecs, outSummary, ringkas, sellInRingkasan, sellOutRingkasan,
   type Bulanan, type OutRec, type Periode, type Peta, type SellInRingkasan, type SellOutRingkasan,
 } from '../lib/ringkasan';
 
@@ -74,7 +74,8 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
   const out = useMemo(() => {
     if (!outstanding) return null;
     const open = outstanding.recs.filter(r => OPEN_STATUS.includes(r.status));
-    return { all: outSummary(open), nv: outSummary(outstanding.recs.filter(r => r.status === 'Belum diverifikasi')), open };
+    const ton = (j: string[]) => open.filter(r => j.includes(r.jalur)).reduce((a, r) => a + r.ton, 0);
+    return { all: outSummary(open), kapal: ton(['FAS Kapal']), container: ton(['FAS Container']), darat: ton(JALUR_DARAT), open };
   }, [outstanding]);
 
   /* ---------- sell in & sell out per bulan (tahun berjalan) ---------- */
@@ -145,11 +146,12 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
             <>
               <div className="ov-k">Belum terkirim</div>
               <div className="kpi-value">{fmtTon(out.all.ton)}<span className="unit">ton</span></div>
-              <div className="text-soft text-[12.5px] mt-0.5">{fmt(out.all.orders)} order{out.all.umurRata != null && ` · umur rata-rata ${fmt(out.all.umurRata)} hari`}</div>
+              <div className="text-soft text-[12.5px] mt-0.5">{fmt(out.all.orders)} order</div>
               <dl className="ov-list">
+                <div><dt>FAS Kapal</dt><dd>{fmtTon(out.kapal)} ton</dd></div>
+                <div><dt>FAS Container</dt><dd>{fmtTon(out.container)} ton</dd></div>
+                <div><dt>Terminal & pabrik</dt><dd>{fmtTon(out.darat)} ton</dd></div>
                 <div><dt>Lewat estimasi kirim</dt><dd>{fmtTon(out.all.lewat)} ton</dd></div>
-                <div><dt>Umur lebih dari 30 hari</dt><dd>{fmtTon(out.all.tua)} ton</dd></div>
-                <div><dt>Belum diverifikasi</dt><dd>{fmtTon(out.nv.ton)} ton</dd></div>
               </dl>
             </>
           ) : <Kosong />}
