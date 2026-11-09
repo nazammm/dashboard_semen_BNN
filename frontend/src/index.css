@@ -165,6 +165,15 @@
   .ds-side-date{ @apply text-faint whitespace-nowrap; }
   .ds-side-more{ @apply text-[11.5px] text-faint pl-[30px] pr-3 pb-1.5 flex flex-col gap-0.5; }
 
+  /* Kelola Data → Tabel: sel tabel bisa diedit langsung */
+  .tbl-edit td{ @apply !p-0 align-middle; }
+  .tbl-edit td:last-child{ @apply !px-2; }
+  .tbl-edit td > input, .tbl-edit td > select{ @apply w-full min-w-[96px] border-0 rounded-none bg-transparent px-2.5 py-[7px] text-[12.5px] shadow-none; }
+  .tbl-edit td > input:focus, .tbl-edit td > select:focus{ @apply outline-none bg-surface; box-shadow:inset 0 0 0 2px #0181D5; }
+  .tbl-edit td.is-edit{ background:#FFF3D9; }
+  .tbl-edit tr.is-new td{ background:#EAF5EE; }
+  .tbl-edit tr.is-del td{ @apply opacity-50; }
+  .tbl-edit tr.is-del td > input{ @apply line-through; }
   /* Outstanding DO: tabel laporan per daerah x jalur x tipe */
   .otb th, .otb td{ @apply !px-3; }
   .otb thead tr:not(:last-child) th{ @apply border-b border-line; }

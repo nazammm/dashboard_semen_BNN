@@ -182,3 +182,14 @@ Lalu deploy ulang backend + frontend (SQL dulu).
 - Endpoint baru (admin): `GET /api/admin/outstanding/impact`, `POST /api/admin/outstanding/begin|stage|commit|abort`.
 - Halaman baru: `overview` (rangkuman Sell In, Sell Out, Outstanding; halaman awal admin & management) dan `outstanding-do`
   (grup Sell In). Halaman lama `beranda` tetap ada dengan nama "Penjualan Toko" di grup Sell Out.
+
+## 14. Update Nov 2026: Kelola Data → Tabel (edit langsung tabel master)
+SQL: `docs/sql/kelola_tabel.sql` (setelah target_tahunan.sql dan outstanding_do.sql, aman dijalankan ulang). Isinya:
+- `sementrack.tabel_edit`: daftar tabel yang boleh diedit dari web (id, label, objek, kunci, kolom + validasi, filter, urutan).
+  Menambah tabel = insert satu baris (contoh di akhir file). Tabel harus punya kunci unik.
+- View target yang bisa diedit (`v_edit_target_salesman`, `_distributor`, `_sell_out`, `_sell_in`) + trigger `target_edit_trg`
+  yang menulis ke `sementrack.target`. `distributor_target_salesman` diberi primary key `dist_code`.
+- Fungsi `tabel_baca`, `tabel_opsi`, `tabel_simpan` (satu transaksi, validasi wajib/angka/pilihan, tercatat di `kelola_log`
+  dataset 'tabel', aksi 'ubah').
+Endpoint baru (admin): `GET /api/admin/tabel`, `GET /api/admin/tabel/{id}/opsi`, `GET /api/admin/tabel/{id}?kolom=nilai`,
+`POST /api/admin/tabel/{id}` body `{upsert:[...], delete:[...]}`.

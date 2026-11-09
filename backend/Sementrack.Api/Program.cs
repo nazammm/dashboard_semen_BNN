@@ -66,6 +66,7 @@ LoginEndpoint.Map(api);
 AdminEndpoints.Map(api);
 SellinEndpoints.Map(api);
 OutstandingEndpoints.Map(api);
+TabelEndpoints.Map(api);
 KelolaEndpoints.Map(api);
 DataEndpoints.Map(api); // berisi GET /{table}: harus didaftarkan setelah route statis
 
