@@ -6,10 +6,10 @@ import { useAuth } from '../lib/auth';
 import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact } from '../lib/format';
 import { fmtDate, fmtRange, toISO, daysInMonth } from '../lib/dates';
 import { DataBadge, todayWIB, type DataSourceId } from '../components/DataStatus';
-import { DaerahSpotlight } from '../components/DaerahSpotlight';
+import { DaerahHero } from '../components/DaerahHero';
 import { Capaian, Card, ChartBox, Chip, ErrorBox, PageHeader, PageSkeleton, cx } from '../components/ui';
 import {
-  JALUR_DARAT, OPEN_STATUS, fmtPct, growthPct, key, outRecs, outSummary, ringkas, sellInRingkasan, sellOutRingkasan,
+  JALUR_DARAT, OPEN_STATUS, fmtPct, growthPct, outRecs, outSummary, ringkas, sellInRingkasan, sellOutRingkasan,
   type Bulanan, type OutRec, type Periode, type Peta, type SellInRingkasan, type SellOutRingkasan,
 } from '../lib/ringkasan';
 
@@ -61,7 +61,6 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
   sellIn: SellInData | null; sellOut: SellOutData | null; outstanding: { recs: OutRec[]; posisi: string } | null; sources: DataSourceId[];
 }) {
   const [kind, setKind] = useState<'ytd' | 'bulan'>('bulan');
-  const [daerahSrc, setDaerahSrc] = useState<'so' | 'si'>(sellOut ? 'so' : 'si');
   const si = sellIn?.s, so = sellOut?.s;
   const perSi: Periode = kind === 'ytd' || !si ? { kind: 'ytd' } : { kind: 'bulan', m: si.lastMonth };
   const perSo: Periode = kind === 'ytd' || !so ? { kind: 'ytd' } : { kind: 'bulan', m: so.lastMonth };
@@ -95,17 +94,6 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
   }, [si, so, Y]);
 
   /* ---------- per region ---------- */
-  const siRegions = useMemo(() => {
-    if (!si) return [];
-    const outBy = new Map<string, number>();
-    (out?.open || []).forEach(r => { const g = si.parentOf(key(r.region)); outBy.set(g, (outBy.get(g) || 0) + r.ton); });
-    const names = new Set([...si.byRegion.keys(), ...outBy.keys()]);
-    return [...names].map(n => {
-      const b = si.byRegion.get(n);
-      const r = b ? ringkas(b, perSi, si.lastMonth, si.cutDay, si.P) : { target: 0, cur: 0, prev: 0, hasTarget: false };
-      return { name: n, ...r, out: outBy.get(n) || 0 };
-    }).filter(r => r.target || r.cur || r.out).sort((a, b) => b.target - a.target || b.cur - a.cur);
-  }, [si, out, perSi.kind]);   // eslint-disable-line react-hooks/exhaustive-deps
   const soRegions = useMemo(() => {
     if (!so) return [];
     const empty: Bulanan = { cur: new Array(13).fill(0), target: new Array(13).fill(0), prev: new Array(13).fill(0) };
@@ -123,6 +111,8 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
         <Chip active={kind === 'bulan'} onClick={() => setKind('bulan')}>Bulan berjalan</Chip>
         <Chip active={kind === 'ytd'} onClick={() => setKind('ytd')}>Tahun berjalan</Chip>
       </div>
+
+      {so && <DaerahHero rows={soRegions.map(r => ({ key: r.name, name: r.name, target: r.target, cur: r.cur, prev: r.prev }))} P={so.P} period={soLabel} kind={kind} />}
 
       <div className="grid grid-cols-3 max-[1100px]:grid-cols-1 gap-4">
         <Panel title="Sell in" period={siLabel}>
@@ -157,23 +147,6 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
           ) : <Kosong />}
         </Panel>
       </div>
-
-      {(si || so) && (
-        <div className="card !p-0 overflow-hidden mt-4">
-          <div className="flex items-center justify-between gap-3 flex-wrap px-4 pt-3.5 pb-3 border-b border-line">
-            <h2 className="text-[15px] font-semibold">{daerahSrc === 'so' ? 'Sell out' : 'Sell in'} per daerah</h2>
-            {si && so && (
-              <div className="pill-row" role="group" aria-label="Data per daerah">
-                <Chip active={daerahSrc === 'so'} onClick={() => setDaerahSrc('so')}>Sell out</Chip>
-                <Chip active={daerahSrc === 'si'} onClick={() => setDaerahSrc('si')}>Sell in</Chip>
-              </div>
-            )}
-          </div>
-          {daerahSrc === 'so'
-            ? <DaerahSpotlight key={`so-${kind}`} rows={soRegions.map(r => ({ key: r.name, name: r.name, target: r.target, cur: r.cur, prev: r.prev }))} P={so!.P} period={soLabel} />
-            : <DaerahSpotlight key={`si-${kind}`} rows={siRegions.map(r => ({ key: SELLIN_KE_DAERAH[r.name] || r.name, name: r.name, target: r.target, cur: r.cur, prev: r.prev }))} P={si!.P} period={siLabel} />}
-        </div>
-      )}
 
       {(si || so) && (
         <Card title={`Sell in dan sell out per bulan · ${Y}`} className="mt-4">
@@ -211,12 +184,6 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
 }
 
 /** "1 Jan – 3 Nov 2026" kalau bulan terakhir belum penuh, "Jan–Okt 2026" kalau penuh. */
-/** Region sell in (tabel target sell in) -> nama daerah di peta (= region sell out). */
-const SELLIN_KE_DAERAH: Record<string, string> = {
-  Sumut: 'North Sum', Padang: 'West Sum', Pekanbaru: 'Riau', Kepri: 'Riau Island', Sumsel: 'South Sum', Kalbar: 'West Kal',
-  Jambi: 'Jambi', Babel: 'Babel', Bengkulu: 'Bengkulu', Lampung: 'Lampung',
-};
-
 function periodLabel(per: Periode, Y: number, lastMonth: number, cutDay: number) {
   const m0 = per.kind === 'ytd' ? 1 : lastMonth;
   if (cutDay >= daysInMonth(Y, lastMonth)) return m0 === lastMonth ? `${MONTHS_ID[m0]} ${Y}` : `${MONTHS_ID[m0]}–${MONTHS_ID[lastMonth]} ${Y}`;

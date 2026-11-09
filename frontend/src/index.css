@@ -169,6 +169,10 @@
   .otb th, .otb td{ @apply !px-3; }
   .otb thead tr:not(:last-child) th{ @apply border-b border-line; }
   .otb .otb-sep{ border-left:1px solid #CBD1D9; }
+  /* Overview: hero daerah pemimpin, peta muncul halus saat pemimpin berganti */
+  .hero-map-in{ animation:heroMapIn .9s cubic-bezier(.3,.7,.2,1) both; }
+  @keyframes heroMapIn{ from{ opacity:0; transform:scale(1.04); } to{ opacity:1; transform:none; } }
+  @media (prefers-reduced-motion: reduce){ .hero-map-in{ animation:none; } }
   /* Overview: panel rangkuman */
   .ov-k{ @apply text-[12.5px] text-soft; }
   .ov-sub{ @apply flex items-baseline justify-between gap-3 text-[13px] mt-3 pt-2.5 border-t border-line; }
