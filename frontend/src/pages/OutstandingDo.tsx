@@ -111,6 +111,7 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
     return {
       cur, sum: outSummary(cur), fas: outSummary(of(JALUR_FAS)), kapal: outSummary(of(['FAS Kapal'])), container: outSummary(of(['FAS Container'])),
       darat: outSummary(of(JALUR_DARAT)), bulanSum: outSummary(cur.filter(r => r.tanggal_order.startsWith(bulan))),
+      regions: sortRegions([...cur.reduce((m, r) => m.set(r.region, (m.get(r.region) || 0) + r.ton), new Map<string, number>()).entries()]),
       dists: [...byDist.entries()].map(([k, x]) => ({ key: k, label: x.label, ...outSummary(x.recs) })).sort((a, b) => b.ton - a.ton),
     };
   }, [recs, region, dist, semen, status, bulan]);
@@ -191,10 +192,10 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
       </div>
 
       <h2 className="section-title">Outstanding FAS per daerah <span className="n">ton · {statusLabel.toLowerCase()} · {scope}</span></h2>
-      <JalurTable recs={v.cur} jalurs={JALUR_FAS} bulan={bulan} bulanLabel={bulanLabel} caption="Outstanding FAS Kapal dan FAS Container per daerah dan tipe semen" />
+      <JalurTable recs={v.cur} jalurs={JALUR_FAS} bulan={bulan} bulanLabel={bulanLabel} regions={v.regions} caption="Outstanding FAS Kapal dan FAS Container per daerah dan tipe semen" />
 
       <h2 className="section-title">Outstanding terminal & pabrik per daerah <span className="n">ton · ITP Terminal (Lampung, Palembang, Pontianak) dan ITP-Citeureup</span></h2>
-      <JalurTable recs={v.cur} jalurs={JALUR_DARAT} bulan={bulan} bulanLabel={bulanLabel} caption="Outstanding dari terminal dan pabrik per daerah dan tipe semen" />
+      <JalurTable recs={v.cur} jalurs={JALUR_DARAT} bulan={bulan} bulanLabel={bulanLabel} regions={v.regions} caption="Outstanding dari terminal dan pabrik per daerah dan tipe semen" />
 
       <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] max-[1100px]:grid-cols-1 gap-4 mt-9">
         <Card title={`Order per bulan tanggal order · ${scope}`}>
@@ -298,24 +299,22 @@ const SEMEN_ORDER = ['STR', 'RJW', 'CWC'];
  * Tabel laporan outstanding: baris = daerah, kolom = [semua order | order satu bulan] x jalur x tipe semen.
  * Kolom tipe semen hanya yang ada isinya (CWC biasanya hanya dari pabrik).
  */
-function JalurTable({ recs, jalurs, bulan, bulanLabel, caption }: { recs: OutRec[]; jalurs: string[]; bulan: string; bulanLabel: string; caption: string }) {
+function JalurTable({ recs, jalurs, bulan, bulanLabel, caption, regions }: { recs: OutRec[]; jalurs: string[]; bulan: string; bulanLabel: string; caption: string; regions: string[] }) {
   const t = useMemo(() => {
     const rows = recs.filter(r => jalurs.includes(r.jalur));
     const usedJalur = jalurs.filter(j => rows.some(r => r.jalur === j));
     const semenOf = (j: string) => SEMEN_ORDER.filter(sm => rows.some(r => r.jalur === j && r.semen === sm));
     const cols = usedJalur.flatMap(j => semenOf(j).map(sm => ({ j, sm })));
-    const regTon = new Map<string, number>();
     const cell = new Map<string, number>();
     const add = (k: string, ton: number) => cell.set(k, (cell.get(k) || 0) + ton);
     rows.forEach(r => {
-      regTon.set(r.region, (regTon.get(r.region) || 0) + r.ton);
       const inBulan = r.tanggal_order.startsWith(bulan);
       for (const reg of [r.region, '__total']) {
         add(`a|${reg}|${r.jalur}|${r.semen}`, r.ton); add(`a|${reg}|sum`, r.ton);
         if (inBulan) { add(`b|${reg}|${r.jalur}|${r.semen}`, r.ton); add(`b|${reg}|sum`, r.ton); }
       }
     });
-    return { usedJalur, semenOf, cols, regions: sortRegions([...regTon.entries()]), get: (k: string) => cell.get(k) || 0 };
+    return { usedJalur, semenOf, cols, get: (k: string) => cell.get(k) || 0 };
   }, [recs, jalurs, bulan]);
 
   if (!t.cols.length) return <div className="card text-faint text-[13px]">Tidak ada outstanding pada filter ini.</div>;
@@ -345,7 +344,7 @@ function JalurTable({ recs, jalurs, bulan, bulanLabel, caption }: { recs: OutRec
           </tr>
         </thead>
         <tbody>
-          {t.regions.map(reg => <tr key={reg}><td className="font-medium">{reg}</td>{line(reg, false)}</tr>)}
+          {regions.map(reg => <tr key={reg}><td className="font-medium">{reg}</td>{line(reg, false)}</tr>)}
         </tbody>
         <tfoot>
           <tr><td>Total</td>{line('__total')}</tr>
