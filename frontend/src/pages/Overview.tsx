@@ -3,10 +3,11 @@ import type { ChartConfiguration } from 'chart.js';
 import { DataSource, sellInTargetsFor, sellOutTargetsFor } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
-import { COLORS, MONTHS_ID, capaianClass, chartSRSummary, fmt, fmtCompact } from '../lib/format';
+import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact } from '../lib/format';
 import { fmtDate, fmtRange, toISO, daysInMonth } from '../lib/dates';
 import { DataBadge, todayWIB, type DataSourceId } from '../components/DataStatus';
-import { Capaian, Card, ChartBox, Chip, ErrorBox, PageHeader, PageSkeleton, TableWrap, cx } from '../components/ui';
+import { DaerahSpotlight } from '../components/DaerahSpotlight';
+import { Capaian, Card, ChartBox, Chip, ErrorBox, PageHeader, PageSkeleton, cx } from '../components/ui';
 import {
   JALUR_DARAT, OPEN_STATUS, fmtPct, growthPct, key, outRecs, outSummary, ringkas, sellInRingkasan, sellOutRingkasan,
   type Bulanan, type OutRec, type Periode, type Peta, type SellInRingkasan, type SellOutRingkasan,
@@ -60,6 +61,7 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
   sellIn: SellInData | null; sellOut: SellOutData | null; outstanding: { recs: OutRec[]; posisi: string } | null; sources: DataSourceId[];
 }) {
   const [kind, setKind] = useState<'ytd' | 'bulan'>('bulan');
+  const [daerahSrc, setDaerahSrc] = useState<'so' | 'si'>(sellOut ? 'so' : 'si');
   const si = sellIn?.s, so = sellOut?.s;
   const perSi: Periode = kind === 'ytd' || !si ? { kind: 'ytd' } : { kind: 'bulan', m: si.lastMonth };
   const perSo: Periode = kind === 'ytd' || !so ? { kind: 'ytd' } : { kind: 'bulan', m: so.lastMonth };
@@ -157,6 +159,23 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
       </div>
 
       {(si || so) && (
+        <div className="card !p-0 overflow-hidden mt-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap px-4 pt-3.5 pb-3 border-b border-line">
+            <h2 className="text-[15px] font-semibold">{daerahSrc === 'so' ? 'Sell out' : 'Sell in'} per daerah</h2>
+            {si && so && (
+              <div className="pill-row" role="group" aria-label="Data per daerah">
+                <Chip active={daerahSrc === 'so'} onClick={() => setDaerahSrc('so')}>Sell out</Chip>
+                <Chip active={daerahSrc === 'si'} onClick={() => setDaerahSrc('si')}>Sell in</Chip>
+              </div>
+            )}
+          </div>
+          {daerahSrc === 'so'
+            ? <DaerahSpotlight key={`so-${kind}`} rows={soRegions.map(r => ({ key: r.name, name: r.name, target: r.target, cur: r.cur, prev: r.prev }))} P={so!.P} period={soLabel} />
+            : <DaerahSpotlight key={`si-${kind}`} rows={siRegions.map(r => ({ key: SELLIN_KE_DAERAH[r.name] || r.name, name: r.name, target: r.target, cur: r.cur, prev: r.prev }))} P={si!.P} period={siLabel} />}
+        </div>
+      )}
+
+      {(si || so) && (
         <Card title={`Sell in dan sell out per bulan · ${Y}`} className="mt-4">
           <div className="legend">
             {si && <span><i style={{ background: COLORS.accent }} aria-hidden="true" />Sell in</span>}
@@ -187,19 +206,17 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
         </Card>
       )}
 
-      <div className="grid grid-cols-2 max-[1100px]:grid-cols-1 gap-4 mt-4">
-        {si && (
-          <RegionTable title={`Sell in per region · ${siLabel}`} rows={siRegions} P={si.P} outstanding={!!out} />
-        )}
-        {so && (
-          <RegionTable title={`Sell out per region · ${soLabel}`} rows={soRegions.map(r => ({ ...r, out: 0 }))} P={so.P} outstanding={false} />
-        )}
-      </div>
     </>
   );
 }
 
 /** "1 Jan – 3 Nov 2026" kalau bulan terakhir belum penuh, "Jan–Okt 2026" kalau penuh. */
+/** Region sell in (tabel target sell in) -> nama daerah di peta (= region sell out). */
+const SELLIN_KE_DAERAH: Record<string, string> = {
+  Sumut: 'North Sum', Padang: 'West Sum', Pekanbaru: 'Riau', Kepri: 'Riau Island', Sumsel: 'South Sum', Kalbar: 'West Kal',
+  Jambi: 'Jambi', Babel: 'Babel', Bengkulu: 'Bengkulu', Lampung: 'Lampung',
+};
+
 function periodLabel(per: Periode, Y: number, lastMonth: number, cutDay: number) {
   const m0 = per.kind === 'ytd' ? 1 : lastMonth;
   if (cutDay >= daysInMonth(Y, lastMonth)) return m0 === lastMonth ? `${MONTHS_ID[m0]} ${Y}` : `${MONTHS_ID[m0]}–${MONTHS_ID[lastMonth]} ${Y}`;
@@ -217,11 +234,6 @@ function Panel({ title, period, children }: { title: string; period: string; chi
     </div>
   );
 }
-/** Capaian ringkas untuk tabel: "74,2%" berwarna sesuai capaian. */
-function Pct({ actual, target }: { actual: number; target: number }) {
-  const p = actual / target * 100, tone = capaianClass(p);
-  return <span className={cx('font-semibold', tone === 'good' ? 'text-green' : tone === 'warn' ? 'text-amber' : 'text-red')}>{fmt(p, 1)}%</span>;
-}
 const Kosong = () => <p className="text-faint text-[13px]">Data belum tersedia.</p>;
 
 /** Target dulu, lalu realisasi + capaian, lalu pertumbuhan vs tahun lalu tanggal sama. */
@@ -238,47 +250,5 @@ function Capai({ r, P }: { r: { target: number; cur: number; prev: number; hasTa
         <span className={cx('font-medium', g == null ? '' : g >= 0 ? 'text-green' : 'text-red')}>{fmtPct(g)}</span>
       </div>
     </>
-  );
-}
-
-function RegionTable({ title, rows, P, outstanding }: {
-  title: string; rows: { name: string; target: number; cur: number; prev: number; out: number }[]; P: number; outstanding: boolean;
-}) {
-  const t = rows.reduce((a, r) => ({ target: a.target + r.target, cur: a.cur + r.cur, prev: a.prev + r.prev, out: a.out + r.out }), { target: 0, cur: 0, prev: 0, out: 0 });
-  const g = (cur: number, prev: number) => { const x = growthPct(cur, prev); return <span className={x == null ? 'text-faint' : x >= 0 ? 'text-green' : 'text-red'}>{fmtPct(x)}</span>; };
-  return (
-    <Card className="!p-0 overflow-hidden">
-      <div className="card-title px-4 pt-3.5 !mb-2">{title}</div>
-      <TableWrap className="!border-0 !rounded-none !border-t !border-line">
-        <table className="tbl-dense !min-w-0">
-          <caption className="sr-only">{title}</caption>
-          <thead>
-            <tr>
-              <th>Region</th><th className="num">Target</th><th className="num">Realisasi</th><th className="num">Capaian</th><th className="num">vs {P}</th>
-              {outstanding && <th className="num">Outstanding</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(r => (
-              <tr key={r.name}>
-                <td className="font-medium">{r.name}</td>
-                <td className="num font-mono">{r.target ? fmtTon(r.target) : '–'}</td>
-                <td className="num font-mono">{fmtTon(r.cur)}</td>
-                <td className="num">{r.target ? <Pct actual={r.cur} target={r.target} /> : <span className="text-faint">–</span>}</td>
-                <td className="num font-mono">{g(r.cur, r.prev)}</td>
-                {outstanding && <td className="num font-mono">{r.out ? fmtTon(r.out) : '–'}</td>}
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td>Total</td><td className="num font-mono">{fmtTon(t.target)}</td><td className="num font-mono">{fmtTon(t.cur)}</td>
-              <td className="num">{t.target ? <Pct actual={t.cur} target={t.target} /> : null}</td><td className="num font-mono">{g(t.cur, t.prev)}</td>
-              {outstanding && <td className="num font-mono">{fmtTon(t.out)}</td>}
-            </tr>
-          </tfoot>
-        </table>
-      </TableWrap>
-    </Card>
   );
 }
