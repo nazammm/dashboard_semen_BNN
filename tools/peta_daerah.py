@@ -1,5 +1,7 @@
+# Membuat frontend/src/lib/petaDaerah.ts.
+# Pakai: python3 tools/peta_daerah.py indonesia-province-simple.json frontend/src/lib/petaDaerah.ts
 import json, math, sys
-d = json.load(open('sp/indonesia-province-simple.json'))
+d = json.load(open(sys.argv[1]))   # indonesia-province-simple.json dari github.com/superpikar/indonesia-geojson
 PROV = {'DI. ACEH': 'North Sum', 'SUMATERA UTARA': 'North Sum', 'SUMATERA BARAT': 'West Sum', 'RIAU': 'Riau', 'JAMBI': 'Jambi',
         'SUMATERA SELATAN': 'South Sum', 'BANGKA BELITUNG': 'Babel', 'BENGKULU': 'Bengkulu', 'LAMPUNG': 'Lampung', 'KALIMANTAN BARAT': 'West Kal'}
 CONTEXT = {'KALIMANTAN TENGAH', 'PROBANTEN', 'DKI JAKARTA', 'JAWA BARAT'}   # tetangga (abu-abu)
@@ -61,4 +63,4 @@ ts = ['/* Peta wilayah sell out BNN per daerah (provinsi), dari peta dasar BAKOS
       'export const DAERAH_SHAPES: Record<string, DaerahShape> = ' + json.dumps(res, separators=(',', ':')) + ';',
       '/** Provinsi tetangga untuk konteks (abu-abu). */',
       'export const CONTEXT_PATH = ' + json.dumps(''.join(ctx)) + ';', '']
-open('/home/claude/dashboard_semen_bnn/frontend/src/lib/petaDaerah.ts', 'w').write('\n'.join(ts))
+open(sys.argv[2], 'w').write('\n'.join(ts))
