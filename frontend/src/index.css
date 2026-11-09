@@ -165,6 +165,12 @@
   .ds-side-date{ @apply text-faint whitespace-nowrap; }
   .ds-side-more{ @apply text-[11.5px] text-faint pl-[30px] pr-3 pb-1.5 flex flex-col gap-0.5; }
 
+  /* Overview: panel rangkuman */
+  .ov-k{ @apply text-[12.5px] text-soft; }
+  .ov-sub{ @apply flex items-baseline justify-between gap-3 text-[13px] mt-3 pt-2.5 border-t border-line; }
+  .ov-list{ @apply mt-3 pt-1 border-t border-line text-[13px]; }
+  .ov-list > div{ @apply flex items-baseline justify-between gap-3 py-1.5; }
+  .ov-list dt{ @apply text-soft; } .ov-list dd{ @apply m-0 font-medium tabular-nums; }
   .capaian{ @apply flex items-center gap-2 min-w-[120px]; }
   .capaian-track{ @apply flex-1 h-1.5 bg-surface3 rounded-full overflow-hidden; }
   .capaian-bar{ @apply h-full rounded-full; }

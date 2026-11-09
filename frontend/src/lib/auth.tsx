@@ -5,7 +5,7 @@ import type { PagePerm, Role, Session } from './types';
 
 const SESSION_KEY = 'st_session';
 const IDLE_LOGOUT_MS = 10 * 60 * 1000;
-export const ROLE_HOME: Record<Role, string> = { admin: '/beranda', mo: '/beranda', sales: '/tim-sales', spv: '/rekap-harian' };
+export const ROLE_HOME: Record<Role, string> = { admin: '/overview', mo: '/overview', sales: '/tim-sales', spv: '/rekap-harian' };
 const ROLES: Role[] = ['admin', 'mo', 'sales', 'spv'];
 
 function readSession(): Session | null {

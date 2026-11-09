@@ -102,7 +102,7 @@ function overviewPresets(last: string): RangePreset[] {
    Halaman
 ============================================================================ */
 export default function Beranda() {
-  useDocTitle('Overview');
+  useDocTitle('Penjualan Toko');
   const base = useAsync(async () => {
     const [dists, distMonthly, transMonthly, produk, targetDist, freshnessData] = await Promise.all([
       DataSource.distributors(), DataSource.distMonthlyTotals(), DataSource.transaksiMonthly(), DataSource.produk(), DataSource.targetDist(), DataSource.dataFreshness(),
@@ -272,8 +272,8 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
 
   return (
     <>
-      <PageHeader title="Overview" status={<DataBadge source="transaksi" />} />
-      <FilterBar label="Filter Overview" className="max-[880px]:grid max-[880px]:grid-cols-2 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0">
+      <PageHeader title="Penjualan Toko" status={<DataBadge source="transaksi" />} />
+      <FilterBar label="Filter Penjualan Toko" className="max-[880px]:grid max-[880px]:grid-cols-2 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0">
         <Select label="Distributor" value={dist} onChange={e => onDist(e.target.value)} style={{ minWidth: 200 }}
           options={[{ value: 'all', label: 'Semua Distributor' }, ...distOpts.map(o => ({ value: String(o.dist_code), label: `${o.dist_code} · ${o.dist_name}` }))]} />
         <Select label="Jenis Semen" value={jenis} onChange={e => onJenis(e.target.value)}

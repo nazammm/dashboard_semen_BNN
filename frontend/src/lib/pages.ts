@@ -9,15 +9,20 @@ const ICONS = {
   kelola: '<circle cx="12" cy="8" r="3.2"/><path d="M4.5 20c.6-4 3.5-6.5 7.5-6.5s6.9 2.5 7.5 6.5"/><path d="M18.5 5.5l1.2 1.2M19.7 4.3l-1.2 1.2" stroke-width="1.3"/>',
   sellin: '<rect x="3.5" y="12.5" width="7.5" height="7" rx=".6"/><rect x="13" y="12.5" width="7.5" height="7" rx=".6"/><rect x="8.25" y="4.5" width="7.5" height="7" rx=".6"/><path d="M7.25 12.5v2M16.75 12.5v2M12 4.5v2"/>',
   database: '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v6.5c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V5.5"/><path d="M4.5 12v6.5c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V12"/>',
+  outstanding: '<rect x="3.5" y="5" width="17" height="14" rx="1.2"/><path d="M3.5 9.5h17"/><path d="M12 12.5v3l2 1.2"/>',
   daftar: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01" stroke-width="2.6"/>',
 };
 
 export const NAV_GROUPS = [
+  { label: '', items: [
+    { id: 'overview', label: 'Overview', icon: ICONS.beranda },
+  ] },
   { label: 'Sell In', items: [
     { id: 'sell-in-bnn', label: 'Sell In BNN', icon: ICONS.sellin },
+    { id: 'outstanding-do', label: 'Outstanding DO', icon: ICONS.outstanding },
   ] },
   { label: 'Sell Out', items: [
-    { id: 'beranda', label: 'Overview', icon: ICONS.beranda },
+    { id: 'beranda', label: 'Penjualan Toko', icon: ICONS.daftar },
     { id: 'sell-out-bnn', label: 'Sell Out BNN', icon: ICONS.sellout },
     { id: 'rekap-harian', label: 'Rekap Harian', icon: ICONS.rekap },
     { id: 'tim-sales', label: 'Tim Sales', icon: ICONS.timsales },

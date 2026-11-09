@@ -19,7 +19,7 @@ export default function Layout() {
   const mobItems = groups.flatMap(g => g.items);
 
   // catat page_view + judul tab + scroll ke atas
-  const pageId = loc.pathname.replace(/^\/+|\/+$/g, '') || 'beranda';
+  const pageId = loc.pathname.replace(/^\/+|\/+$/g, '') || 'overview';
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
     document.title = `${PAGE_LABEL[pageId] || 'Dashboard'} · Dashboard Semen`;
@@ -42,8 +42,8 @@ export default function Layout() {
         </div>
         <nav className="px-3 pb-3 flex flex-col flex-1 min-h-0 overflow-y-auto" aria-label="Navigasi utama">
           {groups.map(g => (
-            <div key={g.label} className="mt-3">
-              <div className="text-[12px] font-medium text-faint px-3 mb-1">{g.label}</div>
+            <div key={g.label || 'utama'} className="mt-3">
+              {g.label && <div className="text-[12px] font-medium text-faint px-3 mb-1">{g.label}</div>}
               {g.items.map(p => (
                 <NavLink key={p.id} to={'/' + p.id}
                   className={({ isActive }) => `relative flex items-center gap-3 px-3 py-2 rounded-sm no-underline text-[13.5px] transition-colors ${isActive ? 'bg-accent-soft text-accent-ink font-semibold before:content-[""] before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-mark' : 'text-soft hover:bg-surface2 hover:text-ink'}`}>

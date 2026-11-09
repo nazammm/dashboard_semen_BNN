@@ -84,6 +84,11 @@ Check(AccessRules.ReadAlias["v_toko_pegangan_sales"] == "sementrack.v_toko_pegan
 Check(AccessRules.RpcSchema["dashboard_store_year"] == "sementrack", "detail toko tanpa subdist di schema sementrack");
 Check(AccessRules.ReadAlias["v_transaksi_detail"] == "sementrack.v_transaksi_detail", "detail transaksi (+is_subdist) di schema sementrack");
 Check(AccessRules.ReadAlias["v_target_dist"] == "sementrack.v_target_dist" && AccessRules.ReadAlias["v_target_sell_out"] == "sementrack.v_target_sell_out", "target per tahun di schema sementrack");
+var ov = AccessRules.ComputeAccess("mo", new[] { "overview" });
+Check(ov.Tables.Contains("v_outstanding_do_ringkas") && ov.Tables.Contains("v_sellin_bnn_daily") && ov.Tables.Contains("v_sellout_bnn_monthly"), "overview membaca sell in, sell out, outstanding");
+Check(!ov.Tables.Contains("v_outstanding_do"), "overview tanpa daftar order outstanding");
+Check(AccessRules.ComputeAccess("mo", new[] { "outstanding-do" }).Tables.Contains("v_outstanding_do"), "halaman outstanding membaca daftar order");
+Check(AccessRules.KnownPageIds.Contains("overview") && AccessRules.KnownPageIds.Contains("outstanding-do"), "halaman baru dikenal");
 
 Check(AccessRules.DefaultPermFor("sales", "daftar-toko") is { CanViewDetail: true, CanDownload: false }, "perm sales daftar-toko");
 Check(AccessRules.DefaultPermFor("spv", "rekap-harian") is { CanViewDetail: false, CanDownload: false }, "perm spv rekap");

@@ -6,7 +6,7 @@ import { Card, ChartBox, ErrorBox, Kpi, OnlineBadge, PageHeader, PageSkeleton, P
 
 // Tombol "Kembali" mengikuti ?from= (Link biasa, bukan history.back()).
 const FROM_LABEL: Record<string, string> = {
-  'beranda': 'Overview', 'peta-toko': 'Peta Toko', 'daftar-toko': 'Daftar Toko',
+  'beranda': 'Penjualan Toko', 'peta-toko': 'Peta Toko', 'daftar-toko': 'Daftar Toko',
   'transaksi-detail': 'Detail Transaksi', 'tim-sales': 'Tim Sales',
 };
 

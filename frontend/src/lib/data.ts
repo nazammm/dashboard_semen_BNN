@@ -107,6 +107,19 @@ export const DataSource = {
   selloutTa: () => getData('sellout:ta', () => apiGetAll('v_sellout_bnn_ta', '?select=*')),
   selloutPeta: () => getData('sellout:peta', () => apiGetAll('v_sellout_bnn_peta', '?select=*&order=urutan.asc')),
   sellinDaily: () => getData('sellin:daily', () => apiGetAll('v_sellin_bnn_daily', '?select=*&order=tanggal.asc,region.asc,produk.asc,tipe_pesanan.asc,loco_franco.asc')),
+  /** Outstanding DO: ringkasan (region x distributor x semen x status x tanggal order), info posisi, order per bulan. */
+  outstandingRingkas: () => getData('po:ringkas', () => apiGetAll('v_outstanding_do_ringkas', '?select=*&order=tanggal_order.asc,region.asc,distributor.asc,semen.asc,status.asc,estimasi_kirim.asc,posisi.asc')),
+  outstandingInfo: () => getData<Row | null>('po:info', async () => (await apiGet<Row[]>('v_outstanding_do_info?select=*'))[0] || null),
+  poBulanan: () => getData('po:bulanan', () => apiGetAll('v_sellin_po_bulanan', '?select=*&order=tahun.asc,bulan.asc,region.asc,distributor.asc,semen.asc')),
+  /** Daftar order outstanding sesuai filter. limit = null: semua (untuk unduhan). */
+  outstandingList: (f: { regions?: string[]; distributor?: string; semen?: string; status: string[] }, limit: number | null) => {
+    const q = [`status=in.(${f.status.map(enc).join(',')})`];
+    if (f.regions) q.push(`region=in.(${f.regions.map(enc).join(',') || '-'})`);
+    if (f.distributor) q.push(`distributor=eq.${enc(f.distributor)}`);
+    if (f.semen) q.push(`semen=eq.${enc(f.semen)}`);
+    const qs = `?select=*&${q.join('&')}&order=tanggal_order.asc,distributor.asc,order_no.asc,produk.asc`;
+    return limit == null ? apiGetAll('v_outstanding_do', qs) : apiGet<Row[]>(`v_outstanding_do${qs}&limit=${limit}`);
+  },
   sellinInfo: () => getData<Row | null>('sellin:info', async () => (await apiGet<Row[]>('v_sellin_bnn_info?select=*'))[0] || null),
   transaksiDetail: (date: string, distCode?: string | null, productCodes?: string[] | null) => {
     const distFilter = distCode && distCode !== 'all' ? `&dist_code=eq.${enc(distCode)}` : '';

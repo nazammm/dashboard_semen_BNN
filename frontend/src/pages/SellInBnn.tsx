@@ -14,6 +14,7 @@ import { DateRangePicker, type RangePreset } from '../components/DateRangePicker
 import { GrowthTable } from '../components/GrowthTable';
 import { Capaian, Card, ChartBox, ErrorBox, FileIcon, FilterBar, Kpi, PageHeader, PageSkeleton, Select, cx } from '../components/ui';
 import { exportRowsToExcel } from '../lib/xlsx';
+import { sellinGeo } from '../lib/ringkasan';
 
 /* ============================================================================
    Sell In BNN: detail harian dari upload raw sell in, dibandingkan dengan target
@@ -33,7 +34,6 @@ type Unit = 'hari' | 'minggu' | 'bulan';
 interface Rec { tanggal: string; sub: string; produk: string; semen: Semen; ton: number; kirim: number }
 
 const UNMAPPED = 'Belum dipetakan';
-const OTHER_REGION = 'Lainnya';
 const key = (s: unknown) => String(s ?? '').trim().toUpperCase();
 const shortProduk = (p: string) => p.replace(/^NEW\s*-\s*/i, '');
 const semenOf = (produk: string): Semen => (/RAJAWALI/i.test(produk) ? 'RJW' : /WHITE/i.test(produk) ? 'CWC' : 'STR');
@@ -119,20 +119,7 @@ function Body({ rows, info, last, delivery, Y }: { rows: Row[]; info: Row; last:
   const kTgt = `target_${Y}`, kPrev = `realisasi_${P}`;
 
   /* ---------- peta sub region -> region & nama tampilan ---------- */
-  const geo = useMemo(() => {
-    const vol = new Map<string, Map<string, number>>();   // sub -> (region -> volume)
-    const name = new Map<string, string>();
-    (delivery || []).forEach(r => {
-      const s = key(r.sub_region); if (!s) return;
-      if (!name.has(s)) name.set(s, String(r.sub_region));
-      const m = vol.get(s) || new Map<string, number>(); vol.set(s, m);
-      m.set(String(r.region), (m.get(String(r.region)) || 0) + Number(r[kTgt] || 0) + Number(r[kPrev] || 0) + 1);
-    });
-    rows.forEach(r => { const s = key(r.region || UNMAPPED); name.set(s, String(r.region || UNMAPPED)); });   // nama dari Sell In BNN lebih diutamakan
-    const parent = new Map<string, string>();
-    vol.forEach((m, s) => parent.set(s, [...m.entries()].sort((a, b) => b[1] - a[1])[0][0]));   // sub di 2 region (mis. DUMAI) -> region terbesar
-    return { parentOf: (s: string) => parent.get(s) || OTHER_REGION, nameOf: (s: string) => name.get(s) || s };
-  }, [delivery, rows, kTgt, kPrev]);
+  const geo = useMemo(() => sellinGeo(delivery, rows, Y), [delivery, rows, Y]);
 
   const recs = useMemo<Rec[]>(() => rows.map(r => {
     const produk = String(r.produk || '–');

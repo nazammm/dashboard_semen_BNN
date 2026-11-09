@@ -65,6 +65,7 @@ api.MapGet("/", () => Results.Json(new { ok = true, message = "SEMENTRACK API ja
 LoginEndpoint.Map(api);
 AdminEndpoints.Map(api);
 SellinEndpoints.Map(api);
+OutstandingEndpoints.Map(api);
 KelolaEndpoints.Map(api);
 DataEndpoints.Map(api); // berisi GET /{table}: harus didaftarkan setelah route statis
 

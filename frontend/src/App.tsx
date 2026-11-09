@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import ErrorBoundary from './components/ErrorBoundary';
 
 const pages: Record<string, ReturnType<typeof lazy>> = {
+  overview: lazy(() => import('./pages/Overview')),
   beranda: lazy(() => import('./pages/Beranda')),
   'rekap-harian': lazy(() => import('./pages/RekapHarian')),
   'tim-sales': lazy(() => import('./pages/TimSales')),
@@ -17,6 +18,7 @@ const pages: Record<string, ReturnType<typeof lazy>> = {
   'interaksi-web': lazy(() => import('./pages/InteraksiWeb')),
   'kelola-akses': lazy(() => import('./pages/KelolaAkses')),
   'sell-in-bnn': lazy(() => import('./pages/SellInBnn')),
+  'outstanding-do': lazy(() => import('./pages/OutstandingDo')),
   'sell-out-bnn': lazy(() => import('./pages/SellOutBnn')),
   'kelola-data': lazy(() => import('./pages/KelolaData')),
 };
@@ -34,7 +36,7 @@ function PageGate({ id }: { id: string }) {
   if (!session) return null;
   if (!pageAllowed(id)) {
     const home = ROLE_HOME[session.role].slice(1);
-    const target = pageAllowed(home) ? home : pageAllowed('beranda') ? 'beranda' : null;
+    const target = pageAllowed(home) ? home : ['overview', 'beranda'].find(p => pageAllowed(p)) ?? null;
     return target ? <Navigate to={'/' + target} replace /> : <ErrorBox error="Akun ini belum diberi akses ke halaman manapun. Hubungi admin." />;
   }
   const Page = pages[id];

@@ -17,7 +17,7 @@ import { MONTHS_ID } from '../lib/format';
 import type { Row } from '../lib/types';
 import { cx } from './ui';
 
-export type DataSourceId = 'transaksi' | 'sellin' | 'sellout_bulanan' | 'sellin_bulanan' | 'dofas' | 'erp' | 'j073';
+export type DataSourceId = 'transaksi' | 'sellin' | 'sellout_bulanan' | 'sellin_bulanan' | 'dofas' | 'erp' | 'j073' | 'outstanding';
 export type FreshLevel = 'good' | 'warn' | 'bad' | 'none';
 
 export interface Freshness {
@@ -94,15 +94,16 @@ export const notifyDataStatusChanged = () => window.dispatchEvent(new Event('dat
 
 /** Halaman yang memakai tiap sumber: panel sidebar hanya menampilkan sumber yang halamannya boleh dibuka. */
 const SOURCE_PAGES: Record<string, string[]> = {
-  transaksi: ['beranda', 'rekap-harian', 'tim-sales', 'daftar-toko', 'peta-toko', 'sell-out-bnn', 'kelola-data'],
-  sellin: ['sell-in-bnn', 'kelola-data'],
+  transaksi: ['overview', 'beranda', 'rekap-harian', 'tim-sales', 'daftar-toko', 'peta-toko', 'sell-out-bnn', 'kelola-data'],
+  sellin: ['overview', 'sell-in-bnn', 'kelola-data'],
+  outstanding: ['overview', 'outstanding-do', 'kelola-data'],
   sellout_bulanan: [],  // halaman Sell Out bulanan dihapus; tabelnya tetap jadi sumber target & tahun lalu Sell Out BNN
-  dofas: ['sell-out-bnn', 'kelola-data'],
-  erp: ['sell-out-bnn', 'kelola-data'],
-  j073: ['sell-out-bnn', 'kelola-data'],
+  dofas: ['overview', 'sell-out-bnn', 'kelola-data'],
+  erp: ['overview', 'sell-out-bnn', 'kelola-data'],
+  j073: ['overview', 'sell-out-bnn', 'kelola-data'],
   sellin_bulanan: [],   // halaman Sell In dihapus; target & 2025 di Sell In BNN tidak bergantung pada closing terbaru
 };
-const SHORT_NAME: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', sellout_bulanan: 'Sell Out bulanan', sellin_bulanan: 'Sell In bulanan', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073' };
+const SHORT_NAME: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', sellout_bulanan: 'Sell Out bulanan', sellin_bulanan: 'Sell In bulanan', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', outstanding: 'Outstanding DO' };
 const LEVEL_LABEL: Record<FreshLevel, string> = { good: 'Terkini', warn: 'Tertinggal', bad: 'Perlu dicek', none: 'Kosong' };
 
 function Detail({ row, f }: { row: Row; f: Freshness }) {

@@ -10,6 +10,7 @@ import { DataBadge, todayWIB } from '../components/DataStatus';
 import { GrowthTable } from '../components/GrowthTable';
 import { Capaian, Card, ChartBox, ErrorBox, FileIcon, FilterBar, Kpi, PageHeader, PageSkeleton, Select } from '../components/ui';
 import { exportRowsToExcel } from '../lib/xlsx';
+import { isSubdist, type Peta } from '../lib/ringkasan';
 
 /* ============================================================================
    Sell Out BNN: per baris distributor/subdist dari peta sementrack.sellout_bnn_peta
@@ -21,12 +22,6 @@ import { exportRowsToExcel } from '../lib/xlsx';
    (diperkirakan dari total bulan dibagi jumlah hari).
 ============================================================================ */
 
-interface Peta {
-  id: number; urutan: number; region: string; nama: string; target_region: string | null; target_key: string | null;
-  sumber: string; j073: boolean; dofas_kode: string[] | null; dofas_tipe: string | null; erp_kode: string | null; jenis?: 'dist' | 'subdist';
-}
-/** Distributor = transaksi sendiri (J028 penuh / tanpa subdist, J073); subdist = DO FAS, Sub ERP, customer subdist di J028. */
-const isSubdist = (p: Peta) => (p.jenis ? p.jenis === 'subdist' : !p.j073 && !/^J028 \S+( tanpa|$| \+)/.test(p.sumber));
 const SUB_COLOR = COLORS.sub;
 const MONTH_EN = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TIPE_OPTS = [

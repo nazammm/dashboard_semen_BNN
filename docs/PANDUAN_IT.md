@@ -165,3 +165,18 @@ Lalu deploy ulang backend + frontend (SQL dulu, baru backend).
   Tambah satu baris setelah SKB 3 Menteri tahun berikutnya terbit.
 - Pustaka xlsx (±430 KB) sekarang dimuat saat tombol unduh diklik; bundel utama turun dari ±700 KB ke ±420 KB.
 
+
+## 13. Update Nov 2026: Overview rangkuman + Outstanding DO
+SQL (setelah bagian 12, aman dijalankan ulang, sebagai pemilik tabel nazamudin):
+1. `docs/sql/outstanding_do.sql` (baru): tabel `sementrack.sellin_po` (1 baris = 1 order: distributor + order no + produk),
+   `sellin_po_upload`, `sellin_po_staging`, fungsi `sellin_po_begin/stage/commit/abort/impact`, view `v_outstanding_do`,
+   `v_outstanding_do_ringkas`, `v_outstanding_do_info`, `v_sellin_po_bulanan`. Juga memperbarui `v_kelola_riwayat` dan
+   `v_data_status` (+ baris `outstanding`), constraint `kelola_log` (+ 'outstanding'), dan memberi hak halaman `overview`
+   ke role yang sudah punya `beranda`, serta `outstanding-do` ke role yang sudah punya `sell-in-bnn`.
+Lalu deploy ulang backend + frontend (SQL dulu).
+- Sumber data: export raw sell in menurut TANGGAL ORDER (semua status), diupload di Kelola Data → Sell In BNN → Outstanding DO.
+  Aturan baris sama dengan Sell In BNN (Gudang + PM toko/project dari ITP-Palembang, tanpa mortar). Upload mengganti order
+  dengan tanggal order di rentang file. Outstanding = sisa order Verified + Partially Delivered; Not Verified terpisah.
+- Endpoint baru (admin): `GET /api/admin/outstanding/impact`, `POST /api/admin/outstanding/begin|stage|commit|abort`.
+- Halaman baru: `overview` (rangkuman Sell In, Sell Out, Outstanding; halaman awal admin & management) dan `outstanding-do`
+  (grup Sell In). Halaman lama `beranda` tetap ada dengan nama "Penjualan Toko" di grup Sell Out.
