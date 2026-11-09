@@ -1,5 +1,4 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import type { ChartConfiguration } from 'chart.js';
 import { DataSource, sellInTargetsFor, sellOutTargetsFor } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
@@ -60,8 +59,7 @@ export default function Overview() {
 function Body({ sellIn, sellOut, outstanding, sources }: {
   sellIn: SellInData | null; sellOut: SellOutData | null; outstanding: { recs: OutRec[]; posisi: string } | null; sources: DataSourceId[];
 }) {
-  const { pageAllowed } = useAuth();
-  const [kind, setKind] = useState<'ytd' | 'bulan'>('ytd');
+  const [kind, setKind] = useState<'ytd' | 'bulan'>('bulan');
   const si = sellIn?.s, so = sellOut?.s;
   const perSi: Periode = kind === 'ytd' || !si ? { kind: 'ytd' } : { kind: 'bulan', m: si.lastMonth };
   const perSo: Periode = kind === 'ytd' || !so ? { kind: 'ytd' } : { kind: 'bulan', m: so.lastMonth };
@@ -120,15 +118,15 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
     <>
       <PageHeader title="Overview" status={sources.length ? <DataBadge source={sources} /> : undefined} />
       <div className="pill-row mb-4" role="group" aria-label="Periode">
-        <Chip active={kind === 'ytd'} onClick={() => setKind('ytd')}>Tahun berjalan</Chip>
         <Chip active={kind === 'bulan'} onClick={() => setKind('bulan')}>Bulan berjalan</Chip>
+        <Chip active={kind === 'ytd'} onClick={() => setKind('ytd')}>Tahun berjalan</Chip>
       </div>
 
       <div className="grid grid-cols-3 max-[1100px]:grid-cols-1 gap-4">
-        <Panel title="Sell in" period={siLabel} to={pageAllowed('sell-in-bnn') ? '/sell-in-bnn' : null} linkLabel="Buka Sell In BNN">
+        <Panel title="Sell in" period={siLabel}>
           {siTot ? <Capai r={siTot} P={si!.P} /> : <Kosong />}
         </Panel>
-        <Panel title="Sell out" period={soLabel} to={pageAllowed('sell-out-bnn') ? '/sell-out-bnn' : null} linkLabel="Buka Sell Out BNN">
+        <Panel title="Sell out" period={soLabel}>
           {soTot ? (
             <>
               <Capai r={soTot} P={so!.P} />
@@ -141,7 +139,7 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
             </>
           ) : <Kosong />}
         </Panel>
-        <Panel title="Outstanding DO" period={outstanding ? `Posisi ${fmtDate(outstanding.posisi)}` : ''} to={pageAllowed('outstanding-do') ? '/outstanding-do' : null} linkLabel="Buka Outstanding DO">
+        <Panel title="Outstanding DO" period={outstanding ? `Posisi ${fmtDate(outstanding.posisi)}` : ''}>
           {out ? (
             <>
               <div className="ov-k">Belum terkirim</div>
@@ -208,7 +206,7 @@ function periodLabel(per: Periode, Y: number, lastMonth: number, cutDay: number)
   return fmtRange({ from: toISO(Y, m0, 1), to: toISO(Y, lastMonth, cutDay) });
 }
 
-function Panel({ title, period, to, linkLabel, children }: { title: string; period: string; to: string | null; linkLabel: string; children: ReactNode }) {
+function Panel({ title, period, children }: { title: string; period: string; children: ReactNode }) {
   return (
     <div className="card flex flex-col">
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
@@ -216,7 +214,6 @@ function Panel({ title, period, to, linkLabel, children }: { title: string; peri
         {period && <span className="text-faint text-[12px]">{period}</span>}
       </div>
       <div className="mt-3 flex-1">{children}</div>
-      {to && <Link to={to} className="text-[12.5px] text-accent-ink mt-4 self-start no-underline hover:underline">{linkLabel} →</Link>}
     </div>
   );
 }

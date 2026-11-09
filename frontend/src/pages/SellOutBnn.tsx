@@ -27,6 +27,7 @@ const MONTH_EN = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 const TIPE_OPTS = [
   { value: 'all', label: 'Semua Tipe' }, { value: 'STR', label: 'STR' }, { value: 'RJW', label: 'RJW' }, { value: 'CWC', label: 'CWC (putih)' },
 ];
+const JENIS_OPTS = [{ value: 'all', label: 'Dist + subdist' }, { value: 'dist', label: 'Distributor' }, { value: 'subdist', label: 'Subdist' }];
 const fmtTon = (t: number) => fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0);
 const sumArr = (a: number[]) => a.reduce((x, y) => x + y, 0);
 const growthPct = (cur: number, prev: number) => (prev > 0 ? (cur - prev) / prev * 100 : null);
@@ -83,16 +84,24 @@ function Body({ peta, monthly, targets, status, ta, Y }: { peta: Peta[]; monthly
   const [region, setRegion] = useState('all');
   const [baris, setBaris] = useState('all');   // id peta
   const [tipe, setTipe] = useState('all');
-  const regions = useMemo(() => [...new Set(peta.map(p => p.region))], [peta]);
-  const barisOpts = peta.filter(p => region === 'all' || p.region === region);
+  const [jenis, setJenis] = useState<'all' | 'dist' | 'subdist'>('all');   // semua / distributor / subdist
+  const jenisOk = (p: Peta) => jenis === 'all' || (jenis === 'subdist') === isSubdist(p);
+  const regions = useMemo(() => [...new Set(peta.filter(jenisOk).map(p => p.region))], [peta, jenis]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const barisOpts = peta.filter(p => (region === 'all' || p.region === region) && jenisOk(p));
   const changeRegion = (v: string) => { setRegion(v); if (v !== 'all' && baris !== 'all' && peta.find(p => String(p.id) === baris)?.region !== v) setBaris('all'); };
-  const filterActive = region !== 'all' || baris !== 'all' || tipe !== 'all' || mFrom !== 1 || mTo !== lastMonth;
-  const resetFilter = () => { setRegion('all'); setBaris('all'); setTipe('all'); setMFrom(1); setMTo(lastMonth); };
+  const changeJenis = (v: 'all' | 'dist' | 'subdist') => {
+    setJenis(v);
+    const ok = (p: Peta) => v === 'all' || (v === 'subdist') === isSubdist(p);
+    if (baris !== 'all' && !ok(peta.find(p => String(p.id) === baris)!)) setBaris('all');
+    if (region !== 'all' && !peta.some(p => p.region === region && ok(p))) setRegion('all');
+  };
+  const filterActive = region !== 'all' || baris !== 'all' || tipe !== 'all' || jenis !== 'all' || mFrom !== 1 || mTo !== lastMonth;
+  const resetFilter = () => { setRegion('all'); setBaris('all'); setTipe('all'); setJenis('all'); setMFrom(1); setMTo(lastMonth); };
   const groupBy: 'region' | 'baris' = region === 'all' ? 'region' : 'baris';
 
   const j073Ready = useMemo(() => monthly.some(r => Number(r.tahun) === Y && r.sumber === 'J073'), [monthly, Y]);
   const v = useMemo(() => {
-    const inScope = (p: Peta) => (region === 'all' || p.region === region) && (baris === 'all' || String(p.id) === baris);
+    const inScope = (p: Peta) => (region === 'all' || p.region === region) && (baris === 'all' || String(p.id) === baris) && jenisOk(p);
     const scoped = peta.filter(inScope);
     const ids = new Set(scoped.map(p => p.id));
     const byId = new Map(peta.map(p => [p.id, p]));
@@ -195,11 +204,11 @@ function Body({ peta, monthly, targets, status, ta, Y }: { peta: Peta[]; monthly
     ].filter((x): x is { src: string; verb: string; act: string; menu: string; rows: Peta[] } => !!x && x.rows.length > 0);
     return { ton, target, prev, hasTarget, months, monthLabel, trend, monthRows, drillGroups, untyped, byId, kosong,
       taTrend, taRows, taTotal, taHasTarget, taDrill, taIds, subdistNames };
-  }, [peta, monthly, targets, ta, region, baris, tipe, mFrom, mTo, Y, P, kTgt, kPrev, kTgtTa, partial, lastMonth, cutDay, groupBy, j073Ready]);
+  }, [peta, monthly, targets, ta, region, baris, tipe, jenis, mFrom, mTo, Y, P, kTgt, kPrev, kTgtTa, partial, lastMonth, cutDay, groupBy, j073Ready]);
 
   /* ---------- Download Excel: Region | Distributor | Month | Type Cement | Target DO | DO P | DO Y ---------- */
   const downloadExcel = () => {
-    const scoped = peta.filter(p => (region === 'all' || p.region === region) && (baris === 'all' || String(p.id) === baris));
+    const scoped = peta.filter(p => (region === 'all' || p.region === region) && (baris === 'all' || String(p.id) === baris) && jenisOk(p));
     const types = tipe === 'all' ? ['STR', 'RJW', 'CWC'] : [tipe];
     const cur = new Map<string, number>(), tgt = new Map<string, number>(), prv = new Map<string, number>();
     const add = (m: Map<string, number>, k: string, x: unknown) => m.set(k, (m.get(k) || 0) + Number(x || 0));
@@ -233,7 +242,7 @@ function Body({ peta, monthly, targets, status, ta, Y }: { peta: Peta[]; monthly
 
   const growth = growthPct(v.ton, v.prev);
   const monthsLabel = mFrom === mTo ? `${MONTHS_ID[mFrom]} ${Y}` : `${MONTHS_ID[mFrom]}–${MONTHS_ID[mTo]} ${Y}`;
-  const scope = [baris !== 'all' ? peta.find(p => String(p.id) === baris)?.nama : region !== 'all' && region, tipe !== 'all' && TIPE_OPTS.find(o => o.value === tipe)!.label].filter(Boolean).join(' · ') || 'Semua';
+  const scope = [baris !== 'all' ? peta.find(p => String(p.id) === baris)?.nama : region !== 'all' && region, jenis !== 'all' && JENIS_OPTS.find(o => o.value === jenis)!.label, tipe !== 'all' && TIPE_OPTS.find(o => o.value === tipe)!.label].filter(Boolean).join(' · ') || 'Semua';
   const monthOpts = Array.from({ length: lastMonth }, (_, i) => ({ value: i + 1, label: `${MONTHS_ID[i + 1]} ${Y}` }));
 
   return (
@@ -247,6 +256,7 @@ function Body({ peta, monthly, targets, status, ta, Y }: { peta: Peta[]; monthly
           options={[{ value: 'all', label: 'Semua Region' }, ...regions.map(r => ({ value: r, label: r }))]} />
         <Select label="Distributor" value={baris} onChange={e => setBaris(e.target.value)} style={{ minWidth: 150 }}
           options={[{ value: 'all', label: 'Semua Distributor' }, ...barisOpts.map(p => ({ value: String(p.id), label: region === 'all' && peta.filter(x => x.nama === p.nama).length > 1 ? `${p.nama} (${p.region})` : p.nama }))]} />
+        <Select label="Jenis" value={jenis} onChange={e => changeJenis(e.target.value as 'all' | 'dist' | 'subdist')} style={{ minWidth: 130 }} options={JENIS_OPTS} />
         <Select label="Tipe Semen" value={tipe} onChange={e => setTipe(e.target.value)} style={{ minWidth: 120 }} options={TIPE_OPTS} />
         {filterActive && <button type="button" className="btn btn-sm self-end max-[880px]:col-span-2 max-[880px]:justify-center" onClick={resetFilter}>Reset filter</button>}
         {canDownload('sell-out-bnn') && (
@@ -315,7 +325,7 @@ function Body({ peta, monthly, targets, status, ta, Y }: { peta: Peta[]; monthly
             <span><i style={{ background: COLORS.prev }} aria-hidden="true" />Realisasi {P}</span>
           </div>
           {!ta ? <p className="text-soft text-[13px] py-10 text-center">Data toko aktif belum tersedia. Jalankan ulang docs/sql/sell_out_bnn.sql.</p>
-            : !v.taIds.length ? <p className="text-soft text-[13px] py-10 text-center">{scope} adalah subdist: tidak dihitung toko aktif.</p>
+            : !v.taIds.length ? <p className="text-soft text-[13px] py-10 text-center">{jenis === 'subdist' && baris === 'all' ? 'Subdist' : `${scope} adalah subdist:`} tidak dihitung toko aktif.</p>
             : <ChartBox className="tall" label={chartSRSummary(v.trend.labels, v.taTrend.cur, `toko aktif ${Y}`)}
                 deps={[v.trend.labels.join('|'), v.taTrend.cur.join('|'), v.taTrend.target.join('|'), v.taTrend.prev.join('|'), v.taHasTarget]}
                 build={() => ({
