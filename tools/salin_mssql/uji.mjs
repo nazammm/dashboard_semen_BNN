@@ -5,7 +5,8 @@
 // Tiap skenario: siapkan (query PostgreSQL yang mengisi variabel {nama}), lalu langkah berurutan.
 // Langkah: { nama, pg, ms?, simpan?: 'var' (kolom pertama baris pertama -> {var}, per database),
 //            banding?: false (tidak dibandingkan, mis. id), galat?: true (kedua database harus menolak) }
-// Hasil dibandingkan per kolom menurut urutan; array PostgreSQL dan teks JSON array dianggap sama ("A,B").
+// Fungsi tempel PostgreSQL membuat tabel sementara (on commit drop); panggilan kedua dalam satu transaksi uji
+// didahului 'drop table if exists'. Hasil dibandingkan per kolom menurut urutan; array PostgreSQL dan teks JSON array dianggap sama ("A,B").
 
 const q = s => s.replace(/'/g, "''");                    // isi string SQL
 const jsonPg = v => `'${q(JSON.stringify(v))}'::json`;
@@ -302,6 +303,166 @@ UJI.sellin = [
       { nama: 'isi peta', pg: `select kode_customer, region, nama_customer, updated_by, updated_at is not null ada_waktu from sementrack.sellin_region_map where kode_customer = 'UJI-K7'`,
         ms: `select kode_customer, region, nama_customer, updated_by, CAST(CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END AS bit) ada_waktu from sementrack.sellin_region_map where kode_customer = 'UJI-K7'` },
       { nama: 'kode kosong ditolak', galat: true, pg: `select sementrack.sellin_region_set(' ', 'Jambi', null, 'uji')`, ms: `EXEC sementrack.sellin_region_set N' ', N'Jambi', NULL, N'uji'` },
+    ],
+  },
+];
+
+// ---------- Kelola Data lainnya ----------
+const logTerakhir = (dataset) => ({
+  nama: `kelola_log terakhir (${dataset})`,
+  pg: `select dataset, aksi, created_by, source, file_name, to_char(date_from,'YYYY-MM-DD') dari, to_char(date_to,'YYYY-MM-DD') sampai, ${listPg('dist_codes')} dist,
+         rows_read, rows_saved, rows_deleted, status from sementrack.kelola_log where id = (select max(id) from sementrack.kelola_log where dataset = '${dataset}')`,
+  ms: `select dataset, aksi, created_by, source, file_name, CONVERT(char(10), date_from, 23) dari, CONVERT(char(10), date_to, 23) sampai, ${listMs('dist_codes')} dist,
+         rows_read, rows_saved, rows_deleted, status from sementrack.kelola_log where id = (select max(id) from sementrack.kelola_log where dataset = '${dataset}')`,
+});
+const bulan12 = (...v) => Array.from({ length: 12 }, (_, i) => (i < v.length ? v[i] : null));
+
+UJI.kelola = [
+  {
+    nama: 'hapus transaksi satu distributor satu bulan (pratinjau, hapus, catatan)',
+    siapkan: `select dist_code dist, to_char(date_trunc('month', min(do_date)), 'YYYY-MM-DD') dari,
+                to_char(date_trunc('month', min(do_date)) + interval '1 month - 1 day', 'YYYY-MM-DD') sampai
+              from transaksi where dist_code = (select min(dist_code) from transaksi) group by dist_code`,
+    langkah: v => [
+      { nama: 'pratinjau satu distributor', pg: `select * from sementrack.kelola_hapus_pratinjau('transaksi', '${v.dari}', '${v.sampai}', ${arrPg([v.dist])})`,
+        ms: `EXEC sementrack.kelola_hapus_pratinjau N'transaksi', '${v.dari}', '${v.sampai}', ${arrMs([v.dist])}` },
+      { nama: 'pratinjau semua distributor (array kosong)', pg: `select * from sementrack.kelola_hapus_pratinjau('transaksi', '${v.dari}', '${v.sampai}', array[]::text[])`,
+        ms: `EXEC sementrack.kelola_hapus_pratinjau N'transaksi', '${v.dari}', '${v.sampai}', N'[]'` },
+      { nama: 'hapus', pg: `select sementrack.kelola_hapus('transaksi', '${v.dari}', '${v.sampai}', ${arrPg([v.dist])}, 'uji') n`,
+        ms: `EXEC sementrack.kelola_hapus N'transaksi', '${v.dari}', '${v.sampai}', ${arrMs([v.dist])}, N'uji'` },
+      { nama: 'sisa baris', pg: `select count(*) from transaksi where dist_code = '${v.dist}' and do_date between '${v.dari}' and '${v.sampai}'`,
+        ms: `select count(*) from dbo.transaksi where dist_code = '${v.dist}' and do_date between '${v.dari}' and '${v.sampai}'` },
+      logTerakhir('transaksi'),
+    ],
+  },
+  {
+    nama: 'hapus sell in tiga hari pertama',
+    siapkan: `select to_char(min(tanggal), 'YYYY-MM-DD') dari, to_char(min(tanggal) + 2, 'YYYY-MM-DD') sampai from sementrack.sellin_bnn`,
+    langkah: v => [
+      { nama: 'pratinjau', pg: `select * from sementrack.kelola_hapus_pratinjau('sellin', '${v.dari}', '${v.sampai}', null)`,
+        ms: `EXEC sementrack.kelola_hapus_pratinjau N'sellin', '${v.dari}', '${v.sampai}', NULL` },
+      { nama: 'hapus', pg: `select sementrack.kelola_hapus('sellin', '${v.dari}', '${v.sampai}', array['X'], 'uji') n`,
+        ms: `EXEC sementrack.kelola_hapus N'sellin', '${v.dari}', '${v.sampai}', N'["X"]', N'uji'` },
+      logTerakhir('sellin'),
+      { nama: 'dataset tidak dikenal ditolak', galat: true, pg: `select sementrack.kelola_hapus('j073', '2099-01-01', '2099-01-02', null, 'uji')`,
+        ms: `EXEC sementrack.kelola_hapus N'j073', '2099-01-01', '2099-01-02', NULL, N'uji'` },
+    ],
+  },
+  {
+    nama: 'status sinkron',
+    langkah: () => [
+      { nama: 'simpan', banding: false, pg: `select sementrack.status_sync_set('2099-01-02', '08:15', '  catatan uji  ')`,
+        ms: `EXEC sementrack.status_sync_set '2099-01-02', '08:15', N'  catatan uji  '` },
+      { nama: 'isi', pg: `select to_char(tanggal_update,'YYYY-MM-DD') tgl, to_char(jam_update,'HH24:MI') jam, keterangan from status_sync where id = 1`,
+        ms: `select CONVERT(char(10), tanggal_update, 23) tgl, CONVERT(char(5), jam_update, 108) jam, keterangan from dbo.status_sync where id = 1` },
+      { nama: 'simpan tanpa keterangan', banding: false, pg: `select sementrack.status_sync_set('2099-01-03', '09:00', '   ')`,
+        ms: `EXEC sementrack.status_sync_set '2099-01-03', '09:00', N'   '` },
+      { nama: 'isi', pg: `select to_char(tanggal_update,'YYYY-MM-DD') tgl, keterangan from status_sync where id = 1`,
+        ms: `select CONVERT(char(10), tanggal_update, 23) tgl, keterangan from dbo.status_sync where id = 1` },
+      { nama: 'tanggal kosong ditolak', galat: true, pg: `select sementrack.status_sync_set(null, '09:00', 'x')`, ms: `EXEC sementrack.status_sync_set NULL, '09:00', N'x'` },
+    ],
+  },
+  {
+    nama: 'DO FAS: tempel tahun 2099, tempel ulang mengganti',
+    langkah: () => {
+      const a = [['str', ' Area1 ', ' GMD ', ' kapal ', ...bulan12(10, null, '2.5', 0, 1e2)], ['RJW', null, 'KB', null, ...bulan12(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)]];
+      const b = [['CWC', null, 'CB', 'ket', ...bulan12(7)]];
+      const isi = { nama: 'isi sellout_dofas 2099',
+        pg: `select baris, tipe, area, distributor, keterangan, count(*) bulan, sum(ton) ton from sementrack.sellout_dofas where tahun = 2099 group by 1,2,3,4,5`,
+        ms: `select baris, tipe, area, distributor, keterangan, count(*) bulan, sum(ton) ton from sementrack.sellout_dofas where tahun = 2099 group by baris, tipe, area, distributor, keterangan` };
+      return [
+        { nama: 'simpan 2 baris', pg: `select * from sementrack.sellout_dofas_simpan(2099, ${jsonPg(a)}, 'uji')`, ms: `EXEC sementrack.sellout_dofas_simpan 2099, ${jsonMs(a)}, N'uji'` },
+        isi,
+        { nama: 'simpan ulang 1 baris', pg: `drop table if exists _dofas; select * from sementrack.sellout_dofas_simpan(2099, ${jsonPg(b)}, 'uji')`, ms: `EXEC sementrack.sellout_dofas_simpan 2099, ${jsonMs(b)}, N'uji'` },
+        isi,
+        logTerakhir('dofas'),
+        { nama: 'tipe salah ditolak', galat: true, pg: `drop table if exists _dofas; select * from sementrack.sellout_dofas_simpan(2099, ${jsonPg([['XYZ', null, 'A', null, 1]])}, 'uji')`,
+          ms: `EXEC sementrack.sellout_dofas_simpan 2099, ${jsonMs([['XYZ', null, 'A', null, 1]])}, N'uji'` },
+      ];
+    },
+  },
+  {
+    nama: 'Sub ERP: hanya bulan yang berisi angka yang diganti',
+    langkah: () => {
+      const a = [['s006', 'PT UJI', 'str', ...bulan12(1, 2)], ['S007', null, null, ...bulan12(null, 5)]];
+      const b = [['S006', 'PT UJI BARU', 'STR', ...bulan12(null, 20)]];
+      const isi = { nama: 'isi sellout_erp 2099',
+        pg: `select kode, nama, tipe, bulan, ton from sementrack.sellout_erp where tahun = 2099`,
+        ms: `select kode, nama, tipe, bulan, ton from sementrack.sellout_erp where tahun = 2099` };
+      return [
+        { nama: 'simpan Jan-Feb', pg: `select * from sementrack.sellout_erp_simpan(2099, ${jsonPg(a)}, 'uji')`, ms: `EXEC sementrack.sellout_erp_simpan 2099, ${jsonMs(a)}, N'uji'` },
+        isi,
+        { nama: 'simpan Feb saja', pg: `drop table if exists _erp; select * from sementrack.sellout_erp_simpan(2099, ${jsonPg(b)}, 'uji')`, ms: `EXEC sementrack.sellout_erp_simpan 2099, ${jsonMs(b)}, N'uji'` },
+        isi,
+        logTerakhir('erp'),
+        { nama: 'kode dobel ditolak', galat: true, pg: `drop table if exists _erp; select * from sementrack.sellout_erp_simpan(2099, ${jsonPg([b[0], b[0]])}, 'uji')`,
+          ms: `EXEC sementrack.sellout_erp_simpan 2099, ${jsonMs([b[0], b[0]])}, N'uji'` },
+      ];
+    },
+  },
+  {
+    nama: 'J073: upload, upload ulang sebagian rentang',
+    siapkan: `select min(dist_code) dist, (select min(kode) from produk) produk from sementrack.sellout_j073_dist`,
+    langkah: v => {
+      const r = (tgl, doNo, cust, qty, net, wh) => [v.dist, tgl, doNo, cust, `Toko ${cust}`, v.produk.toLowerCase(), 'PCC 40KG', qty, net, wh];
+      const a = [r('2099-01-02', 'J1', 'C1', 100, 5000000, ' aceh '), r('2099-01-03', 'J2', 'C2', 50, null, null), r('2099-01-05', 'J3', 'C1', 25, 1000, 'dumai')];
+      const b = [r('2099-01-03', 'J9', 'C3', 10, 10, null)];
+      const isi = { nama: 'isi sellout_j073 2099 dan v_sellout_j073_baris',
+        pg: `select do_no, customer_code, product_code, order_qty, net_amount, warehouse, (select round(ton, 4) from sementrack.v_sellout_j073_baris b where b.do_no = j.do_no and b.asal = 'J073') ton
+             from sementrack.sellout_j073 j where do_date >= '2099-01-01'`,
+        ms: `select do_no, customer_code, product_code, order_qty, net_amount, warehouse, (select round(ton, 4) from sementrack.v_sellout_j073_baris b where b.do_no = j.do_no and b.asal = 'J073') ton
+             from sementrack.sellout_j073 j where do_date >= '2099-01-01'` };
+      return [
+        { nama: 'simpan 3 baris', pg: `select * from sementrack.sellout_j073_simpan(${jsonPg(a)}, 'uji', 'j073.xlsx')`, ms: `EXEC sementrack.sellout_j073_simpan ${jsonMs(a)}, N'uji', N'j073.xlsx'` },
+        isi,
+        { nama: 'simpan ulang tanggal 3', pg: `drop table if exists _j073; select * from sementrack.sellout_j073_simpan(${jsonPg(b)}, 'uji')`, ms: `EXEC sementrack.sellout_j073_simpan ${jsonMs(b)}, N'uji'` },
+        isi,
+        logTerakhir('j073'),
+        { nama: 'distributor belum dikenal ditolak', galat: true,
+          pg: `drop table if exists _j073; select * from sementrack.sellout_j073_simpan(${jsonPg([['ZZZ-UJI', '2099-01-02', 'J1', 'C1', null, 'X', null, 1, 1, null]])}, 'uji')`,
+          ms: `EXEC sementrack.sellout_j073_simpan ${jsonMs([['ZZZ-UJI', '2099-01-02', 'J1', 'C1', null, 'X', null, 1, 1, null]])}, N'uji'` },
+      ];
+    },
+  },
+  {
+    nama: 'target sell out 2099: simpan, simpan ulang satu metrik satu bulan',
+    langkah: () => {
+      const a = [
+        ['target_ton', 2099, 1, 'Jambi', 'JMB', 'str', '', null, null, 100], ['target_ton', 2099, 2, 'Jambi', 'JMB', 'STR', '', null, null, '110.5'],
+        ['target_ton', 2099, 1, 'Lampung', 'BMM', 'RJW', '', null, null, 50], ['realisasi_ton', 2099, 1, 'Jambi', 'JMB', 'STR', '', null, null, 90],
+        ['target_ta', '2099', '1', 'Jambi', 'JMB', 'STR', null, ' nama ', ' ', 12],
+      ];
+      const b = [['target_ton', 2099, 1, 'Jambi', 'JMB', 'STR', '', null, null, 120]];
+      const isi = { nama: 'isi v_target_sell_out 2099',
+        pg: `select bulan, region, distributor, tipe, target_ton, realisasi_ton, target_ta, realisasi_ta from sementrack.v_target_sell_out where tahun = 2099`,
+        ms: `select bulan, region, distributor, tipe, target_ton, realisasi_ton, target_ta, realisasi_ta from sementrack.v_target_sell_out where tahun = 2099` };
+      return [
+        { nama: 'simpan 5 baris', pg: `select * from sementrack.target_simpan('sell_out', ${jsonPg(a)}, 'uji', 'target.xlsx')`,
+          ms: `EXEC sementrack.target_simpan N'sell_out', ${jsonMs(a)}, N'uji', N'target.xlsx'` },
+        isi,
+        { nama: 'baris target_ta (nama, status)', pg: `select kode, nama, status, nilai from sementrack.target where jenis = 'sell_out' and tahun = 2099 and metrik = 'target_ta'`,
+          ms: `select kode, nama, status, nilai from sementrack.target where jenis = 'sell_out' and tahun = 2099 and metrik = 'target_ta'` },
+        { nama: 'simpan ulang target_ton Januari', pg: `drop table if exists _t; select * from sementrack.target_simpan('sell_out', ${jsonPg(b)}, 'uji')`,
+          ms: `EXEC sementrack.target_simpan N'sell_out', ${jsonMs(b)}, N'uji'` },
+        isi,
+        logTerakhir('target'),
+        { nama: 'baris dobel ditolak', galat: true, pg: `drop table if exists _t; select * from sementrack.target_simpan('sell_out', ${jsonPg([b[0], b[0]])}, 'uji')`,
+          ms: `EXEC sementrack.target_simpan N'sell_out', ${jsonMs([b[0], b[0]])}, N'uji'` },
+      ];
+    },
+  },
+  {
+    nama: 'target: tolak bulan 13',
+    langkah: () => [
+      { nama: 'bulan 13', galat: true, pg: `select * from sementrack.target_simpan('salesman', ${jsonPg([['target_ta', 2099, 13, '', 'X', '', 'S1', null, null, 1]])}, 'uji')`,
+        ms: `EXEC sementrack.target_simpan N'salesman', ${jsonMs([['target_ta', 2099, 13, '', 'X', '', 'S1', null, null, 1]])}, N'uji'` },
+    ],
+  },
+  {
+    nama: 'target: tolak jenis tidak dikenal',
+    langkah: () => [
+      { nama: 'jenis "apa"', galat: true, pg: `select * from sementrack.target_simpan('apa', ${jsonPg([['target_ta', 2099, 1, '', '', '', 'S1', null, null, 1]])}, 'uji')`,
+        ms: `EXEC sementrack.target_simpan N'apa', ${jsonMs([['target_ta', 2099, 1, '', '', '', 'S1', null, null, 1]])}, N'uji'` },
     ],
   },
 ];

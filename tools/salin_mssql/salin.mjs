@@ -158,7 +158,7 @@ async function uji(pgc, ms, grup) {
     try {
       for (const l of sk.langkah(v)) {
         let a, b, ea, eb;
-        try { a = (await pgc.query(isi(l.pg, varPg))).rows; } catch (e) { ea = e.message; }
+        try { const r = await pgc.query(isi(l.pg, varPg)); a = (Array.isArray(r) ? r.at(-1) : r).rows; } catch (e) { ea = e.message; }
         try { b = (await new sql.Request(tx).query(isi(l.ms ?? l.pg, varMs))).recordset ?? []; } catch (e) { eb = e.message; }
         if (l.galat) {
           const ok = ea && eb;
