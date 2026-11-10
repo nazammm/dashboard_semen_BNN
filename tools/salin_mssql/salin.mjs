@@ -340,9 +340,10 @@ async function main() {
   if (ok !== 'y' && ok !== 'ya') { console.log('Dibatalkan.'); return; }
 
   // ---------- salin ----------
-  // relasi dan aturan isian dimatikan dulu supaya urutan tabel bebas; dinyalakan lagi (dan diperiksa ulang) di akhir
+  // relasi, aturan isian, dan trigger dimatikan dulu supaya urutan tabel bebas dan isi kolom (mis. updated_at) tidak diubah trigger;
+  // dinyalakan lagi (dan diperiksa ulang) di akhir
   // semua tabel, bukan hanya yang disalin: toko punya relasi ON DELETE CASCADE ke distributor
-  for (const t of tabel.values()) await ms.request().query(`alter table ${qi(t.skema)}.${qi(t.nama)} nocheck constraint all`);
+  for (const t of tabel.values()) await ms.request().query(`alter table ${qi(t.skema)}.${qi(t.nama)} nocheck constraint all; alter table ${qi(t.skema)}.${qi(t.nama)} disable trigger all`);
 
   const hasil = [];
   for (const t of daftar) {
@@ -385,7 +386,7 @@ async function main() {
   console.log('\nMenyalakan lagi relasi dan aturan isian (sambil memeriksa semua data)...');
   const gagalCek = [];
   for (const t of tabel.values()) {
-    try { await ms.request().query(`alter table ${qi(t.skema)}.${qi(t.nama)} with check check constraint all`); }
+    try { await ms.request().query(`alter table ${qi(t.skema)}.${qi(t.nama)} enable trigger all; alter table ${qi(t.skema)}.${qi(t.nama)} with check check constraint all`); }
     catch (e) { gagalCek.push(`${t.ms}: ${e.message}`); }
   }
 

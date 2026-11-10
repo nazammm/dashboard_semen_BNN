@@ -11,6 +11,7 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 04_transaksi.sql | Penjualan Toko, Rekap Harian, Tim Sales, toko | `node salin.cjs --banding transaksi` |
 | 05_kelola_view.sql | status data, riwayat Kelola Data | `node salin.cjs --banding kelola` |
 | 06_upload_transaksi.sql | upload transaksi J028 | `node salin.cjs --uji transaksi` |
+| 07_upload_sellin.sql | upload Sell In BNN, Outstanding DO, peta region | `node salin.cjs --uji sellin` |
 
 ## Untuk tahap 5 (backend)
 
@@ -38,3 +39,4 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 - Prosedur tulis dipanggil `EXEC skema.prosedur @p1, @p2, ...` (berurutan). Pesan untuk pengguna dilempar dengan
   nomor 52023 (PostgreSQL: errcode 22023): tampilkan apa adanya sebagai HTTP 400.
 - Mode `--uji <grup>` menjalankan skenario tulis di kedua database di dalam transaksi yang dibatalkan (ROLLBACK).
+- salin.cjs mematikan trigger selama menyalin (trigger stamp sellin_region_map tidak mengubah updated_at hasil salinan).
