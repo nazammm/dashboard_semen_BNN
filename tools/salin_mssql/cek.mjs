@@ -70,4 +70,51 @@ export const CEK = {
       pg: `select tahun, tipe, count(*) baris, sum(target) target, sum(realisasi) realisasi from sementrack.v_target_sell_in group by tahun, tipe`,
     },
   ],
+  sellout: [
+    {
+      nama: 'calc_tonase pada transaksi per tahun', kunci: 1,
+      pg: `select extract(year from do_date)::int k, count(*) n, round(sum(public.calc_tonase(product_code, order_qty)), 4) ton from transaksi group by 1`,
+      ms: `select YEAR(do_date) k, COUNT(*) n, ROUND(SUM(dbo.calc_tonase(product_code, order_qty)), 4) ton from dbo.transaksi group by YEAR(do_date)`,
+    },
+    {
+      nama: 'v_sellout_bnn_peta: sumber dan jenis', kunci: 1,
+      pg: `select id, urutan, region, nama, sumber, jenis, dofas_tipe, erp_kode, target_region, target_key from sementrack.v_sellout_bnn_peta`,
+    },
+    {
+      nama: 'v_sellout_bnn_peta: kode DO FAS', kunci: 1,
+      pg: `select id, array_to_string(dofas_kode, ',') kode from sementrack.v_sellout_bnn_peta`,
+      ms: `select p.id, (select STRING_AGG(CAST(j.[value] AS nvarchar(200)), ',') WITHIN GROUP (ORDER BY CAST(j.[key] AS int)) from OPENJSON(p.dofas_kode) j) kode from sementrack.v_sellout_bnn_peta p`,
+    },
+    {
+      nama: 'v_sellout_j073_baris per asal, tahun, bulan, tipe, daerah', kunci: 5,
+      pg: `select asal, tahun, bulan, tipe, peta_id, count(*) baris, round(sum(ton), 4) ton, sum(net) net from sementrack.v_sellout_j073_baris group by asal, tahun, bulan, tipe, peta_id`,
+    },
+    {
+      nama: 'v_sellout_bnn_monthly per daerah, tahun, bulan, tipe, sumber', kunci: 5,
+      pg: `select peta_id, tahun, bulan, tipe, sumber, round(sum(ton), 4) ton from sementrack.v_sellout_bnn_monthly group by peta_id, tahun, bulan, tipe, sumber`,
+    },
+    {
+      nama: 'v_sellout_bnn_monthly per tahun, sumber', kunci: 2,
+      pg: `select tahun, sumber, count(*) baris, round(sum(ton), 4) ton from sementrack.v_sellout_bnn_monthly group by tahun, sumber`,
+    },
+    {
+      nama: 'v_sellout_bnn_ta per daerah, tahun, bulan, tipe', kunci: 4,
+      pg: `select peta_id, tahun, bulan, tipe, ta, ta_sd from sementrack.v_sellout_bnn_ta`,
+    },
+    {
+      nama: 'v_target_sell_out per tahun, region, tipe', kunci: 3,
+      pg: `select tahun, region, tipe, count(*) baris, sum(target_ton) target_ton, sum(realisasi_ton) realisasi_ton, sum(target_ta) target_ta, sum(realisasi_ta) realisasi_ta
+             from sementrack.v_target_sell_out group by tahun, region, tipe`,
+    },
+    {
+      nama: 'v_target_dist', kunci: 3,
+      pg: `select tahun, dist_code, month_num, month, target, target_ta from sementrack.v_target_dist`,
+      ms: `select tahun, dist_code, month_num, [month], target, target_ta from sementrack.v_target_dist`,
+    },
+    {
+      nama: 'v_target_ringkas', kunci: 3,
+      pg: `select jenis, metrik, tahun, array_to_string(bulan, ',') bulan, baris, total from sementrack.v_target_ringkas`,
+      ms: `select jenis, metrik, tahun, REPLACE(REPLACE(bulan, '[', ''), ']', '') bulan, baris, total from sementrack.v_target_ringkas`,
+    },
+  ],
 };
