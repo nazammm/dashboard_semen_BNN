@@ -9,6 +9,7 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 02_sellin.sql | Sell In BNN, Outstanding DO | `node salin.cjs --banding sellin` |
 | 03_sellout.sql | Sell Out BNN, J073, target | `node salin.cjs --banding sellout` |
 | 04_transaksi.sql | Penjualan Toko, Rekap Harian, Tim Sales, toko | `node salin.cjs --banding transaksi` |
+| 05_kelola_view.sql | status data, riwayat Kelola Data | `node salin.cjs --banding kelola` |
 
 ## Untuk tahap 5 (backend)
 

@@ -200,4 +200,14 @@ export const CEK = {
            union all select 'kirim', delivery_type, round(total_qty, 4), null from sementrack.dashboard_delivery_type_breakdown_range(NULL, DATEFROMPARTS(YEAR(GETDATE()), 1, 1), CAST(GETDATE() AS date), NULL)
            union all select 'produk', product_name, round(total_qty, 4), null from sementrack.dashboard_product_breakdown_range(NULL, DATEFROMPARTS(YEAR(GETDATE()), 1, 1), CAST(GETDATE() AS date), NULL)` },
   ],
+  kelola: [
+    { nama: 'v_data_status', kunci: 1,
+      pg: `select sumber, nama, frekuensi, to_char(data_sampai, 'YYYY-MM-DD') sampai, diperbarui, keterangan from sementrack.v_data_status where sumber not in ('sellout_bulanan', 'sellin_bulanan')`,
+      ms: `select sumber, nama, frekuensi, CONVERT(char(10), data_sampai, 23) sampai, diperbarui, keterangan from sementrack.v_data_status` },
+    { nama: 'v_kelola_riwayat per dataset, aksi, status', kunci: 3,
+      pg: `select dataset, aksi, status, count(*) baris, sum(rows_read) dibaca, sum(rows_saved) disimpan, sum(rows_deleted) dihapus, count(dist_codes) ada_dist,
+             to_char(max(created_at) at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI:SS') terakhir, to_char(min(date_from), 'YYYY-MM-DD') dari from sementrack.v_kelola_riwayat group by dataset, aksi, status`,
+      ms: `select dataset, aksi, status, count(*) baris, sum(rows_read) dibaca, sum(rows_saved) disimpan, sum(rows_deleted) dihapus, count(dist_codes) ada_dist,
+             CONVERT(char(19), SWITCHOFFSET(max(created_at), '+07:00'), 126) terakhir, CONVERT(char(10), min(date_from), 23) dari from sementrack.v_kelola_riwayat group by dataset, aksi, status` },
+  ],
 };
