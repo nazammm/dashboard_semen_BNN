@@ -466,3 +466,92 @@ UJI.kelola = [
     ],
   },
 ];
+
+// ---------- Kelola Data → Tabel ----------
+const simpanTabel = (nama, id, up, del = [], galat = false) => ({
+  nama, galat,
+  pg: `select * from sementrack.tabel_simpan('${id}', 'uji', ${jsonPg(up)}, ${jsonPg(del)})`,
+  ms: `EXEC sementrack.tabel_simpan N'${id}', N'uji', ${jsonMs(up)}, ${jsonMs(del)}`,
+});
+const bacaTabel = (nama, id, filter = {}) => ({
+  nama, json: true,
+  pg: `select sementrack.tabel_baca('${id}', ${jsonPg(filter)}) j`,
+  ms: `EXEC sementrack.tabel_baca N'${id}', ${jsonMs(filter)}`,
+});
+const targetDb = (jenis) => ({
+  nama: `isi tabel target ${jenis} 2099`,
+  pg: `select metrik, bulan, region, area, tipe, kode, nama, status, nilai from sementrack.target where jenis = '${jenis}' and tahun = 2099`,
+  ms: `select metrik, bulan, region, area, tipe, kode, nama, status, nilai from sementrack.target where jenis = '${jenis}' and tahun = 2099`,
+});
+const ID_TABEL = ['target_salesman', 'target_distributor', 'target_sell_out', 'target_sell_in', 'target_jumlah_salesman', 'subdist', 'region_sellin', 'distributor', 'produk'];
+
+UJI.tabel = [
+  {
+    nama: 'baca dan opsi semua tabel (data asli)',
+    langkah: () => ID_TABEL.flatMap(id => [
+      bacaTabel(`baca ${id}`, id),
+      { nama: `opsi ${id}`, json: true, pg: `select sementrack.tabel_opsi('${id}') j`, ms: `EXEC sementrack.tabel_opsi N'${id}'` },
+    ]),
+  },
+  {
+    nama: 'target distributor: tambah, ubah (kosongkan TA), hapus',
+    siapkan: `select min(dist_code) dist from distributor`,
+    langkah: v => [
+      simpanTabel('tambah', 'target_distributor', [{ tahun: 2099, bulan: 1, dist_code: v.dist, target_ton: 100, target_ta: '12' }]),
+      bacaTabel('baca tahun 2099', 'target_distributor', { tahun: '2099' }),
+      targetDb('distributor'),
+      simpanTabel('ubah', 'target_distributor', [{ tahun: 2099, bulan: 1, dist_code: v.dist, target_ton: '120.5', target_ta: null }]),
+      targetDb('distributor'),
+      simpanTabel('hapus', 'target_distributor', [], [{ tahun: 2099, bulan: 1, dist_code: v.dist }]),
+      targetDb('distributor'),
+      logTerakhir('tabel'),
+    ],
+  },
+  {
+    nama: 'target salesman, sell out, sell in: tambah dua baris, ubah nama',
+    siapkan: `select min(dist_code) dist from distributor`,
+    langkah: v => [
+      simpanTabel('tambah salesman', 'target_salesman', [
+        { tahun: 2099, bulan: 1, dist_code: v.dist, salesman_code: 'UJI-S1', salesman_name: ' Budi ', status: 'SC', target_ta: 10, target_ton: 5 },
+        { tahun: 2099, bulan: 2, dist_code: v.dist, salesman_code: 'UJI-S1', salesman_name: 'Budi', status: '', target_ta: 11, target_ton: null }]),
+      simpanTabel('ubah nama salesman', 'target_salesman', [{ tahun: 2099, bulan: 1, dist_code: v.dist, salesman_code: 'UJI-S1', salesman_name: 'Budi Santoso', status: 'SC', target_ta: 10, target_ton: 5 }]),
+      bacaTabel('baca salesman 2099', 'target_salesman', { tahun: '2099', dist_code: v.dist }),
+      targetDb('salesman'),
+      simpanTabel('tambah sell out', 'target_sell_out', [{ tahun: 2099, bulan: 3, region: 'Jambi', distributor: 'JMB', tipe: 'STR', target_ton: 1000, target_ta: 50, realisasi_ton: null, realisasi_ta: '45' }]),
+      simpanTabel('tambah sell in', 'target_sell_in', [{ tahun: 2099, bulan: 3, region: 'Sumbagsel', sub_region: 'Jambi', tipe: 'RJW', target_ton: '2500', realisasi_ton: 2400 }]),
+      bacaTabel('baca sell out 2099 Jambi', 'target_sell_out', { tahun: '2099', region: 'Jambi' }),
+      bacaTabel('baca sell in 2099', 'target_sell_in', { tahun: '2099' }),
+      targetDb('sell_out'),
+      targetDb('sell_in'),
+    ],
+  },
+  {
+    nama: 'master: subdist, produk, distributor, region, target jumlah salesman',
+    siapkan: `select min(dist_code) dist, (select min(dist_code) from sementrack.distributor_target_salesman) dts from distributor`,
+    langkah: v => [
+      simpanTabel('subdist tambah', 'subdist', [{ dist_code: v.dist, customer_code: 'UJI-C1', subdist: 'Sub Uji' }]),
+      simpanTabel('subdist ubah nama', 'subdist', [{ dist_code: v.dist, customer_code: 'UJI-C1', subdist: 'Sub Uji Dua' }]),
+      bacaTabel('baca subdist', 'subdist'),
+      simpanTabel('subdist hapus', 'subdist', [], [{ dist_code: v.dist, customer_code: 'UJI-C1' }]),
+      simpanTabel('produk tambah', 'produk', [{ kode: 'UJI-P1', nama: 'Produk Uji', jenis: 'STR' }]),
+      bacaTabel('baca produk', 'produk'),
+      simpanTabel('distributor tambah', 'distributor', [{ dist_code: 'UJI-D', dist_name: 'Dist Uji', wilayah: 'Jambi', tag: 'Distributor', source: ' ' }]),
+      bacaTabel('baca distributor', 'distributor'),
+      simpanTabel('region tambah', 'region_sellin', [{ kode_customer: 'UJI-K1', region: 'Jambi', nama_customer: 'Gudang Uji' }]),
+      bacaTabel('baca region Jambi', 'region_sellin', { region: 'Jambi' }),
+      { nama: 'region: waktu ubah terisi', pg: `select count(*) from sementrack.sellin_region_map where kode_customer = 'UJI-K1' and updated_at is not null`,
+        ms: `select count(*) from sementrack.sellin_region_map where kode_customer = 'UJI-K1' and updated_at is not null` },
+      simpanTabel('target jumlah salesman ubah', 'target_jumlah_salesman', [{ dist_code: v.dts, dist_name: 'Nama Baru', target_salesman: 99 }]),
+      bacaTabel('baca target jumlah salesman', 'target_jumlah_salesman'),
+      logTerakhir('tabel'),
+    ],
+  },
+  { nama: 'tolak: kolom kunci kosong', langkah: () => [simpanTabel('tanpa distributor', 'target_distributor', [{ tahun: 2099, bulan: 1, dist_code: ' ', target_ton: 1 }], [], true)] },
+  { nama: 'tolak: tahun bukan bilangan bulat', langkah: () => [simpanTabel('tahun 20x9', 'target_distributor', [{ tahun: '20x9', bulan: 1, dist_code: 'A', target_ton: 1 }], [], true)] },
+  { nama: 'tolak: angka tidak valid', langkah: () => [simpanTabel('target 1,5', 'target_distributor', [{ tahun: 2099, bulan: 1, dist_code: 'A', target_ton: '1,5' }], [], true)] },
+  { nama: 'tolak: bulan 13 (pilihan)', langkah: () => [simpanTabel('bulan 13', 'target_distributor', [{ tahun: 2099, bulan: 13, dist_code: 'A', target_ton: 1 }], [], true)] },
+  { nama: 'tolak: jenis produk di luar pilihan', langkah: () => [simpanTabel('jenis XYZ', 'produk', [{ kode: 'UJI-P2', nama: null, jenis: 'XYZ' }], [], true)] },
+  { nama: 'tolak: tidak ada perubahan', langkah: () => [simpanTabel('kosong', 'produk', [], [], true)] },
+  { nama: 'tolak: tabel tidak terdaftar', langkah: () => [simpanTabel('transaksi', 'transaksi', [{ a: 1 }], [], true)] },
+  { nama: 'tolak: filter tidak dikenal', langkah: () => [{ ...bacaTabel('filter nama', 'produk', { nama: 'x' }), galat: true, json: false }] },
+];

@@ -13,6 +13,7 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 06_upload_transaksi.sql | upload transaksi J028 | `node salin.cjs --uji transaksi` |
 | 07_upload_sellin.sql | upload Sell In BNN, Outstanding DO, peta region | `node salin.cjs --uji sellin` |
 | 08_kelola_tulis.sql | hapus data, status sinkron, DO FAS, Sub ERP, J073, target | `node salin.cjs --uji kelola` |
+| 09_kelola_tabel.sql | Kelola Data → Tabel (edit langsung) | `node salin.cjs --uji tabel` |
 
 ## Untuk tahap 5 (backend)
 
@@ -42,3 +43,4 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 - Mode `--uji <grup>` menjalankan skenario tulis di kedua database di dalam transaksi yang dibatalkan (ROLLBACK).
 - salin.cjs mematikan trigger selama menyalin (trigger stamp sellin_region_map tidak mengubah updated_at hasil salinan).
 - status_sync_set: jam kosong disimpan 00:00 (PostgreSQL menolak karena kolom wajib terisi).
+- tabel_baca / tabel_opsi mengembalikan satu kolom j berisi teks JSON (sama dengan ::text di PostgreSQL).

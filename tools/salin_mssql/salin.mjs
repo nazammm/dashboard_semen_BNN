@@ -141,6 +141,11 @@ async function banding(pgc, ms, grup) {
 }
 
 // ---------- mode uji (prosedur tulis) ----------
+function normDeep(x) {
+  if (Array.isArray(x)) return x.map(normDeep).sort((p, q) => (JSON.stringify(p) < JSON.stringify(q) ? -1 : JSON.stringify(p) > JSON.stringify(q) ? 1 : 0));
+  if (x && typeof x === 'object' && !(x instanceof Date)) return Object.fromEntries(Object.keys(x).sort().map(k => [k, normDeep(x[k])]));
+  return nilai(x);
+}
 async function uji(pgc, ms, grup) {
   const daftar = grup === 'semua' ? Object.values(UJI).flat() : UJI[grup];
   if (!daftar) throw new Error(`Grup uji tidak dikenal: ${grup}. Pilihan: ${Object.keys(UJI).join(', ')}, semua`);
@@ -176,6 +181,10 @@ async function uji(pgc, ms, grup) {
         }
         if (l.simpan) { varPg[l.simpan] = a[0] && Object.values(a[0])[0]; varMs[l.simpan] = b[0] && Object.values(b[0])[0]; }
         if (l.banding === false) { console.log(`    jalan  ${l.nama}`); continue; }
+        if (l.json) {   // kolom pertama berisi JSON: dibandingkan isinya (urutan array diabaikan)
+          const ambil = rows => { const x = rows[0] && Object.values(rows[0])[0]; return typeof x === 'string' ? JSON.parse(x) : x; };
+          a = [{ j: JSON.stringify(normDeep(ambil(a))) }]; b = [{ j: JSON.stringify(normDeep(ambil(b))) }];
+        }
         const na = norm(a), nb = norm(b);
         const sama_ = na.length === nb.length && na.every((x, i) => {
           const xa = JSON.parse(x), xb = JSON.parse(nb[i]);
