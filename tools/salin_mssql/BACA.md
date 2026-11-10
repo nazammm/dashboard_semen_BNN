@@ -6,27 +6,28 @@ Tabel tujuan harus sudah dibuat dengan `docs/mssql/01_tabel.sql`.
 Tidak ikut disalin: tabel staging upload (`transaksi_staging`, `sellin_bnn_staging`, `sellin_po_staging`) karena isinya hanya sementara,
 dan `auth_local.sessions` (sesi login; pengguna cukup login ulang).
 
-## Langkah (Windows, pakai Command Prompt, bukan PowerShell)
+## Langkah (Windows, pakai Command Prompt)
 
-1. Ekstrak folder ini, misalnya ke `C:\salin_mssql`.
-2. Buka Command Prompt, lalu:
+Jaringan kantor memblokir npm, jadi yang dikirim adalah satu file `salin.cjs` yang sudah berisi semua paketnya
+(dibuat dengan `npm run bundel` dari folder ini). Cukup Node, tanpa `npm install`.
+
+1. Masuk ke folder yang berisi `salin.cjs`:
    ```
-   cd C:\salin_mssql
-   npm install
+   cd C:\Users\B207User\Downloads\salin_mssql
    ```
-3. Pemeriksaan dulu, tidak menulis apa pun:
+2. Pemeriksaan dulu, tidak menulis apa pun:
    ```
-   node salin.mjs --cek
+   node salin.cjs --cek
    ```
    Isi pertanyaannya. Tekan Enter untuk memakai nilai di dalam kurung siku.
    Password tidak tampil saat diketik dan tidak disimpan di mana pun.
-4. Kalau hasilnya "Tidak ada temuan", jalankan penyalinan:
+3. Kalau hasilnya "Tidak ada temuan", jalankan penyalinan:
    ```
-   node salin.mjs
+   node salin.cjs
    ```
-   Ketik `y` saat ditanya. Isi tabel tujuan diganti dengan data PostgreSQL, jadi skrip ini aman dijalankan ulang.
+   Ketik `y` saat ditanya. Isi tabel tujuan diganti dengan data PostgreSQL, jadi aman dijalankan ulang.
 
-Mengulang tabel tertentu saja: `node salin.mjs --tabel transaksi,target`
+Mengulang tabel tertentu saja: `node salin.cjs --tabel transaksi,target`
 
 ## Yang diperiksa
 

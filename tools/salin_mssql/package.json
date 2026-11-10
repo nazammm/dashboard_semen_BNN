@@ -3,6 +3,13 @@
   "private": true,
   "description": "Menyalin data SEMENTRACK dari PostgreSQL ke SQL Server (MARKETING_ANALIS)",
   "type": "module",
-  "scripts": { "salin": "node salin.mjs", "cek": "node salin.mjs --cek" },
-  "dependencies": { "mssql": "12.7.12", "pg": "8.23.1" }
+  "scripts": {
+    "salin": "node salin.mjs",
+    "cek": "node salin.mjs --cek",
+    "bundel": "npx esbuild@0.25.10 salin.mjs --bundle --platform=node --format=cjs --target=node18 --external:pg-native --outfile=dist/salin.cjs"
+  },
+  "dependencies": {
+    "mssql": "12.7.12",
+    "pg": "8.23.1"
+  }
 }

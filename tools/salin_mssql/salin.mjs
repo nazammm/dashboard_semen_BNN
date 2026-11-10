@@ -279,5 +279,6 @@ async function main() {
   await ms.close();
 }
 
-if (import.meta.url.endsWith('/salin.mjs') && process.argv[1]?.replace(/\\/g, '/').endsWith('salin.mjs'))
+// dijalankan langsung (salin.mjs, atau salin.cjs hasil bundel), bukan di-import untuk uji
+if (/[\\/]salin\.(mjs|cjs)$/i.test(process.argv[1] || ''))
   main().then(() => process.exit(0), e => { console.error(`\n${e.message}`); process.exit(1); });
