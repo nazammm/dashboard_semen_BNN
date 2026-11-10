@@ -16,6 +16,9 @@ import pg from 'pg';
 import sql from 'mssql';
 import readline from 'node:readline';
 import { CEK } from './cek.mjs';
+import { UJI } from './uji.mjs';
+
+pg.types.setTypeParser(1082, v => v);   // kolom date PostgreSQL tetap teks 'YYYY-MM-DD' (tanpa geser zona waktu)
 
 const BATCH = 5000;
 // staging (isi sementara saat upload) dan sesi login tidak perlu dipindah
@@ -26,6 +29,8 @@ const args = process.argv.slice(2);
 const HANYA_CEK = args.includes('--cek');
 const iBanding = args.indexOf('--banding');
 const BANDING = iBanding >= 0 ? (args[iBanding + 1] || 'semua').toLowerCase() : null;
+const iUji = args.indexOf('--uji');
+const UJI_GRUP = iUji >= 0 ? (args[iUji + 1] || 'semua').toLowerCase() : null;
 const iTabel = args.indexOf('--tabel');
 const PILIH = iTabel >= 0 ? new Set((args[iTabel + 1] || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) : null;
 
@@ -82,10 +87,17 @@ export function exprPg(nama, tipePg) {
 // ---------- mode banding ----------
 function nilai(v) {
   if (v == null) return null;
-  if (v instanceof Date) return v.toISOString();
+  if (v instanceof Date) {
+    const iso = v.toISOString();
+    return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso;
+  }
+  if (Array.isArray(v)) return v.join(',');
   if (typeof v === 'boolean') return v ? 1 : 0;
   if (typeof v === 'number' || typeof v === 'bigint') return Number(v);
   const t = String(v).trim();
+  if (t.startsWith('[') && t.endsWith(']')) {
+    try { const a = JSON.parse(t); if (Array.isArray(a)) return a.join(','); } catch { /* bukan JSON */ }
+  }
   return /^-?\d+(\.\d+)?(e[-+]?\d+)?$/i.test(t) ? Number(t) : t;
 }
 function sama(a, b) {
@@ -128,9 +140,67 @@ async function banding(pgc, ms, grup) {
   console.log(`\n${lolos} dari ${daftar.length} pemeriksaan cocok.`);
 }
 
+// ---------- mode uji (prosedur tulis) ----------
+async function uji(pgc, ms, grup) {
+  const daftar = grup === 'semua' ? Object.values(UJI).flat() : UJI[grup];
+  if (!daftar) throw new Error(`Grup uji tidak dikenal: ${grup}. Pilihan: ${Object.keys(UJI).join(', ')}, semua`);
+  const isi = (sqlText, vars) => sqlText.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+  const norm = rows => rows.map(r => JSON.stringify(Object.values(r).map(nilai))).sort();
+  let lolosSkenario = 0;
+  for (const sk of daftar) {
+    console.log(`\n  ${sk.nama}`);
+    const v = sk.siapkan ? (await pgc.query(sk.siapkan)).rows[0] || {} : {};
+    const varPg = {}, varMs = {};
+    let gagal = false;
+    const tx = new sql.Transaction(ms);
+    await pgc.query('begin');
+    await tx.begin();
+    try {
+      for (const l of sk.langkah(v)) {
+        let a, b, ea, eb;
+        try { a = (await pgc.query(isi(l.pg, varPg))).rows; } catch (e) { ea = e.message; }
+        try { b = (await new sql.Request(tx).query(isi(l.ms ?? l.pg, varMs))).recordset ?? []; } catch (e) { eb = e.message; }
+        if (l.galat) {
+          const ok = ea && eb;
+          console.log(`    ${ok ? 'cocok' : 'BEDA '}  ${l.nama}: ${ok ? 'keduanya menolak' : `PostgreSQL ${ea ? 'menolak' : 'menerima'}, SQL Server ${eb ? 'menolak' : 'menerima'}`}`);
+          if (ea) console.log(`           PostgreSQL: ${ea}`);
+          if (eb) console.log(`           SQL Server: ${eb}`);
+          if (!ok) gagal = true;
+          break;                                     // setelah galat transaksi sudah batal; skenario berhenti
+        }
+        if (ea || eb) {
+          console.log(`    GAGAL  ${l.nama}`);
+          if (ea) console.log(`           PostgreSQL: ${ea}`);
+          if (eb) console.log(`           SQL Server: ${eb}`);
+          gagal = true; break;
+        }
+        if (l.simpan) { varPg[l.simpan] = a[0] && Object.values(a[0])[0]; varMs[l.simpan] = b[0] && Object.values(b[0])[0]; }
+        if (l.banding === false) { console.log(`    jalan  ${l.nama}`); continue; }
+        const na = norm(a), nb = norm(b);
+        const sama_ = na.length === nb.length && na.every((x, i) => {
+          const xa = JSON.parse(x), xb = JSON.parse(nb[i]);
+          return xa.length === xb.length && xa.every((y, j) => sama(y, xb[j]));
+        });
+        console.log(`    ${sama_ ? 'cocok' : 'BEDA '}  ${l.nama}${sama_ ? '' : ''}`);
+        if (!sama_) {
+          console.log(`           PostgreSQL: ${na.slice(0, 4).join(' | ')}`);
+          console.log(`           SQL Server: ${nb.slice(0, 4).join(' | ')}`);
+          gagal = true;
+        }
+      }
+    } finally {
+      try { await pgc.query('rollback'); } catch { /* sudah batal */ }
+      try { await tx.rollback(); } catch { /* sudah dibatalkan server */ }
+    }
+    if (!gagal) lolosSkenario++;
+  }
+  console.log(`\n${lolosSkenario} dari ${daftar.length} skenario cocok. Semua perubahan sudah dibatalkan (ROLLBACK).`);
+}
+
 async function main() {
   console.log('\nSalin data SEMENTRACK: PostgreSQL ke SQL Server');
-  console.log(BANDING ? `Mode banding (${BANDING}): membandingkan hasil view, tidak ada data yang ditulis.\n`
+  console.log(UJI_GRUP ? `Mode uji (${UJI_GRUP}): prosedur tulis dijalankan di dalam transaksi yang dibatalkan di akhir, tidak ada data yang tersimpan.\n`
+    : BANDING ? `Mode banding (${BANDING}): membandingkan hasil view, tidak ada data yang ditulis.\n`
     : HANYA_CEK ? 'Mode cek: tidak ada data yang ditulis.\n' : '\n');
 
   console.log('PostgreSQL (sumber)');
@@ -167,6 +237,7 @@ async function main() {
   try { ms = await sql.connect(msCfg); } catch (e) { throw new Error(`Tidak bisa masuk ke SQL Server: ${e.message}`); }
   console.log('\nTerhubung ke kedua database.\n');
   if (BANDING) { await banding(pgc, ms, BANDING); await pgc.end(); await ms.close(); return; }
+  if (UJI_GRUP) { await uji(pgc, ms, UJI_GRUP); await pgc.end(); await ms.close(); return; }
 
   // ---------- daftar tabel & kolom tujuan ----------
   const kol = (await ms.request().query(`

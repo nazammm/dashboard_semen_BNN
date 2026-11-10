@@ -10,6 +10,7 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 03_sellout.sql | Sell Out BNN, J073, target | `node salin.cjs --banding sellout` |
 | 04_transaksi.sql | Penjualan Toko, Rekap Harian, Tim Sales, toko | `node salin.cjs --banding transaksi` |
 | 05_kelola_view.sql | status data, riwayat Kelola Data | `node salin.cjs --banding kelola` |
+| 06_upload_transaksi.sql | upload transaksi J028 | `node salin.cjs --uji transaksi` |
 
 ## Untuk tahap 5 (backend)
 
@@ -34,3 +35,6 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
   | dashboard_payment_breakdown(_range) | net_amount DESC |
   | dashboard_store_year | [month] |
 - `public.transaksi` di query backend menjadi `dbo.transaksi`.
+- Prosedur tulis dipanggil `EXEC skema.prosedur @p1, @p2, ...` (berurutan). Pesan untuk pengguna dilempar dengan
+  nomor 52023 (PostgreSQL: errcode 22023): tampilkan apa adanya sebagai HTTP 400.
+- Mode `--uji <grup>` menjalankan skenario tulis di kedua database di dalam transaksi yang dibatalkan (ROLLBACK).
