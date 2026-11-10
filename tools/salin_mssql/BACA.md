@@ -40,3 +40,12 @@ Sesudah menyalin:
 - semua relasi dan aturan isian diperiksa ulang terhadap data.
 
 Satu tabel = satu transaksi: kalau satu tabel gagal, tabel itu kembali seperti semula dan tabel lain tetap jalan.
+
+## Mode banding (tahap 3 dan seterusnya)
+
+Setelah menjalankan skrip view di SSMS (misalnya `docs/mssql/02_sellin.sql`), bandingkan hasilnya dengan PostgreSQL:
+```
+node salin.cjs --banding sellin
+```
+Query yang sama dijalankan di kedua database dan angkanya dibandingkan per baris (daftar ada di `cek.mjs`).
+Tidak ada data yang ditulis. `--banding semua` menjalankan semua grup.

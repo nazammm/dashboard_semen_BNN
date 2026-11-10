@@ -15,6 +15,7 @@
 import pg from 'pg';
 import sql from 'mssql';
 import readline from 'node:readline';
+import { CEK } from './cek.mjs';
 
 const BATCH = 5000;
 // staging (isi sementara saat upload) dan sesi login tidak perlu dipindah
@@ -23,6 +24,8 @@ const PG_SCHEMA = { dbo: 'public', sementrack: 'sementrack', auth_local: 'auth_l
 
 const args = process.argv.slice(2);
 const HANYA_CEK = args.includes('--cek');
+const iBanding = args.indexOf('--banding');
+const BANDING = iBanding >= 0 ? (args[iBanding + 1] || 'semua').toLowerCase() : null;
 const iTabel = args.indexOf('--tabel');
 const PILIH = iTabel >= 0 ? new Set((args[iTabel + 1] || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) : null;
 
@@ -76,9 +79,59 @@ export function exprPg(nama, tipePg) {
   return k;                                                                 // teks, bilangan bulat, boolean
 }
 
+// ---------- mode banding ----------
+function nilai(v) {
+  if (v == null) return null;
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (typeof v === 'number' || typeof v === 'bigint') return Number(v);
+  const t = String(v).trim();
+  return /^-?\d+(\.\d+)?(e[-+]?\d+)?$/i.test(t) ? Number(t) : t;
+}
+function sama(a, b) {
+  if (a === null || b === null) return a === b;
+  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a), Math.abs(b));
+  return a === b;
+}
+async function banding(pgc, ms, grup) {
+  const daftar = grup === 'semua' ? Object.values(CEK).flat() : CEK[grup];
+  if (!daftar) throw new Error(`Grup banding tidak dikenal: ${grup}. Pilihan: ${Object.keys(CEK).join(', ')}, semua`);
+  let lolos = 0;
+  for (const c of daftar) {
+    let pgRows, msRows;
+    try { pgRows = (await pgc.query(c.pg)).rows; } catch (e) { console.log(`  GAGAL  ${c.nama}\n         PostgreSQL: ${e.message}`); continue; }
+    try { msRows = (await ms.request().query(c.ms ?? c.pg)).recordset; } catch (e) { console.log(`  GAGAL  ${c.nama}\n         SQL Server: ${e.message}`); continue; }
+    const peta = rows => {
+      const m = new Map();
+      for (const r of rows) {
+        const v = Object.values(r).map(nilai);
+        m.set(JSON.stringify(v.slice(0, c.kunci).map(x => x ?? '(kosong)')), v.slice(c.kunci));
+      }
+      return m;
+    };
+    const a = peta(pgRows), b = peta(msRows), beda = [];
+    const kol = pgRows[0] ? Object.keys(pgRows[0]).slice(c.kunci) : [];
+    for (const [k, va] of a) {
+      const vb = b.get(k);
+      if (!vb) { beda.push(`${JSON.parse(k).join(' | ')}: hanya ada di PostgreSQL ${JSON.stringify(va)}`); continue; }
+      const i = va.findIndex((x, j) => !sama(x, vb[j]));
+      if (i >= 0) beda.push(`${JSON.parse(k).join(' | ')}: ${kol[i] ?? `kolom ${i + 1}`} PostgreSQL ${va[i]}, SQL Server ${vb[i]}`);
+    }
+    for (const [k, vb] of b) if (!a.has(k)) beda.push(`${JSON.parse(k).join(' | ')}: hanya ada di SQL Server ${JSON.stringify(vb)}`);
+    if (!beda.length) { lolos++; console.log(`  cocok  ${c.nama} (${a.size} baris)`); }
+    else {
+      console.log(`  BEDA   ${c.nama}: ${beda.length} dari ${Math.max(a.size, b.size)} baris`);
+      for (const x of beda.slice(0, 8)) console.log(`         ${x}`);
+      if (beda.length > 8) console.log(`         ... dan ${beda.length - 8} lagi`);
+    }
+  }
+  console.log(`\n${lolos} dari ${daftar.length} pemeriksaan cocok.`);
+}
+
 async function main() {
   console.log('\nSalin data SEMENTRACK: PostgreSQL ke SQL Server');
-  console.log(HANYA_CEK ? 'Mode cek: tidak ada data yang ditulis.\n' : '\n');
+  console.log(BANDING ? `Mode banding (${BANDING}): membandingkan hasil view, tidak ada data yang ditulis.\n`
+    : HANYA_CEK ? 'Mode cek: tidak ada data yang ditulis.\n' : '\n');
 
   console.log('PostgreSQL (sumber)');
   const pgCfg = {
@@ -113,6 +166,7 @@ async function main() {
   let ms;
   try { ms = await sql.connect(msCfg); } catch (e) { throw new Error(`Tidak bisa masuk ke SQL Server: ${e.message}`); }
   console.log('\nTerhubung ke kedua database.\n');
+  if (BANDING) { await banding(pgc, ms, BANDING); await pgc.end(); await ms.close(); return; }
 
   // ---------- daftar tabel & kolom tujuan ----------
   const kol = (await ms.request().query(`
