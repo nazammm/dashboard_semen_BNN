@@ -1,0 +1,9 @@
+{
+  "name": "web-mssql",
+  "private": true,
+  "description": "SEMENTRACK lokal di atas SQL Server (uji web lengkap sebelum backend .NET diganti)",
+  "scripts": {
+    "bundel": "npx esbuild@0.25.10 server.js --bundle --platform=node --format=cjs --target=node18 --outfile=out/web_sementrack.cjs"
+  },
+  "dependencies": { "bcryptjs": "2.4.3", "mssql": "12.7.12" }
+}
