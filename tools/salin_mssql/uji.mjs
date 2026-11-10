@@ -172,7 +172,7 @@ const isiSellin = {
          (select string_agg(region || ':' || tipe_pesanan || ':' || loco_franco || ':' || ton::float, ';' order by region, tipe_pesanan) from sementrack.v_sellin_bnn_daily where tanggal >= '2099-01-01') harian,
          (select count(*) from sementrack.sellin_bnn_staging) staging`,
   ms: `select (select count(*) from sementrack.sellin_bnn where tanggal >= '2099-01-01') baris, (select sum(ton) from sementrack.sellin_bnn where tanggal >= '2099-01-01') ton,
-         (select STRING_AGG(region + ':' + tipe_pesanan + ':' + loco_franco + ':' + CONVERT(varchar(30), CAST(ton AS float), 3), ';') WITHIN GROUP (ORDER BY region, tipe_pesanan) from sementrack.v_sellin_bnn_daily where tanggal >= '2099-01-01') harian,
+         (select STRING_AGG(region + ':' + tipe_pesanan + ':' + loco_franco + ':' + FORMAT(CAST(ton AS decimal(20,6)), 'G29'), ';') WITHIN GROUP (ORDER BY region, tipe_pesanan) from sementrack.v_sellin_bnn_daily where tanggal >= '2099-01-01') harian,
          (select count(*) from sementrack.sellin_bnn_staging) staging`,
 };
 const uploadPg = id => `select status, rows_read, rows_staged, rows_saved, rows_replaced, ton_saved from sementrack.sellin_bnn_upload where id = ${id}`;
@@ -183,9 +183,9 @@ const isiPo = {
          (select string_agg(order_no || ':' || status || ':' || jalur || ':' || region || ':' || sisa_ton::float || ':' || umur_hari || ':' || lewat_hari, ';' order by order_no)
            from sementrack.v_outstanding_do where tanggal_order >= '2099-01-01') os,
          (select count(*) from sementrack.sellin_po_staging) staging`,
-  ms: `select (select STRING_AGG(order_no + ':' + status_order + ':' + FORMAT(tanggal_order,'MMdd') + ':' + ISNULL(FORMAT(kirim_terakhir,'MMdd'),'-') + ':' + CONVERT(varchar(30), CAST(order_qty AS float), 3) + ':' + CONVERT(varchar(30), CAST(delivery_qty AS float), 3) + ':' + CAST(pengiriman AS varchar(10)), ';') WITHIN GROUP (ORDER BY order_no)
+  ms: `select (select STRING_AGG(order_no + ':' + status_order + ':' + FORMAT(tanggal_order,'MMdd') + ':' + ISNULL(FORMAT(kirim_terakhir,'MMdd'),'-') + ':' + FORMAT(CAST(order_qty AS decimal(20,6)), 'G29') + ':' + FORMAT(CAST(delivery_qty AS decimal(20,6)), 'G29') + ':' + CAST(pengiriman AS varchar(10)), ';') WITHIN GROUP (ORDER BY order_no)
            from sementrack.sellin_po where tanggal_order >= '2099-01-01') po,
-         (select STRING_AGG(order_no + ':' + status + ':' + jalur + ':' + region + ':' + CONVERT(varchar(30), CAST(sisa_ton AS float), 3) + ':' + CAST(umur_hari AS varchar(10)) + ':' + CAST(lewat_hari AS varchar(10)), ';') WITHIN GROUP (ORDER BY order_no)
+         (select STRING_AGG(order_no + ':' + status + ':' + jalur + ':' + region + ':' + FORMAT(CAST(sisa_ton AS decimal(20,6)), 'G29') + ':' + CAST(umur_hari AS varchar(10)) + ':' + CAST(lewat_hari AS varchar(10)), ';') WITHIN GROUP (ORDER BY order_no)
            from sementrack.v_outstanding_do where tanggal_order >= '2099-01-01') os,
          (select count(*) from sementrack.sellin_po_staging) staging`,
 };
