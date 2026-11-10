@@ -103,7 +103,7 @@ async function main() {
     server: host, database: msDb, user: msUser, password: msPass,
     ...(port ? { port } : {}),
     options: { ...(instanceName ? { instanceName } : {}), encrypt: true, trustServerCertificate: true, useUTC: true },
-    pool: { max: 1, min: 0 },   // satu koneksi saja: SET IDENTITY_INSERT berlaku per koneksi
+    pool: { max: 1, min: 0 },
     requestTimeout: 10 * 60 * 1000, connectionTimeout: 30000,
   };
 
@@ -224,15 +224,16 @@ async function main() {
     const mulai = Date.now();
     const tujuan = `${qi(t.skema)}.${qi(t.nama)}`;
     const cols = t.pasangan.map(x => x.ms.kolom);
-    const insert = `insert into ${tujuan} (${cols.map(qi).join(', ')})
-      select ${cols.map(qi).join(', ')} from openjson(@j) with (${t.pasangan.map(x => `${qi(x.ms.kolom)} ${tipeMs(x.ms)} '$."${x.ms.kolom}"'`).join(', ')})`;
+    // SET IDENTITY_INSERT harus di perintah yang sama: request.query() dijalankan lewat sp_executesql, jadi SET di perintah terpisah langsung hilang
+    const idOn = t.identitas ? `set identity_insert ${tujuan} on;\n` : '', idOff = t.identitas ? `;\nset identity_insert ${tujuan} off;` : '';
+    const insert = `${idOn}insert into ${tujuan} (${cols.map(qi).join(', ')})
+      select ${cols.map(qi).join(', ')} from openjson(@j) with (${t.pasangan.map(x => `${qi(x.ms.kolom)} ${tipeMs(x.ms)} '$."${x.ms.kolom}"'`).join(', ')})${idOff}`;
     const tx = new sql.Transaction(ms);
     let masuk = 0;
     process.stdout.write(`  ${pad(t.ms, 42)}`);
     try {
       await tx.begin();
       await new sql.Request(tx).query(`delete from ${tujuan}`);
-      if (t.identitas) await new sql.Request(tx).query(`set identity_insert ${tujuan} on`);
       await pgc.query('begin read only');
       await pgc.query(`declare c no scroll cursor for select row_to_json(x)::text j from (select ${t.pasangan.map(x => `${exprPg(x.pg.kolom, x.pg.tipe)} as ${qp(x.ms.kolom)}`).join(', ')} from ${qp(PG_SCHEMA[t.skema])}.${qp(t.nama)}) x`);
       for (;;) {
@@ -243,7 +244,6 @@ async function main() {
         process.stdout.write(`\r  ${pad(t.ms, 42)}${padL(angka(masuk), 10)}`);
       }
       await pgc.query('commit');
-      if (t.identitas) await new sql.Request(tx).query(`set identity_insert ${tujuan} off`);
       await tx.commit();
       const n = (await ms.request().query(`select count_big(*) n from ${tujuan}`)).recordset[0].n;
       const cocok = Number(n) === t.baris;
@@ -252,7 +252,6 @@ async function main() {
     } catch (e) {
       try { await pgc.query('rollback'); } catch { /* sudah selesai */ }
       try { await tx.rollback(); } catch { /* transaksi sudah dibatalkan server */ }
-      if (t.identitas) try { await ms.request().query(`set identity_insert ${tujuan} off`); } catch { /* sudah mati */ }
       hasil.push({ t, gagal: e.message });
       console.log(`\r  ${pad(t.ms, 42)}GAGAL: ${e.message}`);
     }
