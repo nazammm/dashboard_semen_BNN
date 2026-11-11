@@ -313,20 +313,24 @@ BEGIN
   DELETE FROM sementrack.sellin_po WHERE tanggal_order BETWEEN @from AND @to;
   SET @replaced = @@ROWCOUNT;
 
+  -- baris yang lolos aturan disaring sekali, lalu status terlengkap per order dipilih dengan ROW_NUMBER
+  -- (subquery per order terlalu lambat untuk file ratusan ribu baris)
+  SELECT s.*, ROW_NUMBER() OVER (PARTITION BY s.distributor, s.order_no, s.tipe_produk
+           ORDER BY CASE LOWER(s.status_order) WHEN N'delivered' THEN 0 WHEN N'partially delivered' THEN 1 ELSE 2 END) AS rn
+  INTO #lolos
+  FROM sementrack.sellin_po_staging s
+  WHERE s.upload_id = @p_upload AND sementrack.sellin_rule_produk(s.tipe_pesanan, s.distributor, s.asal_pengiriman, s.tipe_produk) = 1;
+
   SELECT s.distributor, s.order_no, s.tipe_produk,
          MIN(s.tanggal_order) AS tanggal_order, MAX(s.estimasi_kirim) AS estimasi_kirim, MAX(s.tanggal_kirim) AS kirim_terakhir,
-         (SELECT TOP (1) s2.status_order FROM sementrack.sellin_po_staging s2
-          WHERE s2.upload_id = @p_upload AND s2.distributor = s.distributor AND s2.order_no = s.order_no AND s2.tipe_produk = s.tipe_produk
-            AND sementrack.sellin_rule_produk(s2.tipe_pesanan, s2.distributor, s2.asal_pengiriman, s2.tipe_produk) = 1
-          ORDER BY CASE LOWER(s2.status_order) WHEN N'delivered' THEN 0 WHEN N'partially delivered' THEN 1 ELSE 2 END) AS status_order,
+         MAX(CASE WHEN s.rn = 1 THEN s.status_order END) AS status_order,
          MAX(s.alasan_reject) AS alasan_reject, MAX(s.kode_customer) AS kode_customer, MAX(s.nama_customer) AS nama_customer,
          MAX(s.tipe_pesanan) AS tipe_pesanan, MAX(s.asal_pengiriman) AS asal_pengiriman, MAX(s.kode_tujuan) AS kode_tujuan,
          MAX(s.nama_tujuan) AS nama_tujuan, MAX(s.kota_tujuan) AS kota_tujuan, MAX(s.loco_franco) AS loco_franco,
          ISNULL(MAX(s.order_qty), 0) AS order_qty, ISNULL(SUM(s.delivery_qty), 0) AS delivery_qty,
          SUM(CASE WHEN ISNULL(s.delivery_qty, 0) > 0 THEN 1 ELSE 0 END) AS pengiriman
   INTO #agg
-  FROM sementrack.sellin_po_staging s
-  WHERE s.upload_id = @p_upload AND sementrack.sellin_rule_produk(s.tipe_pesanan, s.distributor, s.asal_pengiriman, s.tipe_produk) = 1
+  FROM #lolos s
   GROUP BY s.distributor, s.order_no, s.tipe_produk;
   SET @saved = @@ROWCOUNT;
 
