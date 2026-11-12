@@ -154,8 +154,15 @@ function RekapBody({ base }: { base: Base }) {
       <PageHeader title="Rekap Harian" status={<DataBadge source="transaksi" />} />
 
       <FilterBar label="Filter Rekap Harian">
-        <Select label="Bulan" value={period} onChange={e => setPeriod(e.target.value)}
-          options={periods.map(p => ({ value: `${p.year}-${p.month}`, label: `${MONTHS_ID[p.month]} ${p.year}` }))} />
+        <Select label="Tahun" value={year}
+          onChange={e => {
+            // bulan yang sama kalau ada datanya di tahun itu; kalau tidak, bulan terakhir yang ada
+            const y = Number(e.target.value), ms = periods.filter(p => p.year === y).map(p => p.month);
+            setPeriod(`${y}-${ms.includes(month) ? month : ms[ms.length - 1]}`);
+          }}
+          options={[...new Set(periods.map(p => p.year))].sort((a, b) => b - a).map(y => ({ value: y, label: String(y) }))} />
+        <Select label="Bulan" value={month} onChange={e => setPeriod(`${year}-${e.target.value}`)}
+          options={periods.filter(p => p.year === year).map(p => ({ value: p.month, label: MONTHS_ID[p.month] }))} />
         <Select label="Jenis Semen" value={jenis} onChange={e => setJenis(e.target.value)}
           options={[{ value: 'all', label: 'Semua Jenis' }, ...jenisList.map(j => ({ value: j, label: j }))]} />
         <div className="ml-auto">
