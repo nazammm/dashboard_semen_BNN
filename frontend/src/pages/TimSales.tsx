@@ -4,7 +4,7 @@ import { DataSource } from '../lib/data';
 import { useAuth } from '../lib/auth';
 import { useAsync, useDebounced, useDocTitle, useSort } from '../lib/hooks';
 import { COLORS, MONTHS_ID, capaianClass, chartSRSummary, fmt, pct } from '../lib/format';
-import { kelompokUntuk, lajuBulan, nilaiSalesman, type KelompokId } from '../lib/salesman';
+import { KELOMPOK, hariBerjalan, kelompokInfo, nilaiSalesman, type KelompokId } from '../lib/salesman';
 import type { Row } from '../lib/types';
 import { Badge, Capaian, CellLink, ChartBox, Chip, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th } from '../components/ui';
 
@@ -46,17 +46,17 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
   const [q, setQ] = useState('');
   const query = useDebounced(q.trim().toLowerCase(), 150);
 
-  // bulan yang masih berjalan dinilai terhadap laju target (target x hari berjalan / jumlah hari)
-  const laju = lajuBulan(year, month, freshnessData?.max_do_date);
+  // bulan masih berjalan: tetap dibandingkan dengan target sebulan penuh, hanya diberi keterangan
+  const hari = hariBerjalan(year, month, freshnessData?.max_do_date);
   const list = useMemo<Sales[]>(() => rows.filter(r =>
     Number(r.month) === month && (dist === 'all' || r.dist_code === dist) && r.status === 'Sales Real'
   ).map(r => {
     const capaian_ta = pct(r.actual_ta, r.target_ta) ?? -1;
     const capaian_tonase = pct(r.actual_tonase, r.target_tonase) ?? -1;
-    const n = nilaiSalesman(r, laju.faktor);
+    const n = nilaiSalesman(r);
     // urutan bawaan: kelompok, lalu tonase terbesar (bukan persen capaian)
     return { ...r, capaian_ta, capaian_tonase, kelompok: n.kelompok, satuTarget: n.satuTarget, urut_kelompok: n.urut * 1e9 - Number(r.actual_tonase || 0) };
-  }), [rows, month, dist, laju.faktor]);
+  }), [rows, month, dist]);
 
   /* ---------- KPI tim: capaian tertimbang (total aktual / total target), bukan rata-rata persen ---------- */
   const sum = (arr: Sales[], k: string) => arr.reduce((a, r) => a + Number(r[k] || 0), 0);
@@ -69,9 +69,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
   const targetSales = targets ? targets.filter(t => dist === 'all' || t.dist_code === dist).reduce((a, t) => a + Number(t.target_salesman || 0), 0) : 0;
 
   /* ---------- jumlah salesman per kelompok ---------- */
-  const berjalan = laju.faktor < 1;
-  const semuaKel = kelompokUntuk(berjalan), kelompokInfo = (id: KelompokId) => semuaKel.find(k => k.id === id)!;
-  const grup = semuaKel.filter(k => k.id !== 'tanpa');
+  const grup = KELOMPOK.filter(k => k.id !== 'tanpa');
   const bucketLabels = grup.map(k => k.label);
   const bucketColors = [COLORS.green, COLORS.accent, COLORS.amber, COLORS.red];
   const bucketCounts = useMemo(() => grup.map(k => scored.filter(r => r.kelompok === k.id).length),
@@ -127,7 +125,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
           delta={tTA > 0 ? `${fmt(aTA)} dari ${fmt(tTA)} toko aktif · tanpa subdist` : 'Belum ada target TA'} />
         <Kpi title="Capaian Tonase Tim" value={tTon > 0 ? (aTon / tTon * 100).toFixed(0) + '%' : '–'}
           delta={tTon > 0 ? `${fmt(aTon, 1)} dari ${fmt(tTon, 1)} ton · tanpa subdist` : 'Belum ada target tonase'} />
-        <Kpi title={berjalan ? 'Sesuai Laju Target' : 'Capai Target'} value={fmt(reached)} unit={`/ ${fmt(scored.length)}`} delta={berjalan ? `Semua targetnya sesuai laju s.d. tgl ${laju.hari}` : 'Semua targetnya minimal 100%'} />
+        <Kpi title="Capai Target" value={fmt(reached)} unit={`/ ${fmt(scored.length)}`} delta="Semua targetnya minimal 100%" />
       </div>
 
       {targets && targets.length > 0
@@ -138,7 +136,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
         <div>
           <h2 className="section-title !m-0">Daftar Salesman</h2>
           <p className="text-faint text-[12px] mt-1 max-w-[640px]">Dikelompokkan menurut tercapai atau belumnya target, tanpa nomor peringkat karena besar target tiap salesman berbeda. Di dalam kelompok, urutan menurut tonase terbesar.
-            {berjalan && <> <b className="text-ink font-medium">Bulan masih berjalan:</b> yang dinilai adalah laju, yaitu {fmt(laju.faktor * 100, 0)}% dari target sebulan sampai tanggal {laju.hari}. Garis hitam di batang capaian menandai laju itu; batang hijau berarti sudah melewatinya.</>}</p>
+            {hari != null && <> <b className="text-ink font-medium">Bulan masih berjalan</b> (data sampai tanggal {hari}): capaian dibandingkan dengan target sebulan penuh, jadi wajar masih banyak yang belum tercapai.</>}</p>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
           <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Cari salesman…" aria-label="Cari salesman" className="!w-[200px] !py-[7px]" />
@@ -180,10 +178,10 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
                   </td>
                   <td className="num font-mono">{r.target_ta ? fmt(r.target_ta) : '–'}</td>
                   <td className="num font-mono">{fmt(r.actual_ta)}</td>
-                  <td><Capaian actual={r.actual_ta} target={r.target_ta} laju={laju.faktor} /></td>
+                  <td><Capaian actual={r.actual_ta} target={r.target_ta} /></td>
                   <td className="num font-mono">{r.target_tonase ? fmt(r.target_tonase) : '–'}</td>
                   <td className="num font-mono">{fmt(r.actual_tonase)}</td>
-                  <td><Capaian actual={r.actual_tonase} target={r.target_tonase} laju={laju.faktor} /></td>
+                  <td><Capaian actual={r.actual_tonase} target={r.target_tonase} /></td>
                 </tr>
               ))}
           </tbody>
