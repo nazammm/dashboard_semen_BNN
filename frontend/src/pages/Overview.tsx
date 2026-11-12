@@ -6,7 +6,9 @@ import { MONTHS_ID, fmt } from '../lib/format';
 import { fmtDate, fmtRange, toISO, daysInMonth } from '../lib/dates';
 import { DataBadge, todayWIB, type DataSourceId } from '../components/DataStatus';
 import { DaerahHero } from '../components/DaerahHero';
-import { Capaian, Card, Chip, ErrorBox, PageHeader, PageSkeleton, TableWrap, cx } from '../components/ui';
+import { KELOMPOK, nilaiSalesman, type KelompokId } from '../lib/salesman';
+import type { Row } from '../lib/types';
+import { Badge, Capaian, Card, Chip, ErrorBox, PageHeader, PageSkeleton, TableWrap, cx } from '../components/ui';
 import {
   JALUR_DARAT, OPEN_STATUS, REGION_ORDER, fmtPct, growthPct, key, outRecs, outSummary, ringkas, sellInRingkasan, sellOutRingkasan,
   type Bulanan, type OutRec, type Periode, type Peta, type Ringkas, type SellInRingkasan, type SellOutRingkasan,
@@ -14,7 +16,7 @@ import {
 
 /* ============================================================================
    Overview: kondisi perusahaan dalam satu layar. Empat angka utama (sell in, sell out, toko aktif,
-   outstanding DO), lalu satu baris per daerah.
+   outstanding DO), satu baris per daerah, lalu jumlah salesman per kelompok capaian.
    Tanpa grafik: grafik ada di halaman detail masing-masing.
    Angka dihitung dengan aturan yang sama dengan halaman detailnya (lib/ringkasan.ts),
    jadi kartu di sini selalu sama dengan KPI di halaman Sell In BNN / Sell Out BNN.
@@ -31,10 +33,10 @@ export default function Overview() {
   useDocTitle('Overview');
   const { pageAllowed } = useAuth();
   const load = useAsync(async () => {
-    const [siRows, siInfo, siTarget, peta, soMonthly, soTarget, status, soTa, outRows, outInfo] = await Promise.all([
+    const [siRows, siInfo, siTarget, peta, soMonthly, soTarget, status, soTa, outRows, outInfo, salesRows] = await Promise.all([
       opt(DataSource.sellinDaily()), opt(DataSource.sellinInfo()), opt(DataSource.targetSellIn()),
       opt(DataSource.selloutPeta()), opt(DataSource.selloutMonthly()), opt(DataSource.targetSellOut()), opt(DataSource.dataStatus()), opt(DataSource.selloutTa()),
-      opt(DataSource.outstandingRingkas()), opt(DataSource.outstandingInfo()),
+      opt(DataSource.outstandingRingkas()), opt(DataSource.outstandingInfo()), opt(DataSource.salesman()),
     ]);
     const last = String(siInfo?.data_sampai ?? '').slice(0, 10);
     const sellIn: SellInData | null = siRows && siRows.length && last
@@ -46,7 +48,7 @@ export default function Overview() {
       sellOut = { s: sellOutRingkasan(peta as unknown as Peta[], soMonthly, soTarget ? sellOutTargetsFor(soTarget, Y) : [], soTa, trx, Y) };
     }
     const outstanding = outRows && outInfo?.posisi ? { recs: outRecs(outRows), posisi: String(outInfo.posisi).slice(0, 10) } : null;
-    return { sellIn, sellOut, outstanding };
+    return { sellIn, sellOut, outstanding, sales: salesRows && salesRows.length ? salesRows : null };
   }, []);
   if (load.error) return <ErrorBox error={load.error} />;
   if (!load.data) return <PageSkeleton />;
@@ -76,8 +78,8 @@ const baris = (b: Bulanan, per: Periode, lastMonth: number, cutDay: number, Y: n
 /** Selisih capaian terhadap laju, dalam poin persen dari target. Negatif = tertinggal. */
 const selisihLaju = (r: Baris) => (r.target > 0 ? (r.cur - r.laju) / r.target * 100 : null);
 
-function Body({ sellIn, sellOut, outstanding, sources }: {
-  sellIn: SellInData | null; sellOut: SellOutData | null; outstanding: { recs: OutRec[]; posisi: string } | null; sources: DataSourceId[];
+function Body({ sellIn, sellOut, outstanding, sales, sources }: {
+  sellIn: SellInData | null; sellOut: SellOutData | null; outstanding: { recs: OutRec[]; posisi: string } | null; sales: Row[] | null; sources: DataSourceId[];
 }) {
   const [kind, setKind] = useState<'ytd' | 'bulan'>('bulan');
   const si = sellIn?.s, so = sellOut?.s;
@@ -224,7 +226,79 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
           </p>
         </Card>
       )}
+      {sales && <TimSalesRingkas rows={sales} />}
     </>
+  );
+}
+
+/* ---------- Tim sales: jumlah salesman per kelompok capaian, bulan transaksi terakhir ---------- */
+function TimSalesRingkas({ rows }: { rows: Row[] }) {
+  const d = useMemo(() => {
+    // bulan terakhir yang punya transaksi salesman
+    const per = rows.reduce((a, r) => (Number(r.actual_num_do) > 0 ? Math.max(a, Number(r.tahun) * 100 + Number(r.month)) : a), 0);
+    if (!per) return null;
+    const Y = Math.floor(per / 100), m = per % 100;
+    const grup = KELOMPOK.filter(k => k.id !== 'tanpa');
+    const baru = () => ({ n: 0, k: Object.fromEntries(grup.map(g => [g.id, 0])) as Record<KelompokId, number>, tTon: 0, aTon: 0, tTa: 0, aTa: 0 });
+    const total = baru(), by = new Map<string, ReturnType<typeof baru>>();
+    rows.forEach(r => {
+      if (Number(r.tahun) !== Y || Number(r.month) !== m || r.status !== 'Sales Real') return;
+      const v = nilaiSalesman(r);
+      if (v.kelompok === 'tanpa') return;
+      const dist = String(r.dist_code);
+      [total, by.get(dist) || by.set(dist, baru()).get(dist)!].forEach(x => {
+        x.n++; x.k[v.kelompok]++;
+        if (Number(r.target_tonase) > 0) { x.tTon += Number(r.target_tonase); x.aTon += Number(r.actual_tonase || 0); }
+        if (Number(r.target_ta) > 0) { x.tTa += Number(r.target_ta); x.aTa += Number(r.actual_ta || 0); }
+      });
+    });
+    return { Y, m, grup, total, by: [...by.entries()].sort((a, b) => b[1].aTon - a[1].aTon) };
+  }, [rows]);
+  if (!d || !d.total.n) return null;
+  const persen = (a: number, t: number) => (t > 0
+    ? <span className={cx('font-mono text-xs font-semibold', a >= t ? 'text-green' : a >= t * 0.8 ? 'text-amber' : 'text-red')}>{fmt(a / t * 100, 0)}%</span>
+    : <span className="text-faint">–</span>);
+  return (
+    <Card title={`Tim sales · ${MONTHS_ID[d.m]} ${d.Y}`} className="mt-4">
+      <div className="grid grid-cols-4 max-[880px]:grid-cols-2 gap-3 mb-4">
+        {d.grup.map(g => (
+          <div key={g.id} className="rounded-[8px] border border-line px-4 py-3">
+            <Badge variant={g.variant}>{g.label}</Badge>
+            <div className="kpi-value mt-2">{fmt(d.total.k[g.id])}<span className="unit">dari {fmt(d.total.n)} salesman</span></div>
+            <div className="text-faint text-[12px] mt-1">{g.ket}</div>
+          </div>
+        ))}
+      </div>
+      <TableWrap>
+        <table className="tbl-dense">
+          <thead><tr>
+            <th>Distributor</th><th className="num">Salesman</th>
+            {d.grup.map(g => <th key={g.id} className="num">{g.label}</th>)}
+            <th className="num">Capaian tonase tim</th><th className="num">Capaian toko aktif tim</th>
+          </tr></thead>
+          <tbody>
+            {d.by.map(([dist, x]) => (
+              <tr key={dist}>
+                <td><span className="tag-code">{dist}</span></td>
+                <td className="num font-mono">{fmt(x.n)}</td>
+                {d.grup.map(g => <td key={g.id} className={cx('num font-mono', !x.k[g.id] && 'text-faint')}>{x.k[g.id] ? fmt(x.k[g.id]) : '–'}</td>)}
+                <td className="num">{persen(x.aTon, x.tTon)}</td>
+                <td className="num">{persen(x.aTa, x.tTa)}</td>
+              </tr>
+            ))}
+          </tbody>
+          {d.by.length > 1 && (
+            <tfoot><tr className="font-semibold">
+              <td>Total</td><td className="num font-mono">{fmt(d.total.n)}</td>
+              {d.grup.map(g => <td key={g.id} className="num font-mono">{fmt(d.total.k[g.id])}</td>)}
+              <td className="num">{persen(d.total.aTon, d.total.tTon)}</td>
+              <td className="num">{persen(d.total.aTa, d.total.tTa)}</td>
+            </tr></tfoot>
+          )}
+        </table>
+      </TableWrap>
+      <p className="text-faint text-[12px] mt-2">Salesman berstatus Sales Real yang punya target. Sumber: transaksi distributor (tanpa subdist). Daftar nama ada di halaman Tim Sales.</p>
+    </Card>
   );
 }
 

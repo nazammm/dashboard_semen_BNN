@@ -87,6 +87,7 @@ Check(AccessRules.ReadAlias["v_target_dist"] == "sementrack.v_target_dist" && Ac
 var ov = AccessRules.ComputeAccess("mo", new[] { "overview" });
 Check(ov.Tables.Contains("v_outstanding_do_ringkas") && ov.Tables.Contains("v_sellin_bnn_daily") && ov.Tables.Contains("v_sellout_bnn_monthly"), "overview membaca sell in, sell out, outstanding");
 Check(!ov.Tables.Contains("v_outstanding_do"), "overview tanpa daftar order outstanding");
+Check(ov.Tables.Contains("v_salesman_performance") && !ov.Tables.Contains("v_transaksi_detail"), "overview membaca capaian salesman, tanpa detail transaksi");
 Check(AccessRules.ComputeAccess("mo", new[] { "outstanding-do" }).Tables.Contains("v_outstanding_do"), "halaman outstanding membaca daftar order");
 Check(AccessRules.KnownPageIds.Contains("overview") && AccessRules.KnownPageIds.Contains("outstanding-do"), "halaman baru dikenal");
 

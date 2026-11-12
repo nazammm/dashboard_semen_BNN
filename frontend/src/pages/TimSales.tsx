@@ -4,10 +4,11 @@ import { DataSource } from '../lib/data';
 import { useAuth } from '../lib/auth';
 import { useAsync, useDebounced, useDocTitle, useSort } from '../lib/hooks';
 import { COLORS, MONTHS_ID, capaianClass, chartSRSummary, fmt, pct } from '../lib/format';
+import { KELOMPOK, kelompokInfo, nilaiSalesman, type KelompokId } from '../lib/salesman';
 import type { Row } from '../lib/types';
-import { Capaian, CapaianAvg, CellLink, ChartBox, Chip, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th } from '../components/ui';
+import { Badge, Capaian, CellLink, ChartBox, Chip, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th } from '../components/ui';
 
-type Sales = Row & { capaian_ta: number; capaian_tonase: number; capaian_avg: number };
+type Sales = Row & { capaian_ta: number; capaian_tonase: number; kelompok: KelompokId; urut_kelompok: number; satuTarget: boolean };
 
 export default function TimSales() {
   const { session } = useAuth();
@@ -50,11 +51,9 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
   ).map(r => {
     const capaian_ta = pct(r.actual_ta, r.target_ta) ?? -1;
     const capaian_tonase = pct(r.actual_tonase, r.target_tonase) ?? -1;
-    const parts: number[] = [];
-    if (r.target_ta > 0) parts.push(capaian_ta);
-    if (r.target_tonase > 0) parts.push(capaian_tonase);
-    const capaian_avg = parts.length ? parts.reduce((a, b) => a + b, 0) / parts.length : -1;
-    return { ...r, capaian_ta, capaian_tonase, capaian_avg };
+    const n = nilaiSalesman(r);
+    // urutan bawaan: kelompok, lalu tonase terbesar (bukan persen capaian)
+    return { ...r, capaian_ta, capaian_tonase, kelompok: n.kelompok, satuTarget: n.satuTarget, urut_kelompok: n.urut * 1e9 - Number(r.actual_tonase || 0) };
   }), [rows, month, dist]);
 
   /* ---------- KPI tim: capaian tertimbang (total aktual / total target), bukan rata-rata persen ---------- */
@@ -62,43 +61,33 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
   const withTA = list.filter(r => r.target_ta > 0), withTon = list.filter(r => r.target_tonase > 0);
   const tTA = sum(withTA, 'target_ta'), aTA = sum(withTA, 'actual_ta');
   const tTon = sum(withTon, 'target_tonase'), aTon = sum(withTon, 'actual_tonase');
-  const scored = list.filter(r => r.capaian_avg >= 0);
-  const reached = scored.filter(r => r.capaian_avg >= 100).length;
+  const scored = list.filter(r => r.kelompok !== 'tanpa');
+  const reached = scored.filter(r => r.kelompok === 'capai').length;
   const salesAktif = new Set(list.map(r => `${r.dist_code}|${r.salesman_code}`)).size;
   const targetSales = targets ? targets.filter(t => dist === 'all' || t.dist_code === dist).reduce((a, t) => a + Number(t.target_salesman || 0), 0) : 0;
 
-  /* ---------- sebaran skor ---------- */
-  const bucketLabels = ['< 50%', '50–79%', '80–99%', '100–119%', '≥ 120%'];
-  const bucketColors = [COLORS.red, '#D9822B', COLORS.amber, '#6FAE85', COLORS.green];
-  const bucketCounts = useMemo(() => {
-    const c = [0, 0, 0, 0, 0];
-    scored.forEach(r => {
-      const p = r.capaian_avg;
-      if (p < 50) c[0]++; else if (p < 80) c[1]++; else if (p < 100) c[2]++; else if (p < 120) c[3]++; else c[4]++;
-    });
-    return c;
-  }, [scored]);
+  /* ---------- jumlah salesman per kelompok ---------- */
+  const grup = KELOMPOK.filter(k => k.id !== 'tanpa');
+  const bucketLabels = grup.map(k => k.label);
+  const bucketColors = [COLORS.green, COLORS.accent, COLORS.amber, COLORS.red];
+  const bucketCounts = useMemo(() => grup.map(k => scored.filter(r => r.kelompok === k.id).length),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scored]);
 
-  /* ---------- papan peringkat ---------- */
-  const rankOf = useMemo(() => {
-    const m = new Map<Sales, number>();
-    [...scored].sort((a, b) => b.capaian_avg - a.capaian_avg).forEach((r, i) => m.set(r, i + 1));
-    return m;
-  }, [scored]);
-  const { sorted, toggle, ariaSort, sortKey, sortDir, setSort } = useSort<Sales>(list, 'capaian_avg', 'desc', (r, k) => {
+  /* ---------- daftar salesman: dikelompokkan, tanpa nomor peringkat ---------- */
+  const [kel, setKel] = useState<KelompokId | 'all'>('all');
+  const { sorted, toggle, ariaSort } = useSort<Sales>(list, 'urut_kelompok', 'asc', (r, k) => {
     const v = r[k];
     return typeof v === 'string' ? v : (v ?? -1);
   });
-  const view = sortKey === 'capaian_avg' ? (sortDir === 'desc' ? 'atas' : 'bawah') : null;
-  // "Tertinggal": salesman tanpa target (skor –) tidak ikut diurutkan di paling bawah
-  const ordered = view === 'bawah' ? sorted.filter(r => r.capaian_avg >= 0) : sorted;
+  const ordered = kel === 'all' ? sorted : sorted.filter(r => r.kelompok === kel);
   const filtered = query ? ordered.filter(r => `${r.salesman_name} ${r.salesman_code} ${r.dist_code}`.toLowerCase().includes(query)) : ordered;
   const shown = query ? filtered : filtered.slice(0, topN);
   const hdr = (k: string, text: ReactNode, num?: boolean, title?: string) => <Th sortable num={num} ariaSort={ariaSort(k)} onSort={() => toggle(k)} title={title}>{text}</Th>;
 
   const sebaranCard = (
     <div className="card">
-      <h2 className="card-title">Sebaran Skor Salesman</h2>
+      <h2 className="card-title">Kelompok Capaian Salesman</h2>
       <p className="text-faint text-[12px] -mt-1 mb-2">{fmt(scored.length)} salesman bertarget · {MONTHS_ID[month]} {year}</p>
       <ChartBox className="!h-[300px]" label={chartSRSummary(bucketLabels, bucketCounts, 'salesman')}
         deps={[bucketCounts]}
@@ -108,7 +97,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
           options: {
             responsive: true, maintainAspectRatio: false,
             scales: { y: { beginAtZero: true, grid: { color: COLORS.line }, ticks: { precision: 0 } }, x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 40 } } },
-            plugins: { tooltip: { callbacks: { title: (c: any) => `Skor ${c[0].label}`, label: (c: any) => ` ${fmt(c.parsed.y)} salesman` } } },
+            plugins: { tooltip: { callbacks: { title: (c: any) => c[0].label, label: (c: any) => ` ${fmt(c.parsed.y)} salesman` } } },
           },
         } as any)} />
     </div>
@@ -134,7 +123,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
           delta={tTA > 0 ? `${fmt(aTA)} dari ${fmt(tTA)} toko aktif · tanpa subdist` : 'Belum ada target TA'} />
         <Kpi title="Capaian Tonase Tim" value={tTon > 0 ? (aTon / tTon * 100).toFixed(0) + '%' : '–'}
           delta={tTon > 0 ? `${fmt(aTon, 1)} dari ${fmt(tTon, 1)} ton · tanpa subdist` : 'Belum ada target tonase'} />
-        <Kpi title="Capai Target" value={fmt(reached)} unit={`/ ${fmt(scored.length)}`} delta="Salesman dengan skor ≥ 100%" />
+        <Kpi title="Capai Target" value={fmt(reached)} unit={`/ ${fmt(scored.length)}`} delta="Semua targetnya minimal 100%" />
       </div>
 
       {targets && targets.length > 0
@@ -143,14 +132,14 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
 
       <div className="flex items-end justify-between flex-wrap gap-x-4 gap-y-2.5 mt-[38px] mb-3.5">
         <div>
-          <h2 className="section-title !m-0">Papan Peringkat</h2>
-          <p className="text-faint text-[12px] mt-1">Skor = rata-rata Capaian TA dan Capaian Tonase (yang punya target).</p>
+          <h2 className="section-title !m-0">Daftar Salesman</h2>
+          <p className="text-faint text-[12px] mt-1 max-w-[640px]">Dikelompokkan menurut tercapai atau belumnya target, tanpa nomor peringkat karena besar target tiap salesman berbeda. Di dalam kelompok, urutan menurut tonase terbesar.</p>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
           <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Cari salesman…" aria-label="Cari salesman" className="!w-[200px] !py-[7px]" />
-          <div className="pill-row" role="group" aria-label="Urutan">
-            <Chip active={view === 'atas'} onClick={() => setSort('capaian_avg', 'desc')}>Teratas</Chip>
-            <Chip active={view === 'bawah'} onClick={() => setSort('capaian_avg', 'asc')}>Tertinggal</Chip>
+          <div className="pill-row" role="group" aria-label="Kelompok capaian">
+            <Chip active={kel === 'all'} onClick={() => setKel('all')}>Semua</Chip>
+            {grup.map((k, i) => <Chip key={k.id} active={kel === k.id} onClick={() => setKel(k.id)}>{k.label} ({fmt(bucketCounts[i])})</Chip>)}
           </div>
           {!query && (
             <div className="pill-row" role="group" aria-label="Jumlah baris yang ditampilkan">
@@ -161,12 +150,11 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
       </div>
       <TableWrap>
         <table>
-          <caption className="sr-only">Papan peringkat salesman berdasarkan skor</caption>
+          <caption className="sr-only">Daftar salesman menurut kelompok capaian target</caption>
           <thead><tr>
-            <th className="num" style={{ width: 44 }} title="Peringkat menurut skor">#</th>
             {hdr('salesman_name', 'Salesman')}
             {hdr('dist_code', 'Distributor')}
-            {hdr('capaian_avg', 'Skor', false, 'Rata-rata Capaian TA dan Capaian Tonase')}
+            {hdr('urut_kelompok', 'Kelompok', false, 'Capai target: semua target minimal 100%. Capai sebagian: satu dari dua. Mendekati: rata-rata minimal 80%. Tertinggal: di bawah 80%.')}
             {hdr('target_ta', 'Target TA', true)}
             {hdr('actual_ta', 'TA Aktual', true)}
             {hdr('capaian_ta', 'Capaian TA')}
@@ -176,13 +164,15 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
           </tr></thead>
           <tbody>
             {shown.length === 0
-              ? <tr><td colSpan={10} className="!text-center text-faint !p-6">{query ? `Tidak ada salesman dengan kata "${q.trim()}".` : 'Tidak ada data untuk filter ini.'}</td></tr>
+              ? <tr><td colSpan={9} className="!text-center text-faint !p-6">{query ? `Tidak ada salesman dengan kata "${q.trim()}".` : 'Tidak ada data untuk filter ini.'}</td></tr>
               : shown.map((r, i) => (
                 <tr key={`${r.salesman_code}-${r.dist_code}-${i}`}>
-                  <td className="num font-mono">{rankOf.get(r) ?? '–'}</td>
                   <td className="min-w-[200px]"><CellLink to={`/transaksi-detail?salesman=${encodeURIComponent(r.salesman_code)}&year=${year}&month=${month}&name=${encodeURIComponent(r.salesman_name)}`}>{r.salesman_name}</CellLink></td>
                   <td><span className="tag-code">{r.dist_code}</span></td>
-                  <td><CapaianAvg p={r.capaian_avg} /></td>
+                  <td className="whitespace-nowrap">
+                    <Badge variant={kelompokInfo(r.kelompok).variant} title={kelompokInfo(r.kelompok).ket}>{kelompokInfo(r.kelompok).label}</Badge>
+                    {r.satuTarget && <span className="text-faint text-[11.5px] ml-1.5" title="Hanya punya satu target bulan ini">1 target</span>}
+                  </td>
                   <td className="num font-mono">{r.target_ta ? fmt(r.target_ta) : '–'}</td>
                   <td className="num font-mono">{fmt(r.actual_ta)}</td>
                   <td><Capaian actual={r.actual_ta} target={r.target_ta} /></td>

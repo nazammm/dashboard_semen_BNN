@@ -144,9 +144,9 @@ public static class AccessRules
             new[] { "dashboard_period_summary_v2", "dashboard_top_customers_v2", "dashboard_delivery_type_breakdown", "dashboard_channel_breakdown", "dashboard_payment_breakdown",
                     "dashboard_period_summary_range", "dashboard_top_customers_range", "dashboard_channel_breakdown_range",
                     "dashboard_payment_breakdown_range", "dashboard_delivery_type_breakdown_range", "dashboard_product_breakdown_range" }),
-        // Overview: rangkuman Sell In, Sell Out, Outstanding DO
+        // Overview: rangkuman Sell In, Sell Out, Outstanding DO, dan kelompok capaian salesman
         ["overview"] = new(new[] { "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_target_sell_in", "v_sellout_bnn_monthly", "v_sellout_bnn_peta",
-                                   "v_sellout_bnn_ta", "v_target_sell_out", "v_outstanding_do_ringkas", "v_outstanding_do_info" }, Array.Empty<string>()),
+                                   "v_sellout_bnn_ta", "v_target_sell_out", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_salesman_performance" }, Array.Empty<string>()),
         ["sell-in-bnn"] = new(new[] { "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_target_sell_in" }, Array.Empty<string>()),
         ["outstanding-do"] = new(new[] { "v_outstanding_do", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_sellin_po_bulanan", "v_target_sell_in" }, Array.Empty<string>()),
         ["sell-out-bnn"] = new(new[] { "v_sellout_bnn_monthly", "v_sellout_bnn_peta", "v_sellout_bnn_ta", "v_target_sell_out" }, Array.Empty<string>()),
