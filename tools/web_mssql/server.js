@@ -76,7 +76,7 @@ const PageDependencies = {
   beranda: [['v_distributor_summary', 'produk', 'v_target_dist', 'v_toko_agg', 'v_transaksi_monthly', 'v_dist_monthly_totals'], ['dashboard_period_summary_v2', 'dashboard_top_customers_v2', 'dashboard_delivery_type_breakdown', 'dashboard_channel_breakdown', 'dashboard_payment_breakdown', ...RANGE_FNS]],
   'rekap-harian': [['v_distributor_summary', 'v_monthly_totals', 'produk', 'v_target_dist'], ['dashboard_daily_matrix']],
   'tim-sales': [['v_salesman_performance', 'distributor_target_salesman'], []],
-  overview: [['v_sellin_bnn_daily', 'v_sellin_bnn_info', 'v_target_sell_in', 'v_sellout_bnn_monthly', 'v_sellout_bnn_peta', 'v_sellout_bnn_ta', 'v_target_sell_out', 'v_outstanding_do_ringkas', 'v_outstanding_do_info'], []],
+  overview: [['v_sellin_bnn_daily', 'v_sellin_bnn_info', 'v_target_sell_in', 'v_sellout_bnn_monthly', 'v_sellout_bnn_peta', 'v_sellout_bnn_ta', 'v_target_sell_out', 'v_outstanding_do_ringkas', 'v_outstanding_do_info', 'v_salesman_performance'], []],
   'sell-in-bnn': [['v_sellin_bnn_daily', 'v_sellin_bnn_info', 'v_target_sell_in'], []],
   'outstanding-do': [['v_outstanding_do', 'v_outstanding_do_ringkas', 'v_outstanding_do_info', 'v_sellin_po_bulanan', 'v_target_sell_in'], []],
   'sell-out-bnn': [['v_sellout_bnn_monthly', 'v_sellout_bnn_peta', 'v_sellout_bnn_ta', 'v_target_sell_out'], []],
