@@ -6,7 +6,7 @@ import { MONTHS_ID, fmt } from '../lib/format';
 import { fmtDate, fmtRange, toISO, daysInMonth } from '../lib/dates';
 import { DataBadge, todayWIB, type DataSourceId } from '../components/DataStatus';
 import { DaerahHero } from '../components/DaerahHero';
-import { KELOMPOK, nilaiSalesman, type KelompokId } from '../lib/salesman';
+import { KELOMPOK, lajuBulan, nilaiSalesman, type KelompokId } from '../lib/salesman';
 import type { Row } from '../lib/types';
 import { Badge, Capaian, Card, Chip, ErrorBox, PageHeader, PageSkeleton, TableWrap, cx } from '../components/ui';
 import {
@@ -33,10 +33,10 @@ export default function Overview() {
   useDocTitle('Overview');
   const { pageAllowed } = useAuth();
   const load = useAsync(async () => {
-    const [siRows, siInfo, siTarget, peta, soMonthly, soTarget, status, soTa, outRows, outInfo, salesRows] = await Promise.all([
+    const [siRows, siInfo, siTarget, peta, soMonthly, soTarget, status, soTa, outRows, outInfo, salesRows, fresh] = await Promise.all([
       opt(DataSource.sellinDaily()), opt(DataSource.sellinInfo()), opt(DataSource.targetSellIn()),
       opt(DataSource.selloutPeta()), opt(DataSource.selloutMonthly()), opt(DataSource.targetSellOut()), opt(DataSource.dataStatus()), opt(DataSource.selloutTa()),
-      opt(DataSource.outstandingRingkas()), opt(DataSource.outstandingInfo()), opt(DataSource.salesman()),
+      opt(DataSource.outstandingRingkas()), opt(DataSource.outstandingInfo()), opt(DataSource.salesman()), opt(DataSource.dataFreshness()),
     ]);
     const last = String(siInfo?.data_sampai ?? '').slice(0, 10);
     const sellIn: SellInData | null = siRows && siRows.length && last
@@ -48,7 +48,7 @@ export default function Overview() {
       sellOut = { s: sellOutRingkasan(peta as unknown as Peta[], soMonthly, soTarget ? sellOutTargetsFor(soTarget, Y) : [], soTa, trx, Y) };
     }
     const outstanding = outRows && outInfo?.posisi ? { recs: outRecs(outRows), posisi: String(outInfo.posisi).slice(0, 10) } : null;
-    return { sellIn, sellOut, outstanding, sales: salesRows && salesRows.length ? salesRows : null };
+    return { sellIn, sellOut, outstanding, sales: salesRows && salesRows.length ? salesRows : null, dataSampai: fresh ? String(fresh.max_do_date ?? '') : '' };
   }, []);
   if (load.error) return <ErrorBox error={load.error} />;
   if (!load.data) return <PageSkeleton />;
@@ -78,8 +78,8 @@ const baris = (b: Bulanan, per: Periode, lastMonth: number, cutDay: number, Y: n
 /** Selisih capaian terhadap laju, dalam poin persen dari target. Negatif = tertinggal. */
 const selisihLaju = (r: Baris) => (r.target > 0 ? (r.cur - r.laju) / r.target * 100 : null);
 
-function Body({ sellIn, sellOut, outstanding, sales, sources }: {
-  sellIn: SellInData | null; sellOut: SellOutData | null; outstanding: { recs: OutRec[]; posisi: string } | null; sales: Row[] | null; sources: DataSourceId[];
+function Body({ sellIn, sellOut, outstanding, sales, dataSampai, sources }: {
+  sellIn: SellInData | null; sellOut: SellOutData | null; outstanding: { recs: OutRec[]; posisi: string } | null; sales: Row[] | null; dataSampai: string; sources: DataSourceId[];
 }) {
   const [kind, setKind] = useState<'ytd' | 'bulan'>('bulan');
   const si = sellIn?.s, so = sellOut?.s;
@@ -226,24 +226,25 @@ function Body({ sellIn, sellOut, outstanding, sales, sources }: {
           </p>
         </Card>
       )}
-      {sales && <TimSalesRingkas rows={sales} />}
+      {sales && <TimSalesRingkas rows={sales} dataSampai={dataSampai} />}
     </>
   );
 }
 
 /* ---------- Tim sales: jumlah salesman per kelompok capaian, bulan transaksi terakhir ---------- */
-function TimSalesRingkas({ rows }: { rows: Row[] }) {
+function TimSalesRingkas({ rows, dataSampai }: { rows: Row[]; dataSampai: string }) {
   const d = useMemo(() => {
     // bulan terakhir yang punya transaksi salesman
     const per = rows.reduce((a, r) => (Number(r.actual_num_do) > 0 ? Math.max(a, Number(r.tahun) * 100 + Number(r.month)) : a), 0);
     if (!per) return null;
     const Y = Math.floor(per / 100), m = per % 100;
     const grup = KELOMPOK.filter(k => k.id !== 'tanpa');
+    const laju = lajuBulan(Y, m, dataSampai);   // bulan berjalan: dinilai terhadap laju target
     const baru = () => ({ n: 0, k: Object.fromEntries(grup.map(g => [g.id, 0])) as Record<KelompokId, number>, tTon: 0, aTon: 0, tTa: 0, aTa: 0 });
     const total = baru(), by = new Map<string, ReturnType<typeof baru>>();
     rows.forEach(r => {
       if (Number(r.tahun) !== Y || Number(r.month) !== m || r.status !== 'Sales Real') return;
-      const v = nilaiSalesman(r);
+      const v = nilaiSalesman(r, laju.faktor);
       if (v.kelompok === 'tanpa') return;
       const dist = String(r.dist_code);
       [total, by.get(dist) || by.set(dist, baru()).get(dist)!].forEach(x => {
@@ -252,14 +253,14 @@ function TimSalesRingkas({ rows }: { rows: Row[] }) {
         if (Number(r.target_ta) > 0) { x.tTa += Number(r.target_ta); x.aTa += Number(r.actual_ta || 0); }
       });
     });
-    return { Y, m, grup, total, by: [...by.entries()].sort((a, b) => b[1].aTon - a[1].aTon) };
-  }, [rows]);
+    return { Y, m, grup, laju, total, by: [...by.entries()].sort((a, b) => b[1].aTon - a[1].aTon) };
+  }, [rows, dataSampai]);
   if (!d || !d.total.n) return null;
   const persen = (a: number, t: number) => (t > 0
     ? <span className={cx('font-mono text-xs font-semibold', a >= t ? 'text-green' : a >= t * 0.8 ? 'text-amber' : 'text-red')}>{fmt(a / t * 100, 0)}%</span>
     : <span className="text-faint">–</span>);
   return (
-    <Card title={`Tim sales · ${MONTHS_ID[d.m]} ${d.Y}`} className="mt-4">
+    <Card title={`Tim sales · ${MONTHS_ID[d.m]} ${d.Y}${d.laju.faktor < 1 ? `, s.d. tgl ${d.laju.hari}` : ''}`} className="mt-4">
       <div className="grid grid-cols-4 max-[880px]:grid-cols-2 gap-3 mb-4">
         {d.grup.map(g => (
           <div key={g.id} className="rounded-[8px] border border-line px-4 py-3">
@@ -297,7 +298,8 @@ function TimSalesRingkas({ rows }: { rows: Row[] }) {
           )}
         </table>
       </TableWrap>
-      <p className="text-faint text-[12px] mt-2">Salesman berstatus Sales Real yang punya target. Sumber: transaksi distributor (tanpa subdist). Daftar nama ada di halaman Tim Sales.</p>
+      <p className="text-faint text-[12px] mt-2">Salesman berstatus Sales Real yang punya target. Sumber: transaksi distributor (tanpa subdist). Daftar nama ada di halaman Tim Sales.
+        {d.laju.faktor < 1 && <> Bulan masih berjalan: kelompok dinilai terhadap laju target sampai tanggal {d.laju.hari} ({fmt(d.laju.faktor * 100, 0)}% dari target sebulan), capaian tim tetap terhadap target sebulan penuh.</>}</p>
     </Card>
   );
 }

@@ -6,6 +6,9 @@
    - Capai sebagian : punya dua target, hanya satu yang minimal 100%
    - Mendekati      : belum ada yang 100%, rata-rata capaian minimal 80%
    - Tertinggal     : rata-rata capaian di bawah 80%
+   Bulan yang masih berjalan dinilai terhadap laju target: target dikali (hari berjalan / jumlah hari
+   sebulan). Tanpa ini, di awal bulan semua salesman otomatis "tertinggal" karena dibandingkan dengan
+   target sebulan penuh.
 ============================================================================ */
 import type { Row } from './types';
 
@@ -21,10 +24,22 @@ export const BATAS_DEKAT = 80;
 export const kelompokInfo = (id: KelompokId) => KELOMPOK.find(k => k.id === id)!;
 
 export interface Nilai { kelompok: KelompokId; urut: number; capaian_ta: number | null; capaian_tonase: number | null; satuTarget: boolean }
-export function nilaiSalesman(r: Row): Nilai {
+/** Bagian bulan yang sudah berjalan (0..1) untuk bulan Y-m, dari tanggal transaksi terakhir. 1 = bulan sudah penuh / sudah lewat. */
+export function lajuBulan(Y: number, m: number, dataSampai: string | null | undefined): { faktor: number; hari: number; jumlahHari: number } {
+  const jumlahHari = new Date(Y, m, 0).getDate();
+  const t = String(dataSampai ?? '').slice(0, 10);
+  if (Number(t.slice(0, 4)) === Y && Number(t.slice(5, 7)) === m) {
+    const hari = Number(t.slice(8, 10));
+    if (hari > 0 && hari < jumlahHari) return { faktor: hari / jumlahHari, hari, jumlahHari };
+  }
+  return { faktor: 1, hari: jumlahHari, jumlahHari };
+}
+
+/** faktor < 1 = bulan berjalan: kelompok dinilai terhadap target x faktor. capaian_* tetap terhadap target sebulan penuh. */
+export function nilaiSalesman(r: Row, faktor = 1): Nilai {
   const cta = Number(r.target_ta) > 0 ? Number(r.actual_ta || 0) / Number(r.target_ta) * 100 : null;
   const cton = Number(r.target_tonase) > 0 ? Number(r.actual_tonase || 0) / Number(r.target_tonase) * 100 : null;
-  const parts = [cta, cton].filter((x): x is number => x != null);
+  const parts = [cta, cton].filter((x): x is number => x != null).map(p => p / faktor);
   let kelompok: KelompokId;
   if (!parts.length) kelompok = 'tanpa';
   else if (parts.every(p => p >= 100)) kelompok = 'capai';

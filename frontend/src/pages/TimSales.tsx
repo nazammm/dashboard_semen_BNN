@@ -4,7 +4,7 @@ import { DataSource } from '../lib/data';
 import { useAuth } from '../lib/auth';
 import { useAsync, useDebounced, useDocTitle, useSort } from '../lib/hooks';
 import { COLORS, MONTHS_ID, capaianClass, chartSRSummary, fmt, pct } from '../lib/format';
-import { KELOMPOK, kelompokInfo, nilaiSalesman, type KelompokId } from '../lib/salesman';
+import { KELOMPOK, kelompokInfo, lajuBulan, nilaiSalesman, type KelompokId } from '../lib/salesman';
 import type { Row } from '../lib/types';
 import { Badge, Capaian, CellLink, ChartBox, Chip, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th } from '../components/ui';
 
@@ -46,15 +46,17 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
   const [q, setQ] = useState('');
   const query = useDebounced(q.trim().toLowerCase(), 150);
 
+  // bulan yang masih berjalan dinilai terhadap laju target (target x hari berjalan / jumlah hari)
+  const laju = lajuBulan(year, month, freshnessData?.max_do_date);
   const list = useMemo<Sales[]>(() => rows.filter(r =>
     Number(r.month) === month && (dist === 'all' || r.dist_code === dist) && r.status === 'Sales Real'
   ).map(r => {
     const capaian_ta = pct(r.actual_ta, r.target_ta) ?? -1;
     const capaian_tonase = pct(r.actual_tonase, r.target_tonase) ?? -1;
-    const n = nilaiSalesman(r);
+    const n = nilaiSalesman(r, laju.faktor);
     // urutan bawaan: kelompok, lalu tonase terbesar (bukan persen capaian)
     return { ...r, capaian_ta, capaian_tonase, kelompok: n.kelompok, satuTarget: n.satuTarget, urut_kelompok: n.urut * 1e9 - Number(r.actual_tonase || 0) };
-  }), [rows, month, dist]);
+  }), [rows, month, dist, laju.faktor]);
 
   /* ---------- KPI tim: capaian tertimbang (total aktual / total target), bukan rata-rata persen ---------- */
   const sum = (arr: Sales[], k: string) => arr.reduce((a, r) => a + Number(r[k] || 0), 0);
@@ -133,7 +135,8 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
       <div className="flex items-end justify-between flex-wrap gap-x-4 gap-y-2.5 mt-[38px] mb-3.5">
         <div>
           <h2 className="section-title !m-0">Daftar Salesman</h2>
-          <p className="text-faint text-[12px] mt-1 max-w-[640px]">Dikelompokkan menurut tercapai atau belumnya target, tanpa nomor peringkat karena besar target tiap salesman berbeda. Di dalam kelompok, urutan menurut tonase terbesar.</p>
+          <p className="text-faint text-[12px] mt-1 max-w-[640px]">Dikelompokkan menurut tercapai atau belumnya target, tanpa nomor peringkat karena besar target tiap salesman berbeda. Di dalam kelompok, urutan menurut tonase terbesar.
+            {laju.faktor < 1 && <> <b className="text-ink font-medium">Bulan masih berjalan:</b> kelompok dinilai terhadap laju target sampai tanggal {laju.hari} ({fmt(laju.faktor * 100, 0)}% dari target sebulan). Kolom capaian tetap terhadap target sebulan penuh.</>}</p>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
           <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Cari salesman…" aria-label="Cari salesman" className="!w-[200px] !py-[7px]" />
