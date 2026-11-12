@@ -4,7 +4,7 @@ import { DataSource } from '../lib/data';
 import { useAuth } from '../lib/auth';
 import { useAsync, useDebounced, useDocTitle, useSort } from '../lib/hooks';
 import { COLORS, MONTHS_ID, capaianClass, chartSRSummary, fmt, pct } from '../lib/format';
-import { KELOMPOK, kelompokInfo, lajuBulan, nilaiSalesman, type KelompokId } from '../lib/salesman';
+import { kelompokUntuk, lajuBulan, nilaiSalesman, type KelompokId } from '../lib/salesman';
 import type { Row } from '../lib/types';
 import { Badge, Capaian, CellLink, ChartBox, Chip, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th } from '../components/ui';
 
@@ -69,7 +69,9 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
   const targetSales = targets ? targets.filter(t => dist === 'all' || t.dist_code === dist).reduce((a, t) => a + Number(t.target_salesman || 0), 0) : 0;
 
   /* ---------- jumlah salesman per kelompok ---------- */
-  const grup = KELOMPOK.filter(k => k.id !== 'tanpa');
+  const berjalan = laju.faktor < 1;
+  const semuaKel = kelompokUntuk(berjalan), kelompokInfo = (id: KelompokId) => semuaKel.find(k => k.id === id)!;
+  const grup = semuaKel.filter(k => k.id !== 'tanpa');
   const bucketLabels = grup.map(k => k.label);
   const bucketColors = [COLORS.green, COLORS.accent, COLORS.amber, COLORS.red];
   const bucketCounts = useMemo(() => grup.map(k => scored.filter(r => r.kelompok === k.id).length),
@@ -125,7 +127,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
           delta={tTA > 0 ? `${fmt(aTA)} dari ${fmt(tTA)} toko aktif · tanpa subdist` : 'Belum ada target TA'} />
         <Kpi title="Capaian Tonase Tim" value={tTon > 0 ? (aTon / tTon * 100).toFixed(0) + '%' : '–'}
           delta={tTon > 0 ? `${fmt(aTon, 1)} dari ${fmt(tTon, 1)} ton · tanpa subdist` : 'Belum ada target tonase'} />
-        <Kpi title="Capai Target" value={fmt(reached)} unit={`/ ${fmt(scored.length)}`} delta="Semua targetnya minimal 100%" />
+        <Kpi title={berjalan ? 'Sesuai Laju Target' : 'Capai Target'} value={fmt(reached)} unit={`/ ${fmt(scored.length)}`} delta={berjalan ? `Semua targetnya sesuai laju s.d. tgl ${laju.hari}` : 'Semua targetnya minimal 100%'} />
       </div>
 
       {targets && targets.length > 0
@@ -136,7 +138,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
         <div>
           <h2 className="section-title !m-0">Daftar Salesman</h2>
           <p className="text-faint text-[12px] mt-1 max-w-[640px]">Dikelompokkan menurut tercapai atau belumnya target, tanpa nomor peringkat karena besar target tiap salesman berbeda. Di dalam kelompok, urutan menurut tonase terbesar.
-            {laju.faktor < 1 && <> <b className="text-ink font-medium">Bulan masih berjalan:</b> kelompok dinilai terhadap laju target sampai tanggal {laju.hari} ({fmt(laju.faktor * 100, 0)}% dari target sebulan). Kolom capaian tetap terhadap target sebulan penuh.</>}</p>
+            {berjalan && <> <b className="text-ink font-medium">Bulan masih berjalan:</b> yang dinilai adalah laju, yaitu {fmt(laju.faktor * 100, 0)}% dari target sebulan sampai tanggal {laju.hari}. Garis hitam di batang capaian menandai laju itu; batang hijau berarti sudah melewatinya.</>}</p>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
           <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Cari salesman…" aria-label="Cari salesman" className="!w-[200px] !py-[7px]" />
@@ -178,10 +180,10 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
                   </td>
                   <td className="num font-mono">{r.target_ta ? fmt(r.target_ta) : '–'}</td>
                   <td className="num font-mono">{fmt(r.actual_ta)}</td>
-                  <td><Capaian actual={r.actual_ta} target={r.target_ta} /></td>
+                  <td><Capaian actual={r.actual_ta} target={r.target_ta} laju={laju.faktor} /></td>
                   <td className="num font-mono">{r.target_tonase ? fmt(r.target_tonase) : '–'}</td>
                   <td className="num font-mono">{fmt(r.actual_tonase)}</td>
-                  <td><Capaian actual={r.actual_tonase} target={r.target_tonase} /></td>
+                  <td><Capaian actual={r.actual_tonase} target={r.target_tonase} laju={laju.faktor} /></td>
                 </tr>
               ))}
           </tbody>

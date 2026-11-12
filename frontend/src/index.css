@@ -189,7 +189,8 @@
   .ov-list > div{ @apply flex items-baseline justify-between gap-3 py-1.5; }
   .ov-list dt{ @apply text-soft; } .ov-list dd{ @apply m-0 font-medium tabular-nums; }
   .capaian{ @apply flex items-center gap-2 min-w-[120px]; }
-  .capaian-track{ @apply flex-1 h-1.5 bg-surface3 rounded-full overflow-hidden; }
+  .capaian-track{ @apply relative flex-1 h-1.5 bg-surface3 rounded-full; }
+  .capaian-laju{ @apply absolute -top-[3px] -bottom-[3px] w-[2px] -ml-px bg-ink rounded-full; }
   .capaian-bar{ @apply h-full rounded-full; }
   .capaian-label{ @apply text-[12.5px] font-semibold w-[42px] text-right; }
   .capaian.good .capaian-bar{ @apply bg-green; } .capaian.warn .capaian-bar{ @apply bg-amber; } .capaian.bad .capaian-bar{ @apply bg-red; }

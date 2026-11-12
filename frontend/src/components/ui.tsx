@@ -67,13 +67,18 @@ export function Kpi({ title, value, unit, delta, deltaTone, icon, iconTone = 'ne
 }
 
 /* ---------- Capaian (bar progres) ---------- */
-export function Capaian({ actual, target }: { actual: unknown; target: unknown }) {
+/** laju (0..1, bulan berjalan): warna dinilai terhadap laju target, dan garis kecil di batang menandai posisi laju. */
+export function Capaian({ actual, target, laju }: { actual: unknown; target: unknown; laju?: number }) {
   const p = pct(actual, target);
   if (p == null) return <span className="font-mono text-faint">–</span>;
-  const tone = capaianClass(p);
+  const berjalan = laju != null && laju > 0 && laju < 1;
+  const tone = capaianClass(berjalan ? p / laju! : p);
   return (
-    <div className={cx('capaian', tone)}>
-      <div className="capaian-track"><div className="capaian-bar" style={{ width: `${Math.min(100, p)}%` }} /></div>
+    <div className={cx('capaian', tone)} title={berjalan ? `Laju target sampai tanggal data: ${(laju! * 100).toFixed(0)}%` : undefined}>
+      <div className="capaian-track">
+        <div className="capaian-bar" style={{ width: `${Math.min(100, p)}%` }} />
+        {berjalan && <span className="capaian-laju" style={{ left: `${laju! * 100}%` }} aria-hidden="true" />}
+      </div>
       <span className="capaian-label">{p.toFixed(0)}%</span>
     </div>
   );

@@ -20,6 +20,16 @@ export const KELOMPOK: { id: KelompokId; label: string; variant: 'good' | 'onlin
   { id: 'tertinggal', label: 'Tertinggal', variant: 'bad', ket: 'Rata-rata capaian di bawah 80%' },
   { id: 'tanpa', label: 'Tanpa target', variant: 'neutral', ket: 'Belum punya target bulan ini' },
 ];
+/** Nama kelompok saat bulan masih berjalan: yang dinilai laju, bukan target akhir bulan. */
+const BERJALAN: Record<KelompokId, { label: string; ket: string }> = {
+  capai: { label: 'Sesuai laju', ket: 'Semua targetnya sudah sesuai laju sampai tanggal data' },
+  sebagian: { label: 'Sebagian sesuai laju', ket: 'Satu dari dua target sudah sesuai laju' },
+  dekat: { label: 'Mendekati laju', ket: 'Belum ada yang sesuai laju, rata-rata minimal 80% dari laju' },
+  tertinggal: { label: 'Di bawah laju', ket: 'Rata-rata di bawah 80% dari laju' },
+  tanpa: { label: 'Tanpa target', ket: 'Belum punya target bulan ini' },
+};
+/** Daftar kelompok dengan nama yang sesuai: bulan berjalan memakai istilah "laju". */
+export const kelompokUntuk = (berjalan: boolean) => KELOMPOK.map(k => (berjalan ? { ...k, ...BERJALAN[k.id] } : k));
 export const BATAS_DEKAT = 80;
 export const kelompokInfo = (id: KelompokId) => KELOMPOK.find(k => k.id === id)!;
 
