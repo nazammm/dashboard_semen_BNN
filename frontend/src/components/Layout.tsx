@@ -29,16 +29,16 @@ export default function Layout() {
   return (
     <>
       <nav className="hidden max-[880px]:flex fixed top-0 inset-x-0 h-14 bg-surface z-[100] items-center px-4 gap-4 overflow-x-auto border-b border-line" aria-label="Navigasi utama (mobile)">
-        <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="" className="w-8 h-8 object-contain shrink-0" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+        <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="" className="w-9 h-9 object-contain shrink-0" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
         {mobItems.map(p => (
           <NavLink key={p.id} to={'/' + p.id} className={({ isActive }) => `text-[13px] whitespace-nowrap py-[17px] no-underline border-b-2 ${isActive ? 'text-ink font-semibold border-mark' : 'text-soft border-transparent'}`}>{p.label}</NavLink>
         ))}
       </nav>
 
       <aside className="fixed top-0 left-0 bottom-0 w-sidebar bg-surface text-ink flex flex-col z-[100] border-r border-line max-[880px]:hidden">
-        <div className="px-5 pt-5 pb-4 flex items-center gap-3">
-          <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="Logo Perusahaan" className="w-10 h-10 object-contain shrink-0" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
-          <div className="font-semibold text-[15px] text-ink leading-tight">Dashboard Semen</div>
+        <div className="px-4 pt-5 pb-4 flex items-center gap-3">
+          <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="Logo Perusahaan" className="w-[52px] h-[52px] object-contain shrink-0" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+          <div className="font-semibold text-[19px] text-ink leading-[1.15] tracking-[-.01em]">Dashboard Semen</div>
         </div>
         <nav className="px-3 pb-3 flex flex-col flex-1 min-h-0 overflow-y-auto" aria-label="Navigasi utama">
           {groups.map(g => (
