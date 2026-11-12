@@ -14,7 +14,7 @@ import {
 
 /* ============================================================================
    Overview: kondisi perusahaan dalam satu layar. Empat angka utama (sell in, sell out, toko aktif,
-   outstanding DO), daftar yang perlu perhatian (dihitung dari angka), lalu satu baris per daerah.
+   outstanding DO), lalu satu baris per daerah.
    Tanpa grafik: grafik ada di halaman detail masing-masing.
    Angka dihitung dengan aturan yang sama dengan halaman detailnya (lib/ringkasan.ts),
    jadi kartu di sini selalu sama dengan KPI di halaman Sell In BNN / Sell Out BNN.
@@ -125,32 +125,6 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
   // toko aktif bulan terakhir sell out (baris distributor, tanpa subdist)
   const ta = so?.ta ? { m: so.taMonth, day: so.taDay, cur: so.ta.cur[so.taMonth], target: so.ta.target[so.taMonth], prev: so.ta.prevSame[so.taMonth] } : null;
 
-  /* ---------- yang perlu perhatian: dari angka, bukan penilaian ---------- */
-  const perhatian = useMemo(() => {
-    const list: { tone: 'bad' | 'warn'; teks: ReactNode }[] = [];
-    const total = (nama: string, r: Baris | null) => {
-      const d = r ? selisihLaju(r) : null;
-      if (r && d != null && d < -TOL) list.push({ tone: 'bad', teks: <><b>{nama}</b> tertinggal {fmtTon(r.laju - r.cur)} ton dari laju target: realisasi {fmtTon(r.cur)} ton, seharusnya sudah {fmtTon(r.laju)} ton.</> });
-    };
-    total('Sell in', siTot); total('Sell out', soTot);
-    const tertinggal = (nama: string, pick: (d: typeof daerah[number]) => Baris | null) => {
-      const rows = daerah.map(d => ({ n: d.nama, r: pick(d) })).filter(x => x.r && x.r.target > 0)
-        .map(x => ({ n: x.n, r: x.r!, d: selisihLaju(x.r!)! })).filter(x => x.d < -TOL).sort((a, b) => (a.r.cur - a.r.laju) - (b.r.cur - b.r.laju));
-      if (!rows.length) return;
-      const top = rows.slice(0, 3);
-      list.push({ tone: 'warn', teks: <><b>{nama}</b> di bawah laju target di {rows.length} daerah. Selisih terbesar: {top.map((x, i) => <span key={x.n}>{i ? ', ' : ''}{x.n} ({fmtTon(x.r.laju - x.r.cur)} ton, capaian {fmt(x.r.cur / x.r.target * 100, 0)}%)</span>)}.</> });
-    };
-    tertinggal('Sell in', d => d.si); tertinggal('Sell out', d => d.so);
-    const turun = daerah.map(d => ({ n: d.nama, g: d.so ? growthPct(d.so.cur, d.so.prev) : null })).filter(x => x.g != null && x.g < -10).sort((a, b) => a.g! - b.g!);
-    if (turun.length) list.push({ tone: 'warn', teks: <><b>Sell out turun</b> lebih dari 10% dibanding {so!.P} di {turun.length} daerah: {turun.slice(0, 4).map((x, i) => <span key={x.n}>{i ? ', ' : ''}{x.n} ({fmtPct(x.g, 0)})</span>)}.</> });
-    if (ta && ta.target > 0 && ta.cur < ta.target * 0.8) list.push({ tone: 'warn', teks: <><b>Toko aktif</b> {MONTHS_ID[ta.m]} baru {fmt(ta.cur)} dari target {fmt(ta.target)} ({fmt(ta.cur / ta.target * 100, 0)}%).</> });
-    if (out && out.all.lewat > 0) {
-      const top = [...out.byRegion.entries()].filter(([, v]) => v.lewat > 0).sort((a, b) => b[1].lewat - a[1].lewat).slice(0, 3);
-      list.push({ tone: out.all.lewat > out.all.ton * 0.25 ? 'bad' : 'warn', teks: <><b>Outstanding DO</b> {fmtTon(out.all.lewat)} ton sudah lewat estimasi kirim ({fmt(out.all.lewat / out.all.ton * 100, 0)}% dari yang belum terkirim). Terbesar: {top.map(([n, v], i) => <span key={n}>{i ? ', ' : ''}{n} ({fmtTon(v.lewat)} ton)</span>)}.</> });
-    }
-    return list;
-  }, [siTot, soTot, daerah, ta, out, so]);   // eslint-disable-line react-hooks/exhaustive-deps
-
   const partial = (x: { Y: number; lastMonth: number; cutDay: number } | undefined) => !!x && x.cutDay < daysInMonth(x.Y, x.lastMonth);
   const adaTotal = daerah.length > 1;
 
@@ -203,15 +177,6 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
         </Panel>
       </div>
 
-      <Card title="Perlu perhatian" className="mt-4">
-        {perhatian.length ? (
-          <ul className="ov-alert">
-            {perhatian.map((x, i) => <li key={i} className={x.tone}><span>{x.teks}</span></li>)}
-          </ul>
-        ) : <p className="text-soft text-[13.5px]">Sell in dan sell out sesuai laju target di semua daerah, dan tidak ada outstanding yang lewat estimasi kirim.</p>}
-        <p className="text-faint text-[12px] mt-3">Laju target = target yang seharusnya sudah tercapai sampai tanggal data (bulan berjalan dihitung proporsional hari). Dianggap tertinggal bila selisihnya lebih dari {TOL}% target.</p>
-      </Card>
-
       {daerah.length > 0 && (
         <Card title="Kondisi per daerah" className="mt-4">
           <TableWrap>
@@ -254,7 +219,7 @@ function Body({ sellIn, sellOut, outstanding, sources }: {
             </table>
           </TableWrap>
           <p className="text-faint text-[12px] mt-2">
-            Capaian dihitung terhadap target {kind === 'bulan' ? 'sebulan penuh' : 'Januari sampai bulan berjalan'}. Tanda ▼ = di bawah laju target sampai tanggal data.
+            Capaian dihitung terhadap target {kind === 'bulan' ? 'sebulan penuh' : 'Januari sampai bulan berjalan'}. Tanda ▼ = di bawah laju target, yaitu target yang seharusnya sudah tercapai sampai tanggal data (selisih lebih dari {TOL}% target).
             {' '}Pembanding tahun lalu memakai tanggal yang sama.
           </p>
         </Card>

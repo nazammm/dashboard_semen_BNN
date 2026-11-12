@@ -188,10 +188,6 @@
   .ov-list{ @apply mt-3 pt-1 border-t border-line text-[13px]; }
   .ov-list > div{ @apply flex items-baseline justify-between gap-3 py-1.5; }
   .ov-list dt{ @apply text-soft; } .ov-list dd{ @apply m-0 font-medium tabular-nums; }
-  .ov-alert{ @apply list-none m-0 p-0 flex flex-col gap-2.5 text-[13.5px] leading-relaxed; }
-  .ov-alert li{ @apply relative pl-5; }
-  .ov-alert li::before{ content:""; @apply absolute left-0 top-[7px] w-2 h-2 rounded-full; }
-  .ov-alert li.bad::before{ @apply bg-red; } .ov-alert li.warn::before{ @apply bg-amber; }
   .capaian{ @apply flex items-center gap-2 min-w-[120px]; }
   .capaian-track{ @apply flex-1 h-1.5 bg-surface3 rounded-full overflow-hidden; }
   .capaian-bar{ @apply h-full rounded-full; }
