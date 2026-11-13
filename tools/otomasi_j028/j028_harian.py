@@ -1,18 +1,21 @@
 """Ambil data dari ERP lalu masukkan ke SEMENTRACK. Sekali jalan, tanpa Excel.
 
-J028 (transaksi): unduh J028 dan J028B, lalu unggah keduanya di Kelola Data -> Transaksi.
-    python j028_harian.py                      # tanggal 1 bulan ini s.d. kemarin
-    python j028_harian.py --dari 2026-11-01 --sampai 2026-11-12
-    python j028_harian.py --hanya-unduh        # berhenti setelah file terunduh
-    python j028_harian.py --tanpa-simpan       # unggah sampai pratinjau saja, tidak menyimpan
+Satu kali login ERP: job J028, J028B, dan J073 (per distributor) dikirim sekaligus; selagi job diproses
+server ERP, tabel Sub ERP dibaca; setelah job selesai semua file diunduh. Lalu satu kali login SEMENTRACK:
+Tempel Sub ERP, upload Transaksi (J028 + J028B), upload J073 (satu file per distributor).
 
-Sub ERP (Sell Out BNN subdist): baca tabel "Sub Distributor Monthly Sales Summary by Distributor"
-(Product Group SEMEN, view TON), lalu tempel di Kelola Data -> Sell Out BNN -> Tempel Sub ERP.
-Hanya bulan yang diambil yang diganti; bulan lain tetap.
-    python j028_harian.py --subdist                        # bulan dari kemarin
+    python j028_harian.py                      # J028 saja, tanggal 1 bulan ini s.d. kemarin
+    python j028_harian.py --semua              # J028 + J073 + Sub ERP
+    python j028_harian.py --j073               # J073 saja (INSA dan PKB)
+    python j028_harian.py --subdist            # Sub ERP saja
+    python j028_harian.py --dari 2026-11-01 --sampai 2026-11-12
     python j028_harian.py --subdist --bulan 2026-10 2026-11
-    python j028_harian.py --subdist --tanpa-simpan         # sampai pratinjau saja
-    python j028_harian.py --semua                          # Sub ERP dulu, lalu J028
+    python j028_harian.py --hanya-unduh        # ambil dari ERP saja
+    python j028_harian.py --tanpa-simpan       # di SEMENTRACK sampai pratinjau saja
+
+Satu bagian gagal tidak menghentikan bagian lain; semua kegagalan dilaporkan di akhir.
+Sub ERP: hanya bulan yang diambil yang diganti; tidak disimpan kalau ada angka yang turun (kecuali --paksa).
+J073: distributor diatur J073_DIST (bawaan 4094 = INSA, 9575 = PKB).
 
 Jadwal otomatis (mis. tiap 4 jam): jadwal_pasang.bat mendaftarkan jalan_terjadwal.bat ke Task Scheduler.
 Yang dijalankan: --semua --sampai-hari-ini --tanpa-layar --tanpa-jeda, hasilnya dicatat di unduhan/log.txt.
@@ -45,8 +48,10 @@ SUBDIST_HALAMAN = "SLS_Inq_Monthly_Sales_Summary_SubDist_By_Distributor.aspx"
 SUBDIST_GRUP = "01"              # Product Group SEMEN, sama dengan rekaman
 BULAN_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 BULAN_ID = ["JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"]
-TUNGGU_JOB_MENIT = 20            # batas menunggu job selesai di View Job
-JEDA_CEK_DETIK = 180             # View Job dicek ulang tiap 3 menit
+TUNGGU_JOB_MENIT = 30            # batas menunggu semua job selesai di View Job
+JEDA_CEK_DETIK = int(os.environ.get("JEDA_CEK_DETIK", "180"))   # View Job dicek ulang tiap 3 menit
+# J073: distributor yang diunduh (kode ERP). INSA = 4094, PKB = 9575. Bisa diubah lewat J073_DIST=4094,9575
+J073_DIST = [k.strip() for k in os.environ.get("J073_DIST", "4094,9575").split(",") if k.strip()]
 # folder skrip, atau folder file .exe kalau dijalankan sebagai exe (PyInstaller)
 DASAR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 FOLDER = DASAR / "unduhan"
@@ -117,12 +122,12 @@ def login_erp(page: Page, user: str, pwd: str) -> None:
     print("  login ERP berhasil")
 
 
-def buka_form(page: Page, menu: str) -> None:
-    """Buka halaman kirim job J028 / J028B. Coba alamat langsung dulu, baru lewat menu."""
-    tanggal = page.locator("#ContentPlaceHolder1_txtDODate")
+def buka_form(page: Page, menu: str, penanda: str) -> None:
+    """Buka halaman kirim job (J028, J028B, J073). Coba alamat langsung dulu, baru lewat menu."""
+    tanda = page.locator(penanda)
     page.goto(f"{ERP}/SYS_Job_{menu}.aspx")
     try:
-        tanggal.wait_for(timeout=15_000)
+        tanda.wait_for(timeout=15_000)
         return
     except PWTimeout:
         pass
@@ -131,28 +136,29 @@ def buka_form(page: Page, menu: str) -> None:
         page.locator("#mmlink7").hover(timeout=15_000)
         page.locator("#mmlink7").click()
         page.locator("a").filter(has_text=re.compile(rf"^\s*{re.escape(menu)}\s*$")).first.click(timeout=15_000)
-        tanggal.wait_for(timeout=15_000)
+        tanda.wait_for(timeout=15_000)
     except PWTimeout:
         raise SystemExit(f"Halaman {menu} tidak bisa dibuka.\nHalaman: {jejak(page, f'menu_{menu}')}")
 
 
-def daftar_job(page: Page) -> set[str]:
+def daftar_job(page: Page) -> dict[str, tuple[str, str]]:
+    """Isi View Job: {Job ID: (Job Code, Status)}."""
     page.goto(f"{ERP}/SYS_View_Job.aspx")
     try:
         page.wait_for_load_state("networkidle", timeout=60_000)
     except PWTimeout:
         pass
-    return {t.strip() for t in page.get_by_role("link").all_text_contents() if re.fullmatch(r"J\d+", t.strip())}
+    baris = page.evaluate("() => [...document.querySelectorAll('tr')].map(tr => [...tr.children].map(td => td.innerText.trim()))")
+    hasil = {}
+    for b in baris:
+        for i, c in enumerate(b):
+            if re.fullmatch(r"J\d{5,}", c) and i + 1 < len(b):
+                hasil[c] = (b[i + 1].upper(), (b[i - 1] if i else "").upper())
+                break
+    return hasil
 
 
-def kirim_job(page: Page, menu: str, dari: date, sampai: date) -> None:
-    buka_form(page, menu)
-    isi_tanggal(page, "#ContentPlaceHolder1_txtDODate", dari)
-    isi_tanggal(page, "#ContentPlaceHolder1_txtEndDODate", sampai)
-    a = page.locator("#ContentPlaceHolder1_txtDODate").input_value()
-    b = page.locator("#ContentPlaceHolder1_txtEndDODate").input_value()
-    print(f"  {menu}: tanggal terisi '{a}' s.d. '{b}'")
-    page.locator("#ContentPlaceHolder1_ddMatrix").select_option(MATRIX)
+def kirim_selesai(page: Page, menu: str) -> None:
     jejak(page, f"sebelum_submit_{menu}")
     page.get_by_role("button", name="Submit").click()
     try:
@@ -160,6 +166,46 @@ def kirim_job(page: Page, menu: str, dari: date, sampai: date) -> None:
     except PWTimeout:
         print(f"  {menu}: tidak ada tombol OK setelah Submit, lanjut. Halaman: {jejak(page, f'setelah_submit_{menu}')}")
     print(f"  {menu}: job dikirim")
+
+
+def kirim_job(page: Page, menu: str, dari: date, sampai: date) -> None:
+    buka_form(page, menu, "#ContentPlaceHolder1_txtDODate")
+    isi_tanggal(page, "#ContentPlaceHolder1_txtDODate", dari)
+    isi_tanggal(page, "#ContentPlaceHolder1_txtEndDODate", sampai)
+    a = page.locator("#ContentPlaceHolder1_txtDODate").input_value()
+    b = page.locator("#ContentPlaceHolder1_txtEndDODate").input_value()
+    print(f"  {menu}: tanggal terisi '{a}' s.d. '{b}'")
+    page.locator("#ContentPlaceHolder1_ddMatrix").select_option(MATRIX)
+    kirim_selesai(page, menu)
+
+
+def kirim_j073(page: Page, dist: str, dari: date, sampai: date) -> None:
+    """J073 per distributor, format TXT. Distributor dipilih dulu (pilihan ini bisa memuat ulang halaman)."""
+    buka_form(page, "J073", "#ContentPlaceHolder1_ddDist")
+    page.locator("#ContentPlaceHolder1_ddDist").select_option(dist)
+    try:
+        page.wait_for_load_state("networkidle", timeout=30_000)
+    except PWTimeout:
+        pass
+    # format file TXT (di rekaman: klik sel "TXT")
+    radio = page.locator("input[type=radio][value*='TXT' i]")
+    if radio.count():
+        radio.first.check()
+    elif page.get_by_label("TXT", exact=True).count():
+        page.get_by_label("TXT", exact=True).first.check()
+    else:
+        page.get_by_role("cell", name="TXT", exact=True).first.click()
+    isi_tanggal(page, "#ContentPlaceHolder1_txtPeriodeFrom", dari)
+    akhir = page.locator("#ContentPlaceHolder1_txtPeriodeTo")
+    if akhir.count():
+        isi_tanggal(page, "#ContentPlaceHolder1_txtPeriodeTo", sampai)
+    a = page.locator("#ContentPlaceHolder1_txtPeriodeFrom").input_value()
+    b = akhir.input_value() if akhir.count() else "(tidak ada kolom akhir)"
+    pilih = page.locator("#ContentPlaceHolder1_ddDist").input_value()
+    if pilih != dist:
+        raise SystemExit(f"J073: distributor {dist} tidak terpilih (terpilih: {pilih}).\nHalaman: {jejak(page, f'j073_{dist}')}")
+    print(f"  J073 {dist}: periode '{a}' s.d. '{b}'")
+    kirim_selesai(page, f"J073_{dist}")
 
 
 def buka_browser(pw, tampil: bool):
@@ -264,25 +310,15 @@ def halaman_subdist(page: Page) -> int:
     return p.locator("option").count() if p is not None else 1
 
 
-def subdist_erp(pw, daftar_bulan: list[date], tampil: bool) -> dict[int, str]:
+def teks_subdist(page: Page, daftar_bulan: list[date]) -> dict[int, str]:
     """Teks tempelan Sub ERP per tahun: blok "NOVEMBER" lalu baris distributor | sub kategori | ton."""
-    user = rahasia("ERP_USER", "User ERP")
-    pwd = rahasia("ERP_PASS", "Password ERP (tidak tampil)", tersembunyi=True)
-    browser, ctx, page = buka_browser(pw, tampil)
-    try:
-        login_erp(page, user, pwd)
-        per_tahun: dict[int, list[str]] = {}
-        for b in daftar_bulan:
-            data = ambil_subdist(page, b)
-            if not data:
-                print(f"  {BULAN_ID[b.month - 1]} {b.year}: belum ada data, dilewati")
-                continue
-            per_tahun.setdefault(b.year, []).append("\n".join([BULAN_ID[b.month - 1]] + ["\t".join(r) for r in data]))
-    except PWTimeout as e:
-        raise SystemExit(f"ERP tidak merespons seperti yang diharapkan: {str(e).splitlines()[0]}\nHalaman: {jejak(page, 'gagal')}")
-    finally:
-        ctx.close()
-        browser.close()
+    per_tahun: dict[int, list[str]] = {}
+    for b in daftar_bulan:
+        data = ambil_subdist(page, b)
+        if not data:
+            print(f"  {BULAN_ID[b.month - 1]} {b.year}: belum ada data, dilewati")
+            continue
+        per_tahun.setdefault(b.year, []).append("\n".join([BULAN_ID[b.month - 1]] + ["\t".join(r) for r in data]))
     hasil = {th: "\n".join(blok) + "\n" for th, blok in per_tahun.items()}
     FOLDER.mkdir(exist_ok=True)
     for th, teks in hasil.items():
@@ -290,44 +326,84 @@ def subdist_erp(pw, daftar_bulan: list[date], tampil: bool) -> dict[int, str]:
     return hasil
 
 
-def unduh_erp(pw, dari: date, sampai: date, tampil: bool) -> list[Path]:
+def pesan(e: BaseException) -> str:
+    return str(getattr(e, "code", None) or e).strip()
+
+
+class Hasil:
+    """Hasil dari ERP, dan bagian yang gagal (bagian lain tetap jalan)."""
+    def __init__(self) -> None:
+        self.j028: list[Path] = []
+        self.j073: list[Path] = []
+        self.subdist: dict[int, str] = {}
+        self.gagal: dict[str, str] = {}
+
+    def catat_gagal(self, bagian: str, e: BaseException) -> None:
+        self.gagal[bagian] = pesan(e)
+        print(f"  {bagian} GAGAL: {self.gagal[bagian]}")
+
+
+def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list[date], tampil: bool) -> Hasil:
+    """Satu kali login ERP: kirim semua job, baca Sub ERP selagi job diproses, lalu unduh semua hasil job."""
+    h = Hasil()
     user = rahasia("ERP_USER", "User ERP")
     pwd = rahasia("ERP_PASS", "Password ERP (tidak tampil)", tersembunyi=True)
     browser, ctx, page = buka_browser(pw, tampil)
     try:
         login_erp(page, user, pwd)
+        lama = set(daftar_job(page))                 # job yang sudah ada sebelum kita mengirim
+        harap = {"J028": 0, "J073": 0}               # jumlah job yang ditunggu per bagian
+        if "J028" in bagian:
+            try:
+                kirim_job(page, "J028", dari, sampai)
+                kirim_job(page, "J028B", dari, sampai)
+                harap["J028"] = 2
+            except (SystemExit, Exception) as e:  # noqa: BLE001
+                h.catat_gagal("J028", e)
+        if "J073" in bagian:
+            for dist in J073_DIST:
+                try:
+                    kirim_j073(page, dist, dari, sampai)
+                    harap["J073"] += 1
+                except (SystemExit, Exception) as e:  # noqa: BLE001
+                    h.catat_gagal(f"J073 {dist}", e)
+        if "SUBDIST" in bagian:                       # dikerjakan sambil menunggu job di server ERP
+            try:
+                h.subdist = teks_subdist(page, daftar_bulan)
+            except (SystemExit, Exception) as e:  # noqa: BLE001
+                h.catat_gagal("Sub ERP", e)
 
-        lama = daftar_job(page)                      # job yang sudah ada sebelum kita mengirim
-        kirim_job(page, "J028", dari, sampai)
-        kirim_job(page, "J028B", dari, sampai)
-
-        # PERLU DICEK (3): job baru dikenali sebagai tautan "J<angka>" yang belum ada sebelumnya.
-        # Kalau View Job menampilkan job yang belum selesai tanpa tautan, cara ini sudah benar;
-        # kalau tautannya muncul sebelum file siap, unduhan pertama bisa gagal dan akan dicoba lagi.
+        jumlah = sum(harap.values())
+        if not jumlah:
+            return h
         FOLDER.mkdir(exist_ok=True)
-        hasil: dict[str, Path] = {}
+        terunduh: dict[str, str] = {}                 # Job ID -> Job Code
         batas = time.time() + TUNGGU_JOB_MENIT * 60
-        while time.time() < batas and len(hasil) < 2:
-            baru = sorted(daftar_job(page) - lama)
-            for job in baru:
-                if job in hasil:
+        while True:
+            for job, (kode, status) in sorted(daftar_job(page).items()):
+                if job in lama or job in terunduh or (status and status != "FINISHED"):
                     continue
                 try:
                     with page.expect_download(timeout=60_000) as info:
                         page.get_by_role("link", name=job, exact=True).click()
                     d = info.value
-                    tujuan = FOLDER / d.suggested_filename
+                    tujuan = FOLDER / f"{job}-{kode}.TXT"
                     d.save_as(tujuan)
-                    hasil[job] = tujuan
+                    terunduh[job] = kode
+                    (h.j073 if kode.startswith("J073") else h.j028).append(tujuan)
                     print(f"  terunduh: {tujuan.name}")
                 except PWTimeout:
                     print(f"  {job} belum siap, dicoba lagi")
-            if len(hasil) < 2:
-                print(f"  menunggu job selesai, cek lagi {JEDA_CEK_DETIK // 60} menit lagi")
-                time.sleep(JEDA_CEK_DETIK)
-        if len(hasil) < 2:
-            raise SystemExit(f"Job belum selesai setelah {TUNGGU_JOB_MENIT} menit. Yang terunduh: {[p.name for p in hasil.values()]}")
-        return list(hasil.values())
+            if len(terunduh) >= jumlah or time.time() >= batas:
+                break
+            print(f"  {len(terunduh)}/{jumlah} job terunduh, cek lagi " + (f"{JEDA_CEK_DETIK // 60} menit" if JEDA_CEK_DETIK >= 60 else f"{JEDA_CEK_DETIK} detik") + " lagi")
+            time.sleep(JEDA_CEK_DETIK)
+        if len(h.j028) < harap["J028"]:
+            h.catat_gagal("J028", SystemExit(f"Job J028/J028B belum selesai setelah {TUNGGU_JOB_MENIT} menit."))
+            h.j028 = []
+        if len(h.j073) < harap["J073"]:
+            h.catat_gagal("J073", SystemExit(f"{len(h.j073)} dari {harap['J073']} job J073 selesai dalam {TUNGGU_JOB_MENIT} menit."))
+        return h
     except PWTimeout as e:
         raise SystemExit(f"ERP tidak merespons seperti yang diharapkan: {str(e).splitlines()[0]}\nHalaman: {jejak(page, 'gagal')}")
     finally:
@@ -335,11 +411,15 @@ def unduh_erp(pw, dari: date, sampai: date, tampil: bool) -> list[Path]:
         browser.close()
 
 
-def periksa_berkas(files: list[Path]) -> None:
+def judul_berkas(f: Path) -> str:
+    return f.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+
+
+def periksa_j028(files: list[Path]) -> None:
     """Harus tepat satu J028 dan satu J028B, dilihat dari baris judulnya."""
     jenis = []
     for f in files:
-        judul = f.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+        judul = judul_berkas(f)
         if "Distributor Code" not in judul:
             raise SystemExit(f"{f.name} bukan unduhan J028 / J028B (baris judul tidak dikenal).")
         jenis.append("J028B" if "Distributor Code Clone" in judul else "J028")
@@ -365,82 +445,72 @@ def masuk_sementrack(pw, tampil: bool):
     return browser, page, url
 
 
-def tempel_subdist(pw, per_tahun: dict[int, str], simpan: bool, tampil: bool, paksa: bool) -> None:
-    browser, page, url = masuk_sementrack(pw, tampil)
-    try:
-        for tahun, teks in sorted(per_tahun.items()):
-            page.goto(url + "/kelola-data?data=sellout&menu=erp")
-            pilih = page.locator("#so-erp-th")
-            pilih.wait_for(timeout=30_000)
-            if pilih.locator(f"option[value='{tahun}']").count() == 0:
-                raise SystemExit(f"Tahun {tahun} tidak bisa dipilih di Tempel Sub ERP (hanya tahun ini dan tahun lalu).")
-            pilih.select_option(str(tahun))
-            page.locator("#so-erp-paste").fill(teks)
-            page.get_by_role("button", name="Periksa data").click()
-            tombol = page.get_by_role("button", name=f"Simpan Sub ERP {tahun}")
-            page.locator(f"[role=alert], button:has-text('Simpan Sub ERP {tahun}')").first.wait_for(timeout=60_000)
-            if not tombol.count():
-                page.screenshot(path=str(FOLDER / "subdist_ditolak.png"), full_page=True)
-                raise SystemExit("SEMENTRACK menolak tempelan Sub ERP: " + page.locator("[role=alert]").first.inner_text() + "\nLihat unduhan/subdist_ditolak.png")
-            page.screenshot(path=str(FOLDER / f"pratinjau_subdist_{tahun}.png"), full_page=True)
-            if page.get_by_text("baris dilewati").count():
-                raise SystemExit(f"Ada baris Sub ERP yang tidak terbaca. Tidak disimpan otomatis. Lihat unduhan/pratinjau_subdist_{tahun}.png")
-            if page.get_by_text("Lebih kecil dari yang tersimpan").count() and not paksa:
-                raise SystemExit(f"Ada angka yang lebih kecil dari yang sudah tersimpan. Tidak disimpan otomatis; cek unduhan/pratinjau_subdist_{tahun}.png, "
-                                 "lalu jalankan lagi dengan --paksa kalau memang koreksi.")
-            print("  " + page.get_by_text(re.compile(r"akan diganti; bulan lain tetap")).first.inner_text())
-            if not simpan:
-                print("  --tanpa-simpan: berhenti di pratinjau.")
-                continue
-            tombol.click()
-            page.get_by_text(f"Sub ERP {tahun} tersimpan").wait_for(timeout=120_000)
-            print("  " + page.get_by_text(re.compile(r"baris \(.* ton\) menggantikan")).first.inner_text())
-    finally:
-        browser.close()
-
-
-def unggah_sementrack(pw, files: list[Path], simpan: bool, tampil: bool) -> None:
-    browser, page, url = masuk_sementrack(pw, tampil)
-    try:
-        page.goto(url + "/kelola-data")
-        page.locator("button", has_text=re.compile(r"^Transaksi")).first.click()
-        page.locator("input[type=file]").first.set_input_files([str(f) for f in files])
-
-        # pratinjau: berhenti kalau web menolak file
-        page.wait_for_selector("text=/siap disimpan|tidak bisa dipakai|Tidak ada baris/", timeout=120_000)
-        if page.locator("text=siap disimpan").count() == 0:
-            page.screenshot(path=str(FOLDER / "ditolak.png"), full_page=True)
-            raise SystemExit("SEMENTRACK menolak file. Lihat unduhan/ditolak.png")
-        if page.locator("input[type=checkbox]").count() > 0:
-            page.screenshot(path=str(FOLDER / "ada_baris_tidak_terbaca.png"), full_page=True)
-            raise SystemExit("Ada baris yang tidak terbaca. Tidak disimpan otomatis. Lihat unduhan/ada_baris_tidak_terbaca.png")
-        print("  pratinjau:", page.locator("text=siap disimpan").first.text_content())
-        page.screenshot(path=str(FOLDER / "pratinjau.png"), full_page=True)
+def tempel_subdist(page: Page, url: str, per_tahun: dict[int, str], simpan: bool, paksa: bool) -> None:
+    for tahun, teks in sorted(per_tahun.items()):
+        page.goto(url + "/kelola-data?data=sellout&menu=erp")
+        pilih = page.locator("#so-erp-th")
+        pilih.wait_for(timeout=30_000)
+        if pilih.locator(f"option[value='{tahun}']").count() == 0:
+            raise SystemExit(f"Tahun {tahun} tidak bisa dipilih di Tempel Sub ERP (hanya tahun ini dan tahun lalu).")
+        pilih.select_option(str(tahun))
+        page.locator("#so-erp-paste").fill(teks)
+        page.get_by_role("button", name="Periksa data").click()
+        tombol = page.get_by_role("button", name=f"Simpan Sub ERP {tahun}")
+        page.locator(f"[role=alert], button:has-text('Simpan Sub ERP {tahun}')").first.wait_for(timeout=60_000)
+        if not tombol.count():
+            page.screenshot(path=str(FOLDER / "subdist_ditolak.png"), full_page=True)
+            raise SystemExit("SEMENTRACK menolak tempelan Sub ERP: " + page.locator("[role=alert]").first.inner_text() + "\nLihat unduhan/subdist_ditolak.png")
+        page.screenshot(path=str(FOLDER / f"pratinjau_subdist_{tahun}.png"), full_page=True)
+        if page.get_by_text("baris dilewati").count():
+            raise SystemExit(f"Ada baris Sub ERP yang tidak terbaca. Tidak disimpan otomatis. Lihat unduhan/pratinjau_subdist_{tahun}.png")
+        if page.get_by_text("Lebih kecil dari yang tersimpan").count() and not paksa:
+            raise SystemExit(f"Ada angka Sub ERP yang lebih kecil dari yang sudah tersimpan. Tidak disimpan otomatis; cek unduhan/pratinjau_subdist_{tahun}.png, "
+                             "lalu jalankan lagi dengan --paksa kalau memang koreksi.")
+        print("  " + page.get_by_text(re.compile(r"akan diganti; bulan lain tetap")).first.inner_text())
         if not simpan:
             print("  --tanpa-simpan: berhenti di pratinjau.")
-            return
-        page.locator("button", has_text="Simpan ke database").click()
-        page.wait_for_selector("text=Data tersimpan", timeout=600_000)
-        print("  " + (page.locator("text=baris transaksi untuk").first.text_content() or "").strip())
-    finally:
-        browser.close()
+            continue
+        tombol.click()
+        page.get_by_text(f"Sub ERP {tahun} tersimpan").wait_for(timeout=120_000)
+        print("  " + page.get_by_text(re.compile(r"baris \(.* ton\) menggantikan")).first.inner_text())
+
+
+def unggah_berkas(page: Page, url: str, alamat: str, files: list[Path], nama: str, simpan: bool, tolak_baris_rusak: bool) -> None:
+    """Upload lewat Kelola Data (Transaksi / J073): pratinjau, berhenti kalau ditolak, lalu simpan."""
+    page.goto(url + alamat)
+    page.locator("input[type=file]").first.set_input_files([str(f) for f in files])
+    page.wait_for_selector("text=/siap disimpan|tidak bisa dipakai|Tidak ada baris/", timeout=180_000)
+    if page.locator("text=siap disimpan").count() == 0:
+        page.screenshot(path=str(FOLDER / f"ditolak_{nama}.png"), full_page=True)
+        raise SystemExit(f"SEMENTRACK menolak file {nama}. Lihat unduhan/ditolak_{nama}.png")
+    page.screenshot(path=str(FOLDER / f"pratinjau_{nama}.png"), full_page=True)
+    if tolak_baris_rusak and (page.locator("input[type=checkbox]").count() or page.get_by_text("isinya tidak terbaca").count()):
+        raise SystemExit(f"Ada baris {nama} yang tidak terbaca. Tidak disimpan otomatis. Lihat unduhan/pratinjau_{nama}.png")
+    print("  pratinjau:", page.locator("text=siap disimpan").first.text_content())
+    if not simpan:
+        print("  --tanpa-simpan: berhenti di pratinjau.")
+        return
+    page.locator("button", has_text="Simpan ke database").click()
+    page.wait_for_selector("text=Data tersimpan", timeout=600_000)
+    print("  " + " ".join(page.locator("[role=status]").first.inner_text().split())[:200])
 
 
 def main() -> None:
     hari_ini = date.today()
     kemarin = hari_ini - timedelta(days=1)
-    ap = argparse.ArgumentParser(description="Ambil J028 + J028B / Sub ERP dari ERP lalu masukkan ke SEMENTRACK")
+    ap = argparse.ArgumentParser(description="Ambil J028 + J028B, J073, dan Sub ERP dari ERP lalu masukkan ke SEMENTRACK")
     ap.add_argument("--dari", type=date.fromisoformat, default=kemarin.replace(day=1), help="YYYY-MM-DD, bawaan: tanggal 1 bulan dari kemarin")
     ap.add_argument("--sampai", type=date.fromisoformat, default=kemarin, help="YYYY-MM-DD, bawaan: kemarin")
-    ap.add_argument("--hanya-unduh", action="store_true")
-    ap.add_argument("--tanpa-simpan", action="store_true")
-    ap.add_argument("--berkas", nargs=2, type=Path, metavar="FILE", help="lewati ERP, pakai dua file yang sudah ada")
-    ap.add_argument("--tanpa-layar", action="store_true", help="browser tidak ditampilkan")
-    ap.add_argument("--subdist", action="store_true", help="Sub ERP saja (Sell Out BNN), bukan J028")
-    ap.add_argument("--semua", action="store_true", help="Sub ERP lalu J028")
-    ap.add_argument("--bulan", nargs="+", metavar="YYYY-MM", help="bulan Sub ERP, bawaan: bulan dari kemarin")
-    ap.add_argument("--paksa", action="store_true", help="Sub ERP tetap disimpan walau ada angka yang turun")
     ap.add_argument("--sampai-hari-ini", action="store_true", help="data sampai hari ini (untuk jadwal beberapa jam sekali)")
+    ap.add_argument("--subdist", action="store_true", help="Sub ERP saja")
+    ap.add_argument("--j073", action="store_true", help="J073 saja")
+    ap.add_argument("--semua", action="store_true", help="J028, J073, dan Sub ERP sekaligus")
+    ap.add_argument("--bulan", nargs="+", metavar="YYYY-MM", help="bulan Sub ERP, bawaan: bulan-bulan dari --dari s.d. --sampai")
+    ap.add_argument("--hanya-unduh", action="store_true", help="ambil dari ERP saja, tidak masuk SEMENTRACK")
+    ap.add_argument("--tanpa-simpan", action="store_true", help="di SEMENTRACK berhenti di pratinjau")
+    ap.add_argument("--berkas", nargs=2, type=Path, metavar="FILE", help="J028: lewati ERP, pakai dua file yang sudah ada")
+    ap.add_argument("--paksa", action="store_true", help="Sub ERP tetap disimpan walau ada angka yang turun")
+    ap.add_argument("--tanpa-layar", action="store_true", help="browser tidak ditampilkan")
     ap.add_argument("--tanpa-jeda", action="store_true", help="exe langsung tertutup setelah selesai (untuk jadwal)")
     a = ap.parse_args()
     if a.sampai_hari_ini:
@@ -458,36 +528,46 @@ def main() -> None:
                 b = (b + timedelta(days=32)).replace(day=1)
     except ValueError:
         sys.exit("--bulan ditulis YYYY-MM, mis. 2026-11")
-    print(f"Mulai {datetime.now():%Y-%m-%d %H:%M}")
+
+    bagian = {"J028", "J073", "SUBDIST"} if a.semua else {"SUBDIST"} if a.subdist else {"J073"} if a.j073 else {"J028"}
+    print(f"Mulai {datetime.now():%Y-%m-%d %H:%M} | {', '.join(sorted(bagian))} | {a.dari} s.d. {a.sampai}")
 
     with sync_playwright() as pw:
-        gagal_subdist = None
-        if a.subdist or a.semua:
-            print("ERP: Sub ERP " + ", ".join(f"{BULAN_EN[b.month - 1]} {b.year}" for b in daftar_bulan))
-            try:
-                teks = subdist_erp(pw, daftar_bulan, tampil=not a.tanpa_layar)
-                if teks and not a.hanya_unduh:
-                    print("SEMENTRACK: tempel Sub ERP")
-                    tempel_subdist(pw, teks, simpan=not a.tanpa_simpan, tampil=not a.tanpa_layar, paksa=a.paksa)
-            except (SystemExit, Exception) as e:  # noqa: BLE001 - dengan --semua, J028 tetap dijalankan
-                if a.subdist:
-                    raise
-                gagal_subdist = str(getattr(e, "code", None) or e)
-                print(f"  Sub ERP GAGAL: {gagal_subdist}\n  J028 tetap dijalankan.")
-            if a.subdist:
-                return
+        dari_erp = bagian - ({"J028"} if a.berkas else set())
+        h = ambil_erp(pw, dari_erp, a.dari, a.sampai, daftar_bulan, tampil=not a.tanpa_layar) if dari_erp else Hasil()
         if a.berkas:
-            files = a.berkas
-        else:
-            print(f"ERP: J028 dan J028B, {a.dari} s.d. {a.sampai}")
-            files = unduh_erp(pw, a.dari, a.sampai, tampil=not a.tanpa_layar)
-        periksa_berkas(files)
-        if a.hanya_unduh:
-            return
-        print("SEMENTRACK: unggah")
-        unggah_sementrack(pw, files, simpan=not a.tanpa_simpan, tampil=not a.tanpa_layar)
-        if gagal_subdist:
-            raise SystemExit(f"J028 berhasil, tetapi Sub ERP gagal: {gagal_subdist}")
+            h.j028 = list(a.berkas)
+        if h.j028:
+            try:
+                periksa_j028(h.j028)
+            except SystemExit as e:
+                h.catat_gagal("J028", e)
+                h.j028 = []
+
+        ada = h.subdist or h.j028 or h.j073
+        if ada and not a.hanya_unduh:
+            browser, page, url = masuk_sementrack(pw, not a.tanpa_layar)
+            try:
+                langkah = [
+                    ("Sub ERP", h.subdist, lambda: tempel_subdist(page, url, h.subdist, not a.tanpa_simpan, a.paksa)),
+                    ("J028", h.j028, lambda: unggah_berkas(page, url, "/kelola-data?data=transaksi&menu=upload", h.j028, "J028", not a.tanpa_simpan, True)),
+                    # J073: satu file per distributor; tiap file mengganti data distributor itu pada rentang tanggalnya
+                    ("J073", h.j073, lambda: [unggah_berkas(page, url, "/kelola-data?data=sellout&menu=j073", [f], f.stem, not a.tanpa_simpan, True) for f in h.j073]),
+                ]
+                for nama, isi, kerja in langkah:
+                    if not isi:
+                        continue
+                    print(f"SEMENTRACK: {nama}")
+                    try:
+                        kerja()
+                    except (SystemExit, Exception) as e:  # noqa: BLE001 - bagian lain tetap jalan
+                        h.catat_gagal(nama, e)
+            finally:
+                browser.close()
+
+    if h.gagal:
+        raise SystemExit("Selesai dengan kegagalan:\n" + "\n".join(f"- {k}: {v}" for k, v in h.gagal.items()))
+    print("Semua bagian berhasil.")
 
 
 if __name__ == "__main__":

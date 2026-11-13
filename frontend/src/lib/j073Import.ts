@@ -11,13 +11,13 @@ import { DateOrderDetector, isAmbiguousDate, kgPerZak, normHeader, toISODate, to
 const COLS = [
   { key: 'dist_code', header: 'Distributor Code', required: true },
   { key: 'do_date', header: 'DO Date', required: true },
-  { key: 'do_no', header: 'No. DO', required: true },
+  { key: 'do_no', header: 'No. DO', alias: ['DO No.'], required: true },
   { key: 'customer_code', header: 'Customer Code', required: true },
   { key: 'customer_name', header: 'Customer Name' },
   { key: 'product_code', header: 'Product Code', required: true },
   { key: 'product_name', header: 'Product Name' },
   { key: 'order_qty', header: 'Order Qty', required: true },
-  { key: 'net_amount', header: 'Net Amount', required: true },
+  { key: 'net_amount', header: 'Net Amount', alias: ['tdNetAmount'], required: true },
   { key: 'warehouse', header: 'Warehouse', required: true },
   // hanya untuk saringan, tidak dikirim
   { key: 'category', header: 'Product Category', required: true },
@@ -62,12 +62,19 @@ export class J073Collector implements RowCollector<J073ParseResult> {
   private tons: number[] = [];
   private dates = new DateOrderDetector();
   private recheck: [number, string][] = [];
+  angkaErp = false;
   constructor(private order?: DateOrder | null) {}
+  /** Angka sel: TXT mentah ERP memakai titik desimal ("100.000" = 100); file Excel/CSV memakai toNumber biasa. */
+  private angka(v: unknown) {
+    const s = String(v ?? '').trim();
+    if (this.angkaErp) return s === '' || s === '-' ? null : /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : toNumber(s);
+    return toNumber(v);
+  }
 
   header(cells: unknown[]) {
     const idx = new Map<string, number>();
     cells.forEach((h, i) => { const k = normHeader(h); if (k && !idx.has(k)) idx.set(k, i); });
-    this.cols = COLS.map(c => idx.get(normHeader(c.header)) ?? -1);
+    this.cols = COLS.map(c => [c.header, ...('alias' in c ? c.alias : [])].map(h => idx.get(normHeader(h))).find(i => i != null) ?? -1);
     this.missing = COLS.filter((c, i) => 'required' in c && c.required && this.cols[i] < 0).map(c => c.header);
     this.ready = this.missing.length === 0;
     return this.ready;
@@ -90,9 +97,9 @@ export class J073Collector implements RowCollector<J073ParseResult> {
     const rawDate = get('do_date');
     this.dates.note(rawDate);
     const tgl = toISODate(rawDate);
-    const qty = toNumber(get('order_qty'));
-    const net = get('net_amount') == null || String(get('net_amount')).trim() === '' ? 0 : toNumber(get('net_amount'));
-    const dist = code(get('dist_code')), doNo = code(get('do_no')), cust = code(get('customer_code')), prod = up(get('product_code'));
+    const qty = this.angka(get('order_qty'));
+    const net = get('net_amount') == null || ['', '-'].includes(String(get('net_amount')).trim()) ? 0 : this.angka(get('net_amount'));
+    const dist = code(get('dist_code')), doNo = code(get('do_no')), cust = this.angkaErp ? code(get('customer_code')).replace(/^0+(?=\d)/, '') : code(get('customer_code')), prod = up(get('product_code'));
     let reason = '';
     if (!dist) reason = 'Distributor Code kosong';
     else if (!tgl) reason = `DO Date tidak terbaca ("${String(rawDate ?? '')}")`;

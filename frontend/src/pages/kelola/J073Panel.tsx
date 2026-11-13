@@ -43,7 +43,7 @@ export function J073Upload({ onChanged }: { onChanged: () => void }) {
       <ErrorLine error={imp.error} />
       <div hidden={phase.kind !== 'idle' && phase.kind !== 'reading'}>
         <SourcePicker key={round} id="j073" reading={phase.kind === 'reading' ? phase : null} onFile={imp.readFile} onText={imp.readText} onCancel={imp.cancelRead}
-          fileHint="Export J073 INSA / PKB (.xlsx atau .csv). Yang dipakai hanya semen & white cement, cust group RETAIL. Data distributor yang ada di file, pada rentang tanggal di file, akan diganti."
+          fileHint="Export J073 INSA / PKB (.TXT langsung dari ERP, .xlsx, atau .csv). Yang dipakai hanya semen & white cement, cust group RETAIL. Data distributor yang ada di file, pada rentang tanggal di file, akan diganti."
           pastePlaceholder={'Distributor Code\tDistributor Name\tNo. DO\t…\tDO Date\t…\tWarehouse\t…\n4094\tPT. INTINIAGA SUKSES ABADI\t2517332\t…'} />
       </div>
 

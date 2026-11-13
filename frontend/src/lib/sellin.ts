@@ -340,7 +340,8 @@ export class SellinCollector implements RowCollector<SellinParseResult> {
 /** Deteksi pemisah dari baris pertama: tab (salinan Excel), titik koma, atau koma. */
 export function detectDelimiter(firstLine: string) {
   const count = (ch: string) => firstLine.split(ch).length - 1;
-  const tabs = count('\t'), semi = count(';'), comma = count(',');
+  const tabs = count('\t'), semi = count(';'), comma = count(','), pipes = count('|');
+  if (pipes >= 3 && pipes > tabs) return '|';     // file TXT mentah ERP (J028, J073)
   if (tabs >= 3) return '\t';
   return semi > comma ? ';' : comma > 0 ? ',' : '\t';
 }
@@ -370,11 +371,17 @@ export function parseDelimited(text: string, onRow: (cells: string[], lineNo: nu
 }
 
 /** Pengolah baris bertahap yang dipakai pembaca xlsx/teks (Sell In, Transaksi, ...). */
-export interface RowCollector<R> { header(cells: unknown[]): boolean; push(cells: unknown[], rowNumber: number): void; result(): R }
+export interface RowCollector<R> {
+  header(cells: unknown[]): boolean; push(cells: unknown[], rowNumber: number): void; result(): R;
+  /** File TXT mentah ERP (berpemisah "|"): angka memakai titik desimal, "100.000" = 100 (bukan seratus ribu). */
+  angkaErp?: boolean;
+}
 
 export function parseSellinText(text: string): SellinParseResult { return parseTextWith(text, new SellinCollector()); }
 export function parseTextWith<R>(text: string, col: RowCollector<R>): R {
   let headerDone = false;
+  const awal = text.replace(/^\ufeff/, '');
+  if (detectDelimiter(awal.slice(0, Math.max(0, awal.indexOf('\n')) || awal.length)) === '|') col.angkaErp = true;
   parseDelimited(text, (cells, lineNo) => {
     if (!headerDone) {
       if (cells.every(x => x.trim() === '')) return;        // baris kosong di atas judul
