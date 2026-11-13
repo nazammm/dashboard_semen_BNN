@@ -9,6 +9,7 @@ import { fmt } from '../../lib/format';
 import { dayCount, fmtRange } from '../../lib/dates';
 import type { DateOrder } from '../../lib/sellin';
 import type { TrxParseResult } from '../../lib/transaksiImport';
+import type { DistMaster } from '../../lib/j028Raw';
 import type { Row } from '../../lib/types';
 import { ErrorBox, cx } from '../../components/ui';
 import { todayWIB } from '../../components/DataStatus';
@@ -20,6 +21,13 @@ export function TransaksiUpload({ onChanged }: { onChanged: () => void }) {
   const imp = useImport<TrxParseResult>('transaksi');
   const { phase } = imp;
   const [round, setRound] = useState(0);
+  // master distributor: dipakai untuk mencocokkan kode ERP di file mentah J028 / J028B
+  const [master, setMaster] = useState<DistMaster[]>([]);
+  useEffect(() => {
+    adminApi<Row[]>('GET', 'admin/data/distributor')
+      .then(r => setMaster(r.map(x => ({ dist_code: String(x.dist_code), dist_name: String(x.dist_name ?? '') }))))
+      .catch(() => setMaster([]));
+  }, []);
 
   const save = async () => {
     if (phase.kind !== 'preview') return;
@@ -36,8 +44,8 @@ export function TransaksiUpload({ onChanged }: { onChanged: () => void }) {
       <Steps phase={phase.kind} />
       <ErrorLine error={imp.error} />
       <div hidden={phase.kind !== 'idle' && phase.kind !== 'reading'}>
-        <SourcePicker key={round} id="trx" reading={phase.kind === 'reading' ? phase : null} onFile={imp.readFile} onText={imp.readText} onCancel={imp.cancelRead}
-          fileHint="Template transaksi distributor (.xlsx atau .csv, kolom dist_code s.d. pelunasan_hari). Data distributor yang ada di file, pada rentang tanggal di file, akan diganti."
+        <SourcePicker key={round} id="trx" reading={phase.kind === 'reading' ? phase : null} onFile={imp.readFile} onFiles={fs => imp.readFiles(fs, { distributor: master })} onText={imp.readText} onCancel={imp.cancelRead}
+          fileHint="Pilih file J028 dan J028B hasil unduhan ERP sekaligus (.TXT, tanpa diedit): keduanya digabung, INSA dan INSA-E dipecah, dan hanya Cust Group RETAIL yang dipakai. Template transaksi (.xlsx atau .csv) tetap bisa. Data distributor yang ada di file, pada rentang tanggal di file, akan diganti."
           pastePlaceholder={'dist_code\tdistributor_name\tdo_date\tdo_no\t…\nBMM\tPT. BANGUN MITRA MAKMUR\t2026-11-03\t2611001\t…'} />
       </div>
 
@@ -105,7 +113,7 @@ function TrxPreview({ phase, onSave, onCancel, onDateOrder }: {
         <div>
           <div className="card-title">Baris dipakai</div>
           <div className="upl-fact">{fmt(st.rowsUsed)} <span className="upl-of">dari {fmt(st.rowsRead)}</span></div>
-          <div className="upl-sub">{st.invalid ? `${fmt(st.invalid)} baris tidak terbaca` : 'Semua baris terbaca'}</div>
+          <div className="upl-sub">{st.invalid ? `${fmt(st.invalid)} baris tidak terbaca` : st.raw && st.rowsUsed < st.rowsRead ? 'Sisanya bukan retail' : 'Semua baris terbaca'}</div>
         </div>
         <div>
           <div className="card-title">Distributor</div>
@@ -145,6 +153,15 @@ function TrxPreview({ phase, onSave, onCancel, onDateOrder }: {
         </div>
 
         <div className="flex flex-col gap-3">
+          {st.raw && (
+            <Note tone="info">
+              File mentah ERP: {st.raw.files.map(f => `${f.jenis} (${fmt(f.baris)} baris)`).join(' + ')}.
+              {Object.keys(st.raw.pecah).length > 0 && <> Dipecah lewat J028B: {Object.entries(st.raw.pecah).map(([d, n]) => `${d} ${fmt(n)} baris`).join(', ')}.</>}
+              {Object.keys(st.raw.dilewati).length > 0
+                ? <> Bukan retail, tidak ikut: {Object.entries(st.raw.dilewati).sort((a, b) => b[1] - a[1]).map(([g, n]) => `${g} ${fmt(n)}`).join(', ')}.</>
+                : <> Semua baris Cust Group RETAIL.</>}
+            </Note>
+          )}
           <DateOrderNote info={st.dateOrder} onSwitch={onDateOrder} disabled={phase.kind === 'saving'} />
           {impactErr ? <ErrorBox error={impactErr} /> : (
             <Note tone={oldRows ? 'warn' : 'info'}>

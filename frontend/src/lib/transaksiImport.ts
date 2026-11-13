@@ -3,6 +3,7 @@
    Murni (tanpa DOM) supaya bisa jalan di Web Worker dan diuji di Node.
    Urutan kolom yang dikirim = urutan argumen sementrack.transaksi_stage.
 ============================================================================ */
+import type { RawInfo } from './j028Raw';
 import { DateOrderDetector, isAmbiguousDate, normHeader, toISODate, toNumber, type DateOrder, type DateOrderInfo, type RowCollector } from './sellin';
 
 export const TRX_FIELDS = [
@@ -42,6 +43,7 @@ export interface TrxStats {
   perDist: Record<string, TrxDistStat>;
   distNames: Record<string, string>;
   dateOrder?: DateOrderInfo;   // urutan tanggal yang dipakai (hari/bulan atau bulan/hari)
+  raw?: RawInfo;               // terisi bila sumbernya file mentah ERP J028 / J028B
 }
 export interface TrxParseResult { ok: boolean; error?: string; missing?: string[]; rows: TrxRow[]; stats: TrxStats }
 
