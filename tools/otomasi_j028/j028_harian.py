@@ -6,8 +6,9 @@ Pakai:
     python j028_harian.py --hanya-unduh        # berhenti setelah file terunduh
     python j028_harian.py --tanpa-simpan       # unggah sampai pratinjau saja, tidak menyimpan
 
-Password TIDAK ditulis di file ini. Diambil dari environment variable; kalau kosong, ditanya saat
-jalan (ketikan tidak tampil):
+Password TIDAK ditulis di file ini. Urutan sumbernya: environment variable Windows, lalu file
+akun_lokal.txt di folder yang sama dengan skrip / exe (baris NAMA=nilai, lihat akun_lokal.contoh.txt),
+lalu ditanya saat jalan (ketikan tidak tampil):
     ERP_USER, ERP_PASS            akun ERP (bangunsukses.com)
     SEMENTRACK_URL                alamat web SEMENTRACK, mis. http://localhost:5173
     SEMENTRACK_USER, SEMENTRACK_PASS   akun admin SEMENTRACK
@@ -30,8 +31,24 @@ ERP = "https://www.bangunsukses.com"
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
 TUNGGU_JOB_MENIT = 20            # batas menunggu job selesai di View Job
-FOLDER = Path(__file__).resolve().parent / "unduhan"
+# folder skrip, atau folder file .exe kalau dijalankan sebagai exe (PyInstaller)
+DASAR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+FOLDER = DASAR / "unduhan"
 KANAL = os.environ.get("BROWSER_KANAL", "msedge") or None   # browser yang dipakai Playwright; kosongkan untuk Chromium bawaan
+
+
+def baca_akun_lokal() -> None:
+    """akun_lokal.txt (NAMA=nilai per baris, # = komentar). Environment variable yang sudah ada tidak ditimpa."""
+    f = DASAR / "akun_lokal.txt"
+    if not f.exists():
+        return
+    for baris in f.read_text(encoding="utf-8-sig").splitlines():
+        baris = baris.strip()
+        if not baris or baris.startswith("#") or "=" not in baris:
+            continue
+        k, v = baris.split("=", 1)
+        if v.strip():
+            os.environ.setdefault(k.strip(), v.strip())
 
 
 def rahasia(nama: str, label: str, tersembunyi: bool = False) -> str:
@@ -252,4 +269,20 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    baca_akun_lokal()
+    if getattr(sys, "frozen", False):
+        # dijalankan dari exe (biasanya diklik dua kali): jendela jangan langsung tertutup
+        kode = 0
+        try:
+            main()
+            print("\nSelesai.")
+        except SystemExit as e:
+            if e.code not in (None, 0):
+                print(f"\n{e.code}")
+                kode = 1
+        except Exception as e:  # noqa: BLE001
+            print(f"\nGagal: {type(e).__name__}: {e}")
+            kode = 1
+        input("\nTekan Enter untuk menutup...")
+        sys.exit(kode)
     main()

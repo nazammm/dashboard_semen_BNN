@@ -1,2 +1,6 @@
 unduhan/
 __pycache__/
+akun_lokal.txt
+build/
+dist/
+*.spec
