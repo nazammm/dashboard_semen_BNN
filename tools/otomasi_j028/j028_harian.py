@@ -64,7 +64,8 @@ TIRO_JENIS = {"SELLIN": ("Pengiriman", "SellIn"), "OSDO": ("Tanggal Pemesanan", 
 RINGKAS_SUBDIST: list[str] = []   # ringkasan Sub ERP per bulan untuk riwayat
 BULAN_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 BULAN_ID = ["JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"]
-TUNGGU_JOB_MENIT = 30            # batas menunggu semua job selesai di View Job
+TUNGGU_JOB_MENIT = 45            # batas menunggu semua job selesai di View Job
+MAKS_ANTRIAN = int(os.environ.get("MAKS_ANTRIAN", "2"))   # ERP menerima paling banyak 2 job menunggu per user
 JEDA_CEK_DETIK = int(os.environ.get("JEDA_CEK_DETIK", "180"))   # View Job dicek ulang tiap 3 menit
 # J073: distributor yang diunduh (kode ERP). INSA = 4094, PKB = 9575. Bisa diubah lewat J073_DIST=4094,9575
 def j073_dist() -> list[str]:
@@ -580,7 +581,8 @@ class Hasil:
 
 
 def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list[date], tampil: bool) -> Hasil:
-    """Satu kali login ERP: kirim semua job, baca Sub ERP selagi job diproses, lalu unduh semua hasil job."""
+    """Satu kali login ERP. Job dikirim bergiliran karena antrian ERP paling banyak MAKS_ANTRIAN job per user:
+    J028 + J028B dulu, lalu J073 per distributor begitu ada tempat kosong. Sub ERP dibaca sambil menunggu."""
     h = Hasil()
     user = rahasia("ERP_USER", "User ERP")
     pwd = rahasia("ERP_PASS", "Password ERP (tidak tampil)", tersembunyi=True)
@@ -588,71 +590,90 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
     try:
         login_erp(page, user, pwd)
         lama = set(daftar_job(page))                 # job yang sudah ada sebelum kita mengirim
-        harap = {"J028": 0, "J073": 0}               # jumlah job yang ditunggu per bagian
+        # antrean kiriman: (bagian, label, kode di View Job, fungsi kirim)
+        antre: list[tuple[str, str, str, object]] = []
         if "J028" in bagian:
-            try:
-                kirim_job(page, "J028", dari, sampai)
-                kirim_job(page, "J028B", dari, sampai)
-                harap["J028"] = 2
-            except (SystemExit, Exception) as e:  # noqa: BLE001
-                h.catat_gagal("J028", e)
+            antre += [("J028", "J028", "J028", lambda: kirim_job(page, "J028", dari, sampai)),
+                      ("J028", "J028B", "J028B", lambda: kirim_job(page, "J028B", dari, sampai))]
         if "J073" in bagian:
-            for dist in j073_dist():
-                try:
-                    kirim_j073(page, dist, dari, sampai)
-                    harap["J073"] += 1
-                except (SystemExit, Exception) as e:  # noqa: BLE001
-                    h.catat_gagal(f"J073 {dist}", e)
-        if "SUBDIST" in bagian:                       # dikerjakan sambil menunggu job di server ERP
-            try:
-                h.subdist = teks_subdist(page, daftar_bulan)
-            except (SystemExit, Exception) as e:  # noqa: BLE001
-                h.catat_gagal("Sub ERP", e)
-
-        jumlah = sum(harap.values())
-        if not jumlah:
-            return h
+            antre += [("J073", f"J073 {d}", "J073", (lambda d=d: kirim_j073(page, d, dari, sampai))) for d in j073_dist()]
+        perlu_j028 = 2 if "J028" in bagian else 0
+        subdist_selesai = "SUBDIST" not in bagian
+        aktif: list[dict] = []                        # sudah dikirim, belum terunduh
+        dikenal: set[str] = set()                     # Job ID yang sudah dipasangkan ke kiriman
         FOLDER.mkdir(exist_ok=True)
-        terunduh: dict[str, str] = {}                 # Job ID -> Job Code
-        mulai_tunggu = time.time()
-        batas = mulai_tunggu + TUNGGU_JOB_MENIT * 60
-        bagian_kode = lambda k: "J073" if k.startswith("J073") else "J028"   # noqa: E731
+        batas = time.time() + TUNGGU_JOB_MENIT * 60
+
         while True:
-            daftar = daftar_job(page)
-            baru = {j: v for j, v in daftar.items() if j not in lama}
-            if baru:
-                print("  View Job: " + ", ".join(f"{j} {k} {st or '?'}" for j, (k, st) in sorted(baru.items())))
-            # job yang tidak pernah muncul sama sekali = ditolak form ERP; jangan ditunggu sampai batas
-            if time.time() - mulai_tunggu > 5 * 60:
-                for b in ("J028", "J073"):
-                    if harap[b] and not any(bagian_kode(k) == b for k, _ in baru.values()):
-                        h.catat_gagal(b, SystemExit(f"Job {b} tidak muncul di View Job setelah dikirim (kemungkinan form {b} menolak isian). "
-                                                    f"Lihat unduhan/sebelum_submit_{b}*.png."))
-                        jumlah -= harap[b]
-                        harap[b] = 0
-            for job, (kode, status) in sorted(baru.items()):
-                if job in terunduh or (status and status != "FINISHED"):
+            # 1. isi antrian ERP sampai penuh
+            while antre and len(aktif) < MAKS_ANTRIAN:
+                b, label, kode, kirim = antre.pop(0)
+                try:
+                    kirim()
+                    aktif.append({"bagian": b, "label": label, "kode": kode, "waktu": time.time(), "job": None})
+                except (SystemExit, Exception) as e:  # noqa: BLE001
+                    h.catat_gagal(label, e)
+            # 2. Sub ERP selagi job diproses
+            if not subdist_selesai:
+                subdist_selesai = True
+                try:
+                    h.subdist = teks_subdist(page, daftar_bulan)
+                except (SystemExit, Exception) as e:  # noqa: BLE001
+                    h.catat_gagal("Sub ERP", e)
+            if not aktif and not antre:
+                break
+            # 3. cocokkan job baru di View Job dengan kiriman, unduh yang sudah selesai
+            daftar = {j: v for j, v in daftar_job(page).items() if j not in lama}
+            if daftar:
+                print("  View Job: " + ", ".join(f"{j} {k} {st or '?'}" for j, (k, st) in sorted(daftar.items())))
+            for j, (kode, _) in sorted(daftar.items()):
+                if j in dikenal:
+                    continue
+                k = next((a for a in aktif if a["job"] is None and a["kode"] == kode), None)
+                if k:
+                    k["job"] = j
+                    dikenal.add(j)
+            ada_kemajuan = False
+            for a in list(aktif):
+                if a["job"] is None:
+                    if time.time() - a["waktu"] > 5 * 60:      # tidak pernah muncul: ditolak ERP
+                        h.catat_gagal(a["label"], SystemExit(f"Job {a['label']} tidak muncul di View Job setelah dikirim (antrian ERP penuh "
+                                                             f"atau form menolak isian). Lihat unduhan/sebelum_submit_{a['label'].replace(' ', '_')}.png."))
+                        aktif.remove(a)
+                        ada_kemajuan = True
+                    continue
+                status = daftar.get(a["job"], ("", ""))[1]
+                if status and status != "FINISHED":
                     continue
                 try:
                     with page.expect_download(timeout=60_000) as info:
-                        page.get_by_role("link", name=job, exact=True).click()
-                    d = info.value
-                    tujuan = FOLDER / f"{job}-{kode}.TXT"
-                    d.save_as(tujuan)
-                    terunduh[job] = kode
-                    (h.j073 if kode.startswith("J073") else h.j028).append(tujuan)
+                        page.get_by_role("link", name=a["job"], exact=True).click()
+                    tujuan = FOLDER / f"{a['job']}-{a['label'].replace(' ', '_')}.TXT"
+                    info.value.save_as(tujuan)
+                    (h.j073 if a["bagian"] == "J073" else h.j028).append(tujuan)
+                    aktif.remove(a)
+                    ada_kemajuan = True
                     print(f"  terunduh: {tujuan.name}")
                 except PWTimeout:
-                    print(f"  {job} belum siap, dicoba lagi")
-            if len(terunduh) >= jumlah or time.time() >= batas:
+                    print(f"  {a['job']} belum siap, dicoba lagi")
+            if not aktif and not antre:
                 break
-            print(f"  {len(terunduh)}/{jumlah} job terunduh, cek lagi " + (f"{JEDA_CEK_DETIK // 60} menit" if JEDA_CEK_DETIK >= 60 else f"{JEDA_CEK_DETIK} detik") + " lagi")
+            if time.time() >= batas:
+                for a in aktif:
+                    h.catat_gagal(a["label"], SystemExit(f"Job {a['label']} belum selesai setelah {TUNGGU_JOB_MENIT} menit."))
+                for _, label, _, _ in antre:
+                    h.catat_gagal(label, SystemExit(f"Job {label} belum sempat dikirim dalam {TUNGGU_JOB_MENIT} menit."))
+                break
+            if ada_kemajuan and antre:
+                continue                                 # ada tempat kosong: langsung kirim job berikutnya
+            sisa = len(aktif) + len(antre)
+            print(f"  {sisa} job belum selesai, cek lagi " + (f"{JEDA_CEK_DETIK // 60} menit" if JEDA_CEK_DETIK >= 60 else f"{JEDA_CEK_DETIK} detik") + " lagi")
             time.sleep(JEDA_CEK_DETIK)
-        if harap["J028"] and len(h.j028) < harap["J028"]:
-            h.catat_gagal("J028", SystemExit(f"Job J028/J028B belum selesai setelah {TUNGGU_JOB_MENIT} menit."))
+
+        if perlu_j028 and len(h.j028) < perlu_j028:
+            if "J028" not in h.gagal and "J028B" not in h.gagal:
+                h.catat_gagal("J028", SystemExit("J028 dan J028B tidak lengkap terunduh."))
             h.j028 = []
-        if harap["J073"] and len(h.j073) < harap["J073"]:
-            h.catat_gagal("J073", SystemExit(f"{len(h.j073)} dari {harap['J073']} job J073 selesai dalam {TUNGGU_JOB_MENIT} menit."))
         return h
     except PWTimeout as e:
         raise SystemExit(f"ERP tidak merespons seperti yang diharapkan: {str(e).splitlines()[0]}\nHalaman: {jejak(page, 'gagal')}")
@@ -941,7 +962,7 @@ def catat_riwayat(mulai: datetime, bagian: set[str], a, h: "Hasil") -> None:
     status = {}
     for b in sorted(bagian):
         n = NAMA_BAGIAN[b]
-        gagal = next((v for k, v in h.gagal.items() if k == n or k.startswith(n + " ")), None)
+        gagal = next((v for k, v in h.gagal.items() if k == n or k.startswith(n + " ") or (n == "J028" and k == "J028B")), None)
         status[n] = {"ok": False, "pesan": gagal} if gagal else {"ok": True, "pesan": h.berhasil.get(n, "tidak ada data baru")}
     if "Umum" in h.gagal:
         for v in status.values():
