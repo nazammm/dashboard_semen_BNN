@@ -561,7 +561,7 @@ async function handleKelola(req, res, url, p, m) {
       if (!Number.isInteger(tahun)) return err(res, 400, 'tahun tidak valid');
       return send(res, 200, await q('SELECT metrik, tahun, bulan, region, area, tipe, kode, nama, status, nilai FROM sementrack.target WHERE jenis = @p1 AND tahun = @p2 ORDER BY region, area, tipe, kode, metrik, bulan', [url.searchParams.get('jenis'), tahun]));
     }
-    if (m === 'GET' && p === '/admin/data/distributor') return send(res, 200, await q('SELECT dist_code, dist_name FROM dbo.distributor ORDER BY dist_code'));
+    if (m === 'GET' && p === '/admin/data/distributor') return send(res, 200, await q('SELECT dist_code, dist_name, kode_erp FROM dbo.distributor ORDER BY dist_code'));
     if (m !== 'POST') return err(res, 404, 'not found');
     const b = await readBody(req, p === '/admin/transaksi/stage' || p === '/admin/data/sellout' || p === '/admin/data/target' ? 12 * 1024 * 1024 : 256 * 1024);
     if (b.__tooBig) return err(res, 413, 'paket terlalu besar');

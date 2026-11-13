@@ -14,6 +14,7 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 07_upload_sellin.sql | upload Sell In BNN, Outstanding DO, peta region | `node salin.cjs --uji sellin` |
 | 08_kelola_tulis.sql | hapus data, status sinkron, DO FAS, Sub ERP, J073, target | `node salin.cjs --uji kelola` |
 | 09_kelola_tabel.sql | Kelola Data → Tabel (edit langsung) | `node salin.cjs --uji tabel` |
+| 10_kode_erp.sql | kolom `distributor.kode_erp` untuk upload mentah J028 / J028B | daftar kode di akhir skrip |
 
 ## Untuk tahap 5 (backend)
 
