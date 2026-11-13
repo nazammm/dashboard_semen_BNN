@@ -173,6 +173,6 @@ internal static class KelolaEndpoints
         }));
 
         d.MapGet("/distributor", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) => SellinEndpoints.Run(ctx, auth, log, "distributor", async _ =>
-            Helpers.Json(await db.QueryAsync("select dist_code, dist_name from public.distributor order by dist_code"))));
+            Helpers.Json(await db.QueryAsync("select dist_code, dist_name, kode_erp from public.distributor order by dist_code"))));
     }
 }

@@ -9,7 +9,9 @@
 
    Yang dikerjakan otomatis (dulu dikerjakan manual di Excel):
    - hanya Cust Group RETAIL yang dipakai (proyek, sub distributor, industri, relasi dilewati)
-   - kode ERP distributor dicocokkan ke dist_code lewat nama distributor di master
+   - kode ERP distributor dicocokkan ke dist_code lewat kolom kode_erp di master distributor
+     (baris clone lewat Distributor Code Clone, mis. 4094E). Distributor yang kode ERP-nya belum diisi
+     dicocokkan lewat nama, dan dilaporkan supaya kodenya diisi.
    - baris clone memakai distributor "-E" dan kode salesman clone
    - kode customer tanpa nol di depan (007441 menjadi 7441), sama dengan data yang sudah tersimpan
    - angka dibaca dengan titik sebagai desimal ("100.000" = 100), tanda "-" = kosong
@@ -17,11 +19,12 @@
 import { TRX_FIELDS, TransaksiCollector, type TrxParseResult } from './transaksiImport';
 import type { DateOrder } from './sellin';
 
-export interface DistMaster { dist_code: string; dist_name: string }
+export interface DistMaster { dist_code: string; dist_name: string; kode_erp?: string | null }
 export interface RawInfo {
   files: { name: string; jenis: 'J028' | 'J028B'; baris: number }[];
   dilewati: Record<string, number>;          // Cust Group selain RETAIL -> jumlah baris
   pecah: Record<string, number>;             // dist_code hasil pemecahan J028B -> jumlah baris retail
+  lewatNama: { kode: string; dist_code: string }[];   // kode ERP belum ada di master, cocok lewat nama
 }
 
 const norm = (s: unknown) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -88,8 +91,20 @@ export function gabungJ028(files: { name: string; text: string }[], master: Dist
   if (a.length > 1 || bb.length > 1) return gagal('Pilih paling banyak satu file J028 dan satu file J028B.');
   if (!master.length) return gagal('Daftar distributor belum termuat, jadi kode ERP tidak bisa dicocokkan. Muat ulang halaman lalu coba lagi.');
 
+  const byKode = new Map(master.filter(m => norm(m.kode_erp)).map(m => [norm(m.kode_erp), m]));
   const byNama = new Map(master.map(m => [norm(m.dist_name), m]));
-  const cari = (nama: string, clone: boolean) => byNama.get(norm(nama) + (clone ? 'E' : ''));
+  const lewatNama = new Map<string, string>();   // kode ERP -> dist_code
+  // kode ERP dulu; lewat nama hanya untuk distributor yang kode ERP-nya belum diisi
+  // (yang sudah punya kode lain tidak diambil, supaya kode yang salah tidak lolos diam-diam)
+  const cari = (kode: string, nama: string, clone: boolean) => {
+    const k = byKode.get(norm(kode));
+    if (k) return k;
+    const n = byNama.get(norm(nama) + (clone ? 'E' : ''));
+    if (!n || norm(n.kode_erp)) return undefined;
+    lewatNama.set(kode, n.dist_code);
+    return n;
+  };
+  const punyaClone = (r: Baris) => byKode.has(norm(r.kode) + 'E') || !!byNama.get(norm(r.nama) + 'E');
   const retail = (r: Baris) => lower(r.cust_group) === 'retail';
 
   const j028 = a[0]?.rows ?? [], j028b = bb[0]?.rows ?? [];
@@ -97,7 +112,7 @@ export function gabungJ028(files: { name: string; text: string }[], master: Dist
 
   // distributor yang punya pasangan "-E" di master wajib dipecah lewat J028B
   if (!bb.length) {
-    const perlu = [...new Set(j028.filter(r => retail(r) && cari(r.nama, true)).map(r => r.nama))];
+    const perlu = [...new Set(j028.filter(r => retail(r) && punyaClone(r)).map(r => r.nama))];
     if (perlu.length) return gagal(`${perlu.join(', ')} harus dipecah dengan file J028B, tetapi file J028B belum dipilih. Pilih J028 dan J028B sekaligus.`);
   }
   // kedua file harus dari rentang tanggal yang sama: baris retail distributor yang dipecah harus sama banyak
@@ -109,7 +124,7 @@ export function gabungJ028(files: { name: string; text: string }[], master: Dist
   }
 
   const pakai = [...j028.filter(r => !kodePecah.has(r.kode)), ...j028b];
-  const info: RawInfo = { files: berkas.map(b => ({ name: b.name, jenis: b.jenis, baris: b.rows.length })), dilewati: {}, pecah: {} };
+  const info: RawInfo = { files: berkas.map(b => ({ name: b.name, jenis: b.jenis, baris: b.rows.length })), dilewati: {}, pecah: {}, lewatNama: [] };
   const takDikenal = new Map<string, number>();
   const col = new TransaksiCollector(order);
   col.header(TRX_FIELDS.map(f => f.key));
@@ -117,8 +132,11 @@ export function gabungJ028(files: { name: string; text: string }[], master: Dist
   for (const r of pakai) {
     if (!retail(r)) { const g = r.cust_group || '(kosong)'; info.dilewati[g] = (info.dilewati[g] || 0) + 1; continue; }
     const clone = !!r.kode_clone;
-    const d = cari(r.nama, clone);
-    if (!d) { const k = `${clone ? r.kode_clone : r.kode} ${r.nama}${clone ? ' (clone)' : ''}`; takDikenal.set(k, (takDikenal.get(k) || 0) + 1); continue; }
+    const kode = clone ? r.kode_clone : r.kode;
+    const d = cari(kode, r.nama, clone);
+    if (!d) {
+      const n = byNama.get(norm(r.nama) + (clone ? 'E' : ''));
+      const k = `${kode} ${r.nama}${clone ? ' (clone)' : ''}${n ? ` (di master ${n.dist_code} tercatat kode ERP ${n.kode_erp})` : ''}`; takDikenal.set(k, (takDikenal.get(k) || 0) + 1); continue; }
     if (kodePecah.has(r.kode)) info.pecah[d.dist_code] = (info.pecah[d.dist_code] || 0) + 1;
     const v: Record<string, string | number | null> = {
       dist_code: d.dist_code, distributor_name: d.dist_name, do_date: r.do_date, do_no: r.do_no,
@@ -134,7 +152,8 @@ export function gabungJ028(files: { name: string; text: string }[], master: Dist
     col.push(TRX_FIELDS.map(f => v[f.key]), Number(r.__baris));
   }
   if (takDikenal.size)
-    return gagal(`Distributor di file belum ada di master distributor (dicocokkan lewat nama): ${[...takDikenal].map(([k, n]) => `${k}, ${n} baris`).join('; ')}. Tambahkan atau samakan namanya di Kelola Data → Tabel → Distributor.`);
+    return gagal(`Kode ERP distributor ini belum terdaftar di master distributor: ${[...takDikenal].map(([k, n]) => `${k}, ${n} baris`).join('; ')}. Isi kolom Kode ERP distributor yang sesuai (atau tambahkan distributornya) di Kelola Data → Tabel → Distributor, lalu upload lagi.`);
+  info.lewatNama = [...lewatNama].map(([kode, dist_code]) => ({ kode, dist_code }));
 
   const res = col.result();
   if (res.ok) { res.stats.rowsRead = pakai.length; res.stats.raw = info; }

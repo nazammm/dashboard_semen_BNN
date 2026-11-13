@@ -193,3 +193,11 @@ SQL: `docs/sql/kelola_tabel.sql` (setelah target_tahunan.sql dan outstanding_do.
   dataset 'tabel', aksi 'ubah').
 Endpoint baru (admin): `GET /api/admin/tabel`, `GET /api/admin/tabel/{id}/opsi`, `GET /api/admin/tabel/{id}?kolom=nilai`,
 `POST /api/admin/tabel/{id}` body `{upsert:[...], delete:[...]}`.
+
+## 15. Update Nov 2026: upload mentah J028 / J028B dan kode ERP distributor
+SQL: `docs/sql/kode_erp_distributor.sql` (setelah kelola_tabel.sql, aman dijalankan ulang). Isinya:
+- Kolom baru `public.distributor.kode_erp` (kode distributor di ERP, mis. 6987, 4094, 1001K; clone INSA-E = 4094E),
+  unik bila diisi, isi awal 14 distributor J028. Bisa diubah di Kelola Data → Tabel → Distributor.
+- `GET /api/admin/data/distributor` kini mengirim `dist_code, dist_name, kode_erp` (backend perlu dideploy ulang).
+Halaman Kelola Data → Transaksi menerima file J028 + J028B langsung dari ERP: digabung, INSA/INSA-E dipecah, hanya
+Cust Group RETAIL. Distributor dicocokkan lewat `kode_erp`; yang belum punya kode dicocokkan lewat nama dan diberi peringatan.
