@@ -1,6 +1,9 @@
 unduhan/
 __pycache__/
 akun_lokal.txt
+pengaturan.json
+riwayat.json
+sedang_jalan.lock
 build/
 dist/
 *.spec

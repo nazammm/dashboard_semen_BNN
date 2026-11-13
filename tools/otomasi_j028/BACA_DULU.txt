@@ -1,0 +1,18 @@
+NAZAM AUTO TASK
+================
+Aplikasi untuk mengambil data ERP (J028 + J028B, J073, Sub ERP) dan memasukkannya ke SEMENTRACK.
+Rentang data: tanggal 1 bulan ini sampai hari ini.
+
+Membuat aplikasinya (sekali saja)
+1. Klik dua kali buat_exe.bat, tunggu sampai selesai (1-3 menit).
+2. Ambil dist\Nazam Auto Task.exe, pindahkan ke folder tetap, mis. Documents\Nazam Auto Task.
+3. Buka exe itu. Pengaturan, riwayat, dan folder unduhan dibuat di folder yang sama.
+
+Pertama kali dibuka
+1. Pengaturan: isi akun ERP dan SEMENTRACK, klik Simpan, lalu Uji login.
+2. Beranda: centang "Hanya pratinjau", klik Jalankan. Kalau semua hijau/kuning tanpa merah,
+   jalankan lagi tanpa "Hanya pratinjau".
+3. Jadwal: Pengaturan -> Jadwal otomatis (selama aplikasi terbuka), atau "Daftarkan ke Windows"
+   supaya tetap jalan walau aplikasi ditutup. Pilih salah satu saja.
+
+Tanpa aplikasi (baris perintah) tetap bisa: python j028_harian.py --semua (lihat keterangan di atas file itu).
