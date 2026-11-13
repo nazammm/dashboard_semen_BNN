@@ -124,6 +124,15 @@ export function useImport<R extends ImportResult>(dataset: Dataset) {
     if (f.size > MAX_FILE_MB * 1e6) { setError(`File terlalu besar (${fmtSize(f.size)}). Maksimal ${MAX_FILE_MB} MB.`); return; }
     read({ dataset, kind: 'file', file: f }, f.name, f.size);
   };
+  /** Beberapa file sekaligus (transaksi: file mentah J028 + J028B). `extra` ikut dikirim ke pembaca, mis. master distributor. */
+  const readFiles = (list: File[], extra?: Pick<ImportWorkerIn, 'distributor'>) => {
+    const fs = list.filter(Boolean);
+    if (!fs.length) return;
+    if (fs.some(f => !/\.(xlsx|csv|tsv|txt|xls)$/i.test(f.name))) { setError('Pilih file .xlsx, .csv, atau .txt.'); return; }
+    const size = fs.reduce((a, f) => a + f.size, 0);
+    if (size > MAX_FILE_MB * 1e6) { setError(`File terlalu besar (${fmtSize(size)}). Maksimal ${MAX_FILE_MB} MB.`); return; }
+    read(fs.length === 1 ? { dataset, kind: 'file', file: fs[0], ...extra } : { dataset, kind: 'files', files: fs, ...extra }, fs.map(f => f.name).join(' + '), size);
+  };
   const readText = (text: string) => read({ dataset, kind: 'text', text }, 'Data tempelan', text.length);
   /** Baca ulang data yang sama dengan urutan tanggal tertentu (hari/bulan atau bulan/hari). */
   const rereadDates = (order: DateOrder) => {
@@ -173,23 +182,26 @@ export function useImport<R extends ImportResult>(dataset: Dataset) {
     }
   };
 
-  return { phase, error, setError, readFile, readText, rereadDates, cancelRead, reset, save, saveWith };
+  return { phase, error, setError, readFile, readFiles, readText, rereadDates, cancelRead, reset, save, saveWith };
 }
 
 /* ---------------------------------------------------------------------------
    Langkah 1: pilih file atau tempel dari Excel
 --------------------------------------------------------------------------- */
-export function SourcePicker({ reading, onFile, onText, onCancel, fileHint, pastePlaceholder, id }: {
+export function SourcePicker({ reading, onFile, onFiles, onText, onCancel, fileHint, pastePlaceholder, id }: {
   reading: { name: string; size: number; progress: number } | null;
   onFile: (f: File | undefined | null) => void; onText: (t: string) => void; onCancel: () => void;
+  /** Kalau diisi, boleh memilih / menarik beberapa file sekaligus. */
+  onFiles?: (f: File[]) => void;
   fileHint: string; pastePlaceholder: string; id: string;
 }) {
+  const kirim = (list: FileList | null | undefined) => (onFiles ? onFiles(Array.from(list || [])) : onFile(list?.[0]));
   const [source, setSource] = useState<Source>('file');
   const [pasted, setPasted] = useState('');
   const [drag, setDrag] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const pasteRows = useMemo(() => (pasted ? pasted.split('\n').filter(l => l.trim()).length : 0), [pasted]);
-  const onDrop = (e: DragEvent) => { e.preventDefault(); setDrag(false); onFile(e.dataTransfer.files?.[0]); };
+  const onDrop = (e: DragEvent) => { e.preventDefault(); setDrag(false); kirim(e.dataTransfer.files); };
 
   return (
     <section className="card !p-0" aria-label="Sumber data">
@@ -219,8 +231,8 @@ export function SourcePicker({ reading, onFile, onText, onCancel, fileHint, past
             <div className="text-[12.5px] text-soft mt-1">atau</div>
             <button type="button" className="btn btn-primary mt-2.5" onClick={() => fileInput.current?.click()}>Pilih file</button>
             <div className="text-[12px] text-faint mt-3 max-w-[460px]">{fileHint} Maks {MAX_FILE_MB} MB.</div>
-            <input ref={fileInput} type="file" accept=".xlsx,.csv,.tsv,.txt" className="sr-only" tabIndex={-1} aria-hidden="true"
-              onChange={e => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
+            <input ref={fileInput} type="file" accept=".xlsx,.csv,.tsv,.txt" multiple={!!onFiles} className="sr-only" tabIndex={-1} aria-hidden="true"
+              onChange={e => { kirim(e.target.files); e.target.value = ''; }} />
           </div>
         ) : (
           <div>
