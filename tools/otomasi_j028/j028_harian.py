@@ -408,26 +408,46 @@ def tiro_sesi() -> Path:
     return DASAR / "tiro_sesi.json"
 
 
+def tiro_sudah_masuk(page: Page) -> bool:
+    """Login berhasil kalau tidak di halaman login lagi DAN kotak email sudah tidak ada."""
+    try:
+        if "login.aspx" in page.url.lower():
+            return False
+        return page.get_by_role("textbox", name="Email Address").count() == 0
+    except Exception:  # noqa: BLE001 - halaman mungkin sedang pindah
+        return False
+
+
 def tiro_login(pw, user: str, pwd: str):
     """Login TIRO setengah otomatis: email dan password diisi, captcha DIKETIK PENGGUNA, lalu sesi disimpan.
     Jendela browser selalu tampil karena butuh orang. Mengembalikan (browser, context, page) yang sudah login."""
     browser = pw.chromium.launch(channel=KANAL, headless=False)
     ctx = browser.new_context(accept_downloads=True)
     page = ctx.new_page()
+    page.on("dialog", _dialog)
     page.goto(f"{TIRO}/Pages/login.aspx")
     page.get_by_role("textbox", name="Email Address").fill(user)
     page.get_by_role("textbox", name="Password").fill(pwd)
     page.locator("#txtVerify").click()
     page.bring_to_front()
     print(f"@@TIRO_LOGIN Ketik kode captcha di jendela TIRO lalu klik Masuk (ditunggu {TIRO_TUNGGU_MENIT} menit).")
+    # tunggu sampai benar-benar masuk; tidak bergantung pada perubahan alamat saja (lebih tahan)
+    batas = time.time() + TIRO_TUNGGU_MENIT * 60
+    while time.time() < batas:
+        if tiro_sudah_masuk(page):
+            ctx.storage_state(path=str(tiro_sesi()))
+            print("  login TIRO berhasil, sesi disimpan")
+            return browser, ctx, page
+        page.wait_for_timeout(1000)
+    teks = ""
     try:
-        page.wait_for_url(lambda u: "login.aspx" not in u.lower(), timeout=TIRO_TUNGGU_MENIT * 60_000)
-    except PWTimeout:
-        browser.close()
-        raise SystemExit(f"Login TIRO tidak dilakukan dalam {TIRO_TUNGGU_MENIT} menit (captcha belum diketik).")
-    ctx.storage_state(path=str(tiro_sesi()))
-    print("  login TIRO berhasil, sesi disimpan")
-    return browser, ctx, page
+        teks = " ".join(b.strip() for b in page.locator("body").inner_text().splitlines() if b.strip())[:300]
+    except Exception:  # noqa: BLE001
+        pass
+    alamat = jejak(page, "tiro_login_gagal")
+    browser.close()
+    raise SystemExit(f"Login TIRO belum berhasil dalam {TIRO_TUNGGU_MENIT} menit. Kalau captcha sudah diketik tapi tetap begini, "
+                     f"TIRO mungkin menolak. Pesan di halaman: {teks or '(tidak ada)'}\nHalaman: {alamat}")
 
 
 def tiro_buka(pw, tampil: bool):
@@ -436,8 +456,9 @@ def tiro_buka(pw, tampil: bool):
         browser = pw.chromium.launch(channel=KANAL, headless=not tampil)
         ctx = browser.new_context(accept_downloads=True, storage_state=str(tiro_sesi()))
         page = ctx.new_page()
+        page.on("dialog", _dialog)
         page.goto(f"{TIRO}/{TIRO_LAPORAN}")
-        if "login.aspx" not in page.url.lower():
+        if tiro_sudah_masuk(page):
             print("  sesi TIRO masih aktif")
             return browser, ctx, page
         browser.close()
