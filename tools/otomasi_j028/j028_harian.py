@@ -12,8 +12,8 @@ jalan (ketikan tidak tampil):
     SEMENTRACK_URL                alamat web SEMENTRACK, mis. http://localhost:5173
     SEMENTRACK_USER, SEMENTRACK_PASS   akun admin SEMENTRACK
 
-Bagian ERP ditulis dari rekaman Playwright dan BELUM pernah dijalankan terhadap situs aslinya.
-Tiga hal yang ditandai PERLU DICEK di bawah harus disesuaikan saat percobaan pertama.
+Kalau bagian ERP gagal, screenshot dan HTML halaman terakhir disimpan di folder unduhan
+(login_gagal, menu_J028, sebelum_submit_J028, setelah_submit_J028, gagal) untuk dicari penyebabnya.
 """
 import argparse
 import getpass
@@ -56,19 +56,77 @@ def isi_tanggal(page: Page, selector: str, d: date) -> None:
     f.press("Tab")
 
 
+def jejak(page: Page, nama: str) -> str:
+    """Simpan screenshot dan HTML halaman saat ini ke folder unduhan, untuk mencari tahu kenapa gagal."""
+    FOLDER.mkdir(exist_ok=True)
+    try:
+        page.screenshot(path=str(FOLDER / f"{nama}.png"), full_page=True)
+        (FOLDER / f"{nama}.html").write_text(page.content(), encoding="utf-8")
+    except Exception:  # noqa: BLE001 - jejak tidak boleh menutupi galat aslinya
+        pass
+    return f"{page.url}  (lihat unduhan/{nama}.png)"
+
+
+def login_erp(page: Page, user: str, pwd: str) -> None:
+    page.goto(f"{ERP}/index.aspx")
+    page.locator("#username").fill(user)
+    page.locator("#password").fill(pwd)
+    page.get_by_role("button", name="Log in").click()
+    try:
+        page.wait_for_load_state("networkidle", timeout=60_000)
+    except PWTimeout:
+        pass
+    # kotak username masih ada = login ditolak (password salah, akun terkunci, atau sesi lama masih aktif)
+    if page.locator("#username").count() and page.locator("#username").first.is_visible():
+        teks = page.locator("body").inner_text()
+        pesan = " ".join(b.strip() for b in teks.splitlines() if b.strip())[:300]
+        raise SystemExit(f"Login ERP gagal. Teks di halaman: {pesan}\nHalaman: {jejak(page, 'login_gagal')}")
+    print("  login ERP berhasil")
+
+
+def buka_form(page: Page, menu: str) -> None:
+    """Buka halaman kirim job J028 / J028B. Coba alamat langsung dulu, baru lewat menu."""
+    tanggal = page.locator("#ContentPlaceHolder1_txtDODate")
+    page.goto(f"{ERP}/SYS_Job_{menu}.aspx")
+    try:
+        tanggal.wait_for(timeout=15_000)
+        return
+    except PWTimeout:
+        pass
+    # lewat menu: arahkan kursor dulu (menu bisa hanya terbuka saat di-hover), lalu klik
+    try:
+        page.locator("#mmlink7").hover(timeout=15_000)
+        page.locator("#mmlink7").click()
+        page.locator("a").filter(has_text=re.compile(rf"^\s*{re.escape(menu)}\s*$")).first.click(timeout=15_000)
+        tanggal.wait_for(timeout=15_000)
+    except PWTimeout:
+        raise SystemExit(f"Halaman {menu} tidak bisa dibuka.\nHalaman: {jejak(page, f'menu_{menu}')}")
+
+
 def daftar_job(page: Page) -> set[str]:
     page.goto(f"{ERP}/SYS_View_Job.aspx")
+    try:
+        page.wait_for_load_state("networkidle", timeout=60_000)
+    except PWTimeout:
+        pass
     return {t.strip() for t in page.get_by_role("link").all_text_contents() if re.fullmatch(r"J\d+", t.strip())}
 
 
 def kirim_job(page: Page, menu: str, dari: date, sampai: date) -> None:
-    page.locator("#mmlink7").click()
-    page.get_by_role("link", name=menu, exact=True).click()
+    buka_form(page, menu)
     isi_tanggal(page, "#ContentPlaceHolder1_txtDODate", dari)
     isi_tanggal(page, "#ContentPlaceHolder1_txtEndDODate", sampai)
+    a = page.locator("#ContentPlaceHolder1_txtDODate").input_value()
+    b = page.locator("#ContentPlaceHolder1_txtEndDODate").input_value()
+    print(f"  {menu}: tanggal terisi '{a}' s.d. '{b}'")
     page.locator("#ContentPlaceHolder1_ddMatrix").select_option(MATRIX)
+    jejak(page, f"sebelum_submit_{menu}")
     page.get_by_role("button", name="Submit").click()
-    page.get_by_role("button", name="OK").click()
+    try:
+        page.get_by_role("button", name="OK").click(timeout=15_000)
+    except PWTimeout:
+        print(f"  {menu}: tidak ada tombol OK setelah Submit, lanjut. Halaman: {jejak(page, f'setelah_submit_{menu}')}")
+    print(f"  {menu}: job dikirim")
 
 
 def unduh_erp(pw, dari: date, sampai: date, tampil: bool) -> list[Path]:
@@ -78,11 +136,7 @@ def unduh_erp(pw, dari: date, sampai: date, tampil: bool) -> list[Path]:
     ctx = browser.new_context(accept_downloads=True)
     page = ctx.new_page()
     try:
-        page.goto(f"{ERP}/index.aspx?redir=SYS_Job_J028.aspx")
-        page.locator("#username").fill(user)
-        page.locator("#password").fill(pwd)
-        page.get_by_role("button", name="Log in").click()
-        page.locator("#mmlink7").wait_for(timeout=30_000)
+        login_erp(page, user, pwd)
 
         lama = daftar_job(page)                      # job yang sudah ada sebelum kita mengirim
         kirim_job(page, "J028", dari, sampai)
@@ -114,6 +168,8 @@ def unduh_erp(pw, dari: date, sampai: date, tampil: bool) -> list[Path]:
         if len(hasil) < 2:
             raise SystemExit(f"Job belum selesai setelah {TUNGGU_JOB_MENIT} menit. Yang terunduh: {[p.name for p in hasil.values()]}")
         return list(hasil.values())
+    except PWTimeout as e:
+        raise SystemExit(f"ERP tidak merespons seperti yang diharapkan: {str(e).splitlines()[0]}\nHalaman: {jejak(page, 'gagal')}")
     finally:
         ctx.close()
         browser.close()
