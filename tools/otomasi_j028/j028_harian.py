@@ -1,10 +1,18 @@
-"""Unduh J028 dan J028B dari ERP, lalu unggah keduanya ke SEMENTRACK. Sekali jalan, tanpa Excel.
+"""Ambil data dari ERP lalu masukkan ke SEMENTRACK. Sekali jalan, tanpa Excel.
 
-Pakai:
+J028 (transaksi): unduh J028 dan J028B, lalu unggah keduanya di Kelola Data -> Transaksi.
     python j028_harian.py                      # tanggal 1 bulan ini s.d. kemarin
     python j028_harian.py --dari 2026-11-01 --sampai 2026-11-12
     python j028_harian.py --hanya-unduh        # berhenti setelah file terunduh
     python j028_harian.py --tanpa-simpan       # unggah sampai pratinjau saja, tidak menyimpan
+
+Sub ERP (Sell Out BNN subdist): baca tabel "Sub Distributor Monthly Sales Summary by Distributor"
+(Product Group SEMEN, view TON), lalu tempel di Kelola Data -> Sell Out BNN -> Tempel Sub ERP.
+Hanya bulan yang diambil yang diganti; bulan lain tetap.
+    python j028_harian.py --subdist                        # bulan dari kemarin
+    python j028_harian.py --subdist --bulan 2026-10 2026-11
+    python j028_harian.py --subdist --tanpa-simpan         # sampai pratinjau saja
+    python j028_harian.py --semua                          # Sub ERP dulu, lalu J028
 
 Password TIDAK ditulis di file ini. Urutan sumbernya: environment variable Windows, lalu file
 akun_lokal.txt di folder yang sama dengan skrip / exe (baris NAMA=nilai, lihat akun_lokal.contoh.txt),
@@ -27,9 +35,13 @@ from pathlib import Path
 
 from playwright.sync_api import Page, TimeoutError as PWTimeout, sync_playwright
 
-ERP = "https://www.bangunsukses.com"
+ERP = os.environ.get("ERP_URL", "https://www.bangunsukses.com").rstrip("/")   # ERP_URL hanya untuk uji
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
+SUBDIST_HALAMAN = "SLS_Inq_Monthly_Sales_Summary_SubDist_By_Distributor.aspx"
+SUBDIST_GRUP = "01"              # Product Group SEMEN, sama dengan rekaman
+BULAN_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+BULAN_ID = ["JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"]
 TUNGGU_JOB_MENIT = 20            # batas menunggu job selesai di View Job
 JEDA_CEK_DETIK = 180             # View Job dicek ulang tiap 3 menit
 # folder skrip, atau folder file .exe kalau dijalankan sebagai exe (PyInstaller)
@@ -61,7 +73,7 @@ def rahasia(nama: str, label: str, tersembunyi: bool = False) -> str:
 
 def tanggal_erp(d: date) -> str:
     # nama bulan Inggris tiga huruf, tidak tergantung bahasa Windows
-    bulan = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.month - 1]
+    bulan = BULAN_EN[d.month - 1]
     return d.strftime(FORMAT_TANGGAL_ERP.replace("%b", bulan))
 
 
@@ -147,12 +159,86 @@ def kirim_job(page: Page, menu: str, dari: date, sampai: date) -> None:
     print(f"  {menu}: job dikirim")
 
 
+def buka_browser(pw, tampil: bool):
+    browser = pw.chromium.launch(channel=KANAL, headless=not tampil)
+    ctx = browser.new_context(accept_downloads=True)
+    return browser, ctx, ctx.new_page()
+
+
+def ambil_subdist(page: Page, bulan: date) -> list[list[str]]:
+    """Baris tabel Sub Distributor Monthly Sales Summary: [distributor "S006 - Nama", sub kategori, ton]."""
+    target = f"{BULAN_EN[bulan.month - 1]} {bulan.year}"
+    page.goto(f"{ERP}/{SUBDIST_HALAMAN}")
+    grup = page.locator("#ContentPlaceHolder1_ddProductGroup")
+    try:
+        grup.wait_for(timeout=30_000)
+    except PWTimeout:
+        raise SystemExit(f"Halaman Sub Distributor tidak bisa dibuka.\nHalaman: {jejak(page, 'subdist_halaman')}")
+
+    # kolom Periode: isinya "Nov 2026"; diganti hanya kalau bulannya berbeda
+    periode = None
+    for f in page.locator("input[type=text]").all():
+        if re.fullmatch(r"[A-Za-z]{3} \d{4}", (f.input_value() or "").strip()):
+            periode = f
+            break
+    if periode is None:
+        raise SystemExit(f"Kolom Periode tidak ditemukan.\nHalaman: {jejak(page, 'subdist_periode')}")
+    if periode.input_value().strip() != target:
+        periode.click()
+        periode.fill(target)
+        periode.press("Tab")
+    grup.select_option(SUBDIST_GRUP)
+    tampilan = page.locator("select").filter(has=page.locator("option", has_text=re.compile(r"^\s*TON\s*$")))
+    if tampilan.count():
+        tampilan.first.select_option(label="TON")
+    page.get_by_role("button", name="Search").click()
+    try:
+        page.wait_for_load_state("networkidle", timeout=60_000)
+    except PWTimeout:
+        pass
+
+    # pastikan hasil yang tampil memang untuk bulan yang diminta (baris "Criteria --> Periode: 'Nov 2026'")
+    teks = page.locator("body").inner_text()
+    if f"Periode: '{target}'" not in teks:
+        raise SystemExit(f"Hasil ERP bukan untuk periode {target} (isian Periode mungkin ditolak).\nHalaman: {jejak(page, 'subdist_periode')}")
+    if "'TON'" not in teks:
+        raise SystemExit(f"Hasil ERP tidak dalam TON.\nHalaman: {jejak(page, 'subdist_view')}")
+    baris = page.evaluate("() => [...document.querySelectorAll('tr')].map(tr => [...tr.children].map(td => td.innerText.trim()))")
+    data = [[b[0], b[1], b[-1]] for b in baris if len(b) >= 3 and re.match(r"^[A-Za-z]{1,3}\d{2,5}\s*-", b[0])]
+    print(f"  {target}: {len(data)} baris")
+    return data
+
+
+def subdist_erp(pw, daftar_bulan: list[date], tampil: bool) -> dict[int, str]:
+    """Teks tempelan Sub ERP per tahun: blok "NOVEMBER" lalu baris distributor | sub kategori | ton."""
+    user = rahasia("ERP_USER", "User ERP")
+    pwd = rahasia("ERP_PASS", "Password ERP (tidak tampil)", tersembunyi=True)
+    browser, ctx, page = buka_browser(pw, tampil)
+    try:
+        login_erp(page, user, pwd)
+        per_tahun: dict[int, list[str]] = {}
+        for b in daftar_bulan:
+            data = ambil_subdist(page, b)
+            if not data:
+                print(f"  {BULAN_ID[b.month - 1]} {b.year}: belum ada data, dilewati")
+                continue
+            per_tahun.setdefault(b.year, []).append("\n".join([BULAN_ID[b.month - 1]] + ["\t".join(r) for r in data]))
+    except PWTimeout as e:
+        raise SystemExit(f"ERP tidak merespons seperti yang diharapkan: {str(e).splitlines()[0]}\nHalaman: {jejak(page, 'gagal')}")
+    finally:
+        ctx.close()
+        browser.close()
+    hasil = {th: "\n".join(blok) + "\n" for th, blok in per_tahun.items()}
+    FOLDER.mkdir(exist_ok=True)
+    for th, teks in hasil.items():
+        (FOLDER / f"subdist_{th}.txt").write_text(teks, encoding="utf-8")   # salinan untuk dicek
+    return hasil
+
+
 def unduh_erp(pw, dari: date, sampai: date, tampil: bool) -> list[Path]:
     user = rahasia("ERP_USER", "User ERP")
     pwd = rahasia("ERP_PASS", "Password ERP (tidak tampil)", tersembunyi=True)
-    browser = pw.chromium.launch(channel=KANAL, headless=not tampil)
-    ctx = browser.new_context(accept_downloads=True)
-    page = ctx.new_page()
+    browser, ctx, page = buka_browser(pw, tampil)
     try:
         login_erp(page, user, pwd)
 
@@ -206,19 +292,61 @@ def periksa_berkas(files: list[Path]) -> None:
         raise SystemExit(f"Butuh satu J028 dan satu J028B, yang ada: {jenis}")
 
 
-def unggah_sementrack(pw, files: list[Path], simpan: bool, tampil: bool) -> None:
+def masuk_sementrack(pw, tampil: bool):
     url = rahasia("SEMENTRACK_URL", "Alamat SEMENTRACK (mis. http://localhost:5173)").rstrip("/")
     user = rahasia("SEMENTRACK_USER", "User SEMENTRACK (admin)")
     pwd = rahasia("SEMENTRACK_PASS", "Password SEMENTRACK (tidak tampil)", tersembunyi=True)
     browser = pw.chromium.launch(channel=KANAL, headless=not tampil)
     page = browser.new_context().new_page()
+    page.goto(url + "/")
+    page.locator("input[type=text], input[name=username]").first.fill(user)
+    page.locator("input[type=password]").fill(pwd)
+    page.keyboard.press("Enter")
     try:
-        page.goto(url + "/")
-        page.locator("input[type=text], input[name=username]").first.fill(user)
-        page.locator("input[type=password]").fill(pwd)
-        page.keyboard.press("Enter")
         page.wait_for_url("**/overview", timeout=30_000)
+    except PWTimeout:
+        browser.close()
+        raise SystemExit("Login SEMENTRACK gagal (user / password / alamat salah?).")
+    return browser, page, url
 
+
+def tempel_subdist(pw, per_tahun: dict[int, str], simpan: bool, tampil: bool, paksa: bool) -> None:
+    browser, page, url = masuk_sementrack(pw, tampil)
+    try:
+        for tahun, teks in sorted(per_tahun.items()):
+            page.goto(url + "/kelola-data?data=sellout&menu=erp")
+            pilih = page.locator("#so-erp-th")
+            pilih.wait_for(timeout=30_000)
+            if pilih.locator(f"option[value='{tahun}']").count() == 0:
+                raise SystemExit(f"Tahun {tahun} tidak bisa dipilih di Tempel Sub ERP (hanya tahun ini dan tahun lalu).")
+            pilih.select_option(str(tahun))
+            page.locator("#so-erp-paste").fill(teks)
+            page.get_by_role("button", name="Periksa data").click()
+            tombol = page.get_by_role("button", name=f"Simpan Sub ERP {tahun}")
+            page.locator(f"[role=alert], button:has-text('Simpan Sub ERP {tahun}')").first.wait_for(timeout=60_000)
+            if not tombol.count():
+                page.screenshot(path=str(FOLDER / "subdist_ditolak.png"), full_page=True)
+                raise SystemExit("SEMENTRACK menolak tempelan Sub ERP: " + page.locator("[role=alert]").first.inner_text() + "\nLihat unduhan/subdist_ditolak.png")
+            page.screenshot(path=str(FOLDER / f"pratinjau_subdist_{tahun}.png"), full_page=True)
+            if page.get_by_text("baris dilewati").count():
+                raise SystemExit(f"Ada baris Sub ERP yang tidak terbaca. Tidak disimpan otomatis. Lihat unduhan/pratinjau_subdist_{tahun}.png")
+            if page.get_by_text("Lebih kecil dari yang tersimpan").count() and not paksa:
+                raise SystemExit(f"Ada angka yang lebih kecil dari yang sudah tersimpan. Tidak disimpan otomatis; cek unduhan/pratinjau_subdist_{tahun}.png, "
+                                 "lalu jalankan lagi dengan --paksa kalau memang koreksi.")
+            print("  " + page.get_by_text(re.compile(r"akan diganti; bulan lain tetap")).first.inner_text())
+            if not simpan:
+                print("  --tanpa-simpan: berhenti di pratinjau.")
+                continue
+            tombol.click()
+            page.get_by_text(f"Sub ERP {tahun} tersimpan").wait_for(timeout=120_000)
+            print("  " + page.get_by_text(re.compile(r"baris \(.* ton\) menggantikan")).first.inner_text())
+    finally:
+        browser.close()
+
+
+def unggah_sementrack(pw, files: list[Path], simpan: bool, tampil: bool) -> None:
+    browser, page, url = masuk_sementrack(pw, tampil)
+    try:
         page.goto(url + "/kelola-data")
         page.locator("button", has_text=re.compile(r"^Transaksi")).first.click()
         page.locator("input[type=file]").first.set_input_files([str(f) for f in files])
@@ -246,18 +374,34 @@ def unggah_sementrack(pw, files: list[Path], simpan: bool, tampil: bool) -> None
 def main() -> None:
     hari_ini = date.today()
     kemarin = hari_ini - timedelta(days=1)
-    ap = argparse.ArgumentParser(description="Unduh J028 + J028B dari ERP lalu unggah ke SEMENTRACK")
+    ap = argparse.ArgumentParser(description="Ambil J028 + J028B / Sub ERP dari ERP lalu masukkan ke SEMENTRACK")
     ap.add_argument("--dari", type=date.fromisoformat, default=kemarin.replace(day=1), help="YYYY-MM-DD, bawaan: tanggal 1 bulan dari kemarin")
     ap.add_argument("--sampai", type=date.fromisoformat, default=kemarin, help="YYYY-MM-DD, bawaan: kemarin")
     ap.add_argument("--hanya-unduh", action="store_true")
     ap.add_argument("--tanpa-simpan", action="store_true")
     ap.add_argument("--berkas", nargs=2, type=Path, metavar="FILE", help="lewati ERP, pakai dua file yang sudah ada")
     ap.add_argument("--tanpa-layar", action="store_true", help="browser tidak ditampilkan")
+    ap.add_argument("--subdist", action="store_true", help="Sub ERP saja (Sell Out BNN), bukan J028")
+    ap.add_argument("--semua", action="store_true", help="Sub ERP lalu J028")
+    ap.add_argument("--bulan", nargs="+", metavar="YYYY-MM", help="bulan Sub ERP, bawaan: bulan dari kemarin")
+    ap.add_argument("--paksa", action="store_true", help="Sub ERP tetap disimpan walau ada angka yang turun")
     a = ap.parse_args()
     if a.dari > a.sampai:
         sys.exit("--dari harus sebelum atau sama dengan --sampai")
+    try:
+        daftar_bulan = sorted({date.fromisoformat(b + "-01") for b in a.bulan}) if a.bulan else [kemarin.replace(day=1)]
+    except ValueError:
+        sys.exit("--bulan ditulis YYYY-MM, mis. 2026-11")
 
     with sync_playwright() as pw:
+        if a.subdist or a.semua:
+            print("ERP: Sub ERP " + ", ".join(f"{BULAN_EN[b.month - 1]} {b.year}" for b in daftar_bulan))
+            teks = subdist_erp(pw, daftar_bulan, tampil=not a.tanpa_layar)
+            if teks and not a.hanya_unduh:
+                print("SEMENTRACK: tempel Sub ERP")
+                tempel_subdist(pw, teks, simpan=not a.tanpa_simpan, tampil=not a.tanpa_layar, paksa=a.paksa)
+            if a.subdist:
+                return
         if a.berkas:
             files = a.berkas
         else:
