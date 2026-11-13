@@ -31,6 +31,7 @@ ERP = "https://www.bangunsukses.com"
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
 TUNGGU_JOB_MENIT = 20            # batas menunggu job selesai di View Job
+JEDA_CEK_DETIK = 180             # View Job dicek ulang tiap 3 menit
 # folder skrip, atau folder file .exe kalau dijalankan sebagai exe (PyInstaller)
 DASAR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 FOLDER = DASAR / "unduhan"
@@ -181,7 +182,8 @@ def unduh_erp(pw, dari: date, sampai: date, tampil: bool) -> list[Path]:
                 except PWTimeout:
                     print(f"  {job} belum siap, dicoba lagi")
             if len(hasil) < 2:
-                time.sleep(15)
+                print(f"  menunggu job selesai, cek lagi {JEDA_CEK_DETIK // 60} menit lagi")
+                time.sleep(JEDA_CEK_DETIK)
         if len(hasil) < 2:
             raise SystemExit(f"Job belum selesai setelah {TUNGGU_JOB_MENIT} menit. Yang terunduh: {[p.name for p in hasil.values()]}")
         return list(hasil.values())
