@@ -203,10 +203,62 @@ def ambil_subdist(page: Page, bulan: date) -> list[list[str]]:
         raise SystemExit(f"Hasil ERP bukan untuk periode {target} (isian Periode mungkin ditolak).\nHalaman: {jejak(page, 'subdist_periode')}")
     if "'TON'" not in teks:
         raise SystemExit(f"Hasil ERP tidak dalam TON.\nHalaman: {jejak(page, 'subdist_view')}")
-    baris = page.evaluate("() => [...document.querySelectorAll('tr')].map(tr => [...tr.children].map(td => td.innerText.trim()))")
-    data = [[b[0], b[1], b[-1]] for b in baris if len(b) >= 3 and re.match(r"^[A-Za-z]{1,3}\d{2,5}\s*-", b[0])]
-    print(f"  {target}: {len(data)} baris")
+
+    # tabel bisa terbagi beberapa halaman ("Page 1 of 2"): baca semua halaman
+    data = baris_subdist(page)
+    jumlah = halaman_subdist(page)
+    for i in range(2, jumlah + 1):
+        pertama = data_pertama(page)
+        pager(page).select_option(str(i))
+        batas = time.time() + 60
+        while time.time() < batas:          # tunggu halaman benar-benar berganti
+            time.sleep(1)
+            try:
+                if pager(page).input_value() == str(i) and data_pertama(page) != pertama:
+                    break
+            except Exception:  # noqa: BLE001 - halaman sedang dimuat ulang
+                pass
+        else:
+            raise SystemExit(f"Halaman {i} tabel Sub Distributor tidak terbuka.\nHalaman: {jejak(page, 'subdist_halaman_' + str(i))}")
+        try:
+            page.wait_for_load_state("networkidle", timeout=30_000)
+        except PWTimeout:
+            pass
+        data += baris_subdist(page)
+
+    # cocokkan dengan Grand Total ERP supaya tidak ada baris yang tertinggal atau terbaca dua kali
+    gt = re.search(r"Grand Total\s*:?\s*([\d.,]+)", page.locator("body").inner_text())
+    total = sum(float(r[2].replace(",", "")) for r in data if re.fullmatch(r"-?[\d,]+(\.\d+)?", r[2]))
+    if gt:
+        grand = float(gt.group(1).replace(",", ""))
+        if abs(grand - total) > 0.05:
+            raise SystemExit(f"{target}: jumlah baris terbaca {total:,.2f} tidak sama dengan Grand Total ERP {grand:,.2f}.\nHalaman: {jejak(page, 'subdist_total')}")
+    print(f"  {target}: {len(data)} baris dari {jumlah} halaman, total {total:,.2f} ton")
     return data
+
+
+def baris_subdist(page: Page) -> list[list[str]]:
+    baris = page.evaluate("() => [...document.querySelectorAll('tr')].map(tr => [...tr.children].map(td => td.innerText.trim()))")
+    return [[re.sub(r"\s+", " ", b[0]), b[1], b[-1]] for b in baris if len(b) >= 3 and re.match(r"^[A-Za-z]{1,3}\d{2,5}\s*-", b[0])]
+
+
+def data_pertama(page: Page) -> str:
+    b = baris_subdist(page)
+    return "|".join(b[0]) if b else ""
+
+
+def pager(page: Page):
+    """Pilihan halaman tabel: select yang isinya 1, 2, ..., N."""
+    for sel in page.locator("select").all():
+        nilai = [o.strip() for o in sel.locator("option").all_inner_texts()]
+        if nilai and nilai == [str(k) for k in range(1, len(nilai) + 1)]:
+            return sel
+    return None
+
+
+def halaman_subdist(page: Page) -> int:
+    p = pager(page)
+    return p.locator("option").count() if p is not None else 1
 
 
 def subdist_erp(pw, daftar_bulan: list[date], tampil: bool) -> dict[int, str]:
