@@ -32,6 +32,7 @@ Kalau bagian ERP gagal, screenshot dan HTML halaman terakhir disimpan di folder 
 """
 import argparse
 import getpass
+import json
 import os
 import re
 import sys
@@ -46,36 +47,95 @@ MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sam
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
 SUBDIST_HALAMAN = "SLS_Inq_Monthly_Sales_Summary_SubDist_By_Distributor.aspx"
 SUBDIST_GRUP = "01"              # Product Group SEMEN, sama dengan rekaman
+RINGKAS_SUBDIST: list[str] = []   # ringkasan Sub ERP per bulan untuk riwayat
 BULAN_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 BULAN_ID = ["JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"]
 TUNGGU_JOB_MENIT = 30            # batas menunggu semua job selesai di View Job
 JEDA_CEK_DETIK = int(os.environ.get("JEDA_CEK_DETIK", "180"))   # View Job dicek ulang tiap 3 menit
 # J073: distributor yang diunduh (kode ERP). INSA = 4094, PKB = 9575. Bisa diubah lewat J073_DIST=4094,9575
-J073_DIST = [k.strip() for k in os.environ.get("J073_DIST", "4094,9575").split(",") if k.strip()]
+def j073_dist() -> list[str]:
+    return [k.strip() for k in os.environ.get("J073_DIST", "4094,9575").split(",") if k.strip()]
+
+
+J073_DIST = j073_dist()   # nilai awal (untuk tampilan); saat jalan selalu dibaca ulang lewat j073_dist()
 # folder skrip, atau folder file .exe kalau dijalankan sebagai exe (PyInstaller)
 DASAR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 FOLDER = DASAR / "unduhan"
 KANAL = os.environ.get("BROWSER_KANAL", "msedge") or None   # browser yang dipakai Playwright; kosongkan untuk Chromium bawaan
 
 
-def baca_akun_lokal() -> None:
-    """akun_lokal.txt (NAMA=nilai per baris, # = komentar). Environment variable yang sudah ada tidak ditimpa."""
-    f = DASAR / "akun_lokal.txt"
-    if not f.exists():
-        return
-    for baris in f.read_text(encoding="utf-8-sig").splitlines():
+AKUN_LOKAL = DASAR / "akun_lokal.txt"
+
+
+def _dpapi(data: bytes, enkripsi: bool) -> bytes:
+    """Enkripsi Windows (DPAPI): hanya bisa dibuka oleh akun Windows yang sama di PC yang sama."""
+    import ctypes
+    from ctypes import wintypes
+
+    class BLOB(ctypes.Structure):
+        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+    buf = ctypes.create_string_buffer(data, len(data))
+    masuk, keluar = BLOB(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))), BLOB()
+    fn = ctypes.windll.crypt32.CryptProtectData if enkripsi else ctypes.windll.crypt32.CryptUnprotectData
+    if not fn(ctypes.byref(masuk), None, None, None, None, 0x01, ctypes.byref(keluar)):   # 0x01 = tanpa dialog
+        raise OSError("DPAPI gagal")
+    try:
+        return ctypes.string_at(keluar.pbData, keluar.cbData)
+    finally:
+        ctypes.windll.kernel32.LocalFree(ctypes.cast(keluar.pbData, ctypes.c_void_p))
+
+
+def sandi_kunci(teks: str) -> str:
+    import base64
+    if os.name == "nt":
+        return "dpapi:" + base64.b64encode(_dpapi(teks.encode("utf-8"), True)).decode()
+    return "b64:" + base64.b64encode(teks.encode("utf-8")).decode()     # bukan Windows (uji): hanya disamarkan
+
+
+def sandi_buka(nilai: str) -> str:
+    import base64
+    jenis, _, isi = nilai.partition(":")
+    if jenis == "dpapi":
+        return _dpapi(base64.b64decode(isi), False).decode("utf-8")
+    if jenis == "b64":
+        return base64.b64decode(isi).decode("utf-8")
+    return nilai
+
+
+def baca_akun_file() -> dict[str, str]:
+    """akun_lokal.txt (NAMA=nilai per baris, # = komentar). NAMA_ENC = nilai terenkripsi (ditulis aplikasi)."""
+    hasil: dict[str, str] = {}
+    if not AKUN_LOKAL.exists():
+        return hasil
+    for baris in AKUN_LOKAL.read_text(encoding="utf-8-sig").splitlines():
         baris = baris.strip()
         if not baris or baris.startswith("#") or "=" not in baris:
             continue
-        k, v = baris.split("=", 1)
-        if v.strip():
-            os.environ.setdefault(k.strip(), v.strip())
+        k, v = (x.strip() for x in baris.split("=", 1))
+        if not v:
+            continue
+        if k.endswith("_ENC"):
+            try:
+                hasil[k[:-4]] = sandi_buka(v)
+            except Exception:  # noqa: BLE001 - mis. file disalin dari PC / akun Windows lain
+                print(f"  {k[:-4]} di akun_lokal.txt tidak bisa dibuka di akun Windows ini; isi ulang di Pengaturan.")
+        else:
+            hasil.setdefault(k, v)
+    return hasil
+
+
+def baca_akun_lokal() -> None:
+    """Isi akun_lokal.txt menimpa environment variable lama, supaya perubahan di Pengaturan selalu dipakai."""
+    os.environ.update(baca_akun_file())
 
 
 def rahasia(nama: str, label: str, tersembunyi: bool = False) -> str:
     v = os.environ.get(nama, "").strip()
     if v:
         return v
+    if os.environ.get("NAT_TANPA_TANYA") or not sys.stdin or not sys.stdin.isatty():
+        raise SystemExit(f"{label.split(' (')[0]} belum diisi. Isi di Pengaturan aplikasi (atau akun_lokal.txt).")
     return (getpass.getpass(f"{label}: ") if tersembunyi else input(f"{label}: ")).strip()
 
 
@@ -283,6 +343,7 @@ def ambil_subdist(page: Page, bulan: date) -> list[list[str]]:
         if abs(grand - total) > 0.05:
             raise SystemExit(f"{target}: jumlah baris terbaca {total:,.2f} tidak sama dengan Grand Total ERP {grand:,.2f}.\nHalaman: {jejak(page, 'subdist_total')}")
     print(f"  {target}: {len(data)} baris dari {jumlah} halaman, total {total:,.2f} ton")
+    RINGKAS_SUBDIST.append(f"{BULAN_EN[bulan.month - 1]} {total:,.2f} ton")
     return data
 
 
@@ -337,6 +398,7 @@ class Hasil:
         self.j073: list[Path] = []
         self.subdist: dict[int, str] = {}
         self.gagal: dict[str, str] = {}
+        self.berhasil: dict[str, str] = {}
 
     def catat_gagal(self, bagian: str, e: BaseException) -> None:
         self.gagal[bagian] = pesan(e)
@@ -361,7 +423,7 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
             except (SystemExit, Exception) as e:  # noqa: BLE001
                 h.catat_gagal("J028", e)
         if "J073" in bagian:
-            for dist in J073_DIST:
+            for dist in j073_dist():
                 try:
                     kirim_j073(page, dist, dari, sampai)
                     harap["J073"] += 1
@@ -445,7 +507,7 @@ def masuk_sementrack(pw, tampil: bool):
     return browser, page, url
 
 
-def tempel_subdist(page: Page, url: str, per_tahun: dict[int, str], simpan: bool, paksa: bool) -> None:
+def tempel_subdist(page: Page, url: str, per_tahun: dict[int, str], simpan: bool, paksa: bool) -> str:
     for tahun, teks in sorted(per_tahun.items()):
         page.goto(url + "/kelola-data?data=sellout&menu=erp")
         pilih = page.locator("#so-erp-th")
@@ -473,9 +535,10 @@ def tempel_subdist(page: Page, url: str, per_tahun: dict[int, str], simpan: bool
         tombol.click()
         page.get_by_text(f"Sub ERP {tahun} tersimpan").wait_for(timeout=120_000)
         print("  " + page.get_by_text(re.compile(r"baris \(.* ton\) menggantikan")).first.inner_text())
+    return ", ".join(RINGKAS_SUBDIST) + ("" if simpan else " (pratinjau)")
 
 
-def unggah_berkas(page: Page, url: str, alamat: str, files: list[Path], nama: str, simpan: bool, tolak_baris_rusak: bool) -> None:
+def unggah_berkas(page: Page, url: str, alamat: str, files: list[Path], nama: str, simpan: bool, tolak_baris_rusak: bool) -> str:
     """Upload lewat Kelola Data (Transaksi / J073): pratinjau, berhenti kalau ditolak, lalu simpan."""
     page.goto(url + alamat)
     page.locator("input[type=file]").first.set_input_files([str(f) for f in files])
@@ -486,25 +549,34 @@ def unggah_berkas(page: Page, url: str, alamat: str, files: list[Path], nama: st
     page.screenshot(path=str(FOLDER / f"pratinjau_{nama}.png"), full_page=True)
     if tolak_baris_rusak and (page.locator("input[type=checkbox]").count() or page.get_by_text("isinya tidak terbaca").count()):
         raise SystemExit(f"Ada baris {nama} yang tidak terbaca. Tidak disimpan otomatis. Lihat unduhan/pratinjau_{nama}.png")
-    print("  pratinjau:", page.locator("text=siap disimpan").first.text_content())
+    siap = (page.locator("text=siap disimpan").first.text_content() or "").strip()
+    print("  pratinjau:", siap)
+    baris = re.match(r"[\d.]+", siap)
+    ringkas = f"{baris.group(0) if baris else '?'} baris"
     if not simpan:
         print("  --tanpa-simpan: berhenti di pratinjau.")
-        return
+        return ringkas + " (pratinjau)"
     page.locator("button", has_text="Simpan ke database").click()
     page.wait_for_selector("text=Data tersimpan", timeout=600_000)
     print("  " + " ".join(page.locator("[role=status]").first.inner_text().split())[:200])
+    return ringkas
 
 
 def main() -> None:
     hari_ini = date.today()
-    kemarin = hari_ini - timedelta(days=1)
+    # bawaan: tanggal 1 bulan ini s.d. hari ini (hampir real time). Pada tanggal 1, bulan lalu ikut
+    # diambil supaya transaksi hari terakhir bulan lalu yang masuk setelah tengah malam tetap terbawa.
+    awal = (hari_ini - timedelta(days=1)).replace(day=1) if hari_ini.day == 1 else hari_ini.replace(day=1)
     ap = argparse.ArgumentParser(description="Ambil J028 + J028B, J073, dan Sub ERP dari ERP lalu masukkan ke SEMENTRACK")
-    ap.add_argument("--dari", type=date.fromisoformat, default=kemarin.replace(day=1), help="YYYY-MM-DD, bawaan: tanggal 1 bulan dari kemarin")
-    ap.add_argument("--sampai", type=date.fromisoformat, default=kemarin, help="YYYY-MM-DD, bawaan: kemarin")
-    ap.add_argument("--sampai-hari-ini", action="store_true", help="data sampai hari ini (untuk jadwal beberapa jam sekali)")
+    ap.add_argument("--dari", type=date.fromisoformat, default=awal, help="YYYY-MM-DD, bawaan: tanggal 1 bulan ini")
+    ap.add_argument("--sampai", type=date.fromisoformat, default=hari_ini, help="YYYY-MM-DD, bawaan: hari ini")
+    ap.add_argument("--sampai-hari-ini", action="store_true", help=argparse.SUPPRESS)   # sudah bawaan, tetap diterima
+    ap.add_argument("--uji-login", action="store_true", help="hanya coba login ERP dan SEMENTRACK")
+    ap.add_argument("--log", type=Path, help="tulis semua keluaran ke file ini juga")
     ap.add_argument("--subdist", action="store_true", help="Sub ERP saja")
     ap.add_argument("--j073", action="store_true", help="J073 saja")
     ap.add_argument("--semua", action="store_true", help="J028, J073, dan Sub ERP sekaligus")
+    ap.add_argument("--bagian", help="gabungan bagian, mis. J028,J073 atau J028,SUBDIST")
     ap.add_argument("--bulan", nargs="+", metavar="YYYY-MM", help="bulan Sub ERP, bawaan: bulan-bulan dari --dari s.d. --sampai")
     ap.add_argument("--hanya-unduh", action="store_true", help="ambil dari ERP saja, tidak masuk SEMENTRACK")
     ap.add_argument("--tanpa-simpan", action="store_true", help="di SEMENTRACK berhenti di pratinjau")
@@ -513,8 +585,11 @@ def main() -> None:
     ap.add_argument("--tanpa-layar", action="store_true", help="browser tidak ditampilkan")
     ap.add_argument("--tanpa-jeda", action="store_true", help="exe langsung tertutup setelah selesai (untuk jadwal)")
     a = ap.parse_args()
-    if a.sampai_hari_ini:
-        a.sampai = hari_ini
+    if a.log:
+        tulis_log_ke(a.log)
+    if a.uji_login:
+        uji_login(not a.tanpa_layar)
+        return
     if a.dari > a.sampai:
         sys.exit("--dari harus sebelum atau sama dengan --sampai")
     try:
@@ -529,12 +604,38 @@ def main() -> None:
     except ValueError:
         sys.exit("--bulan ditulis YYYY-MM, mis. 2026-11")
 
-    bagian = {"J028", "J073", "SUBDIST"} if a.semua else {"SUBDIST"} if a.subdist else {"J073"} if a.j073 else {"J028"}
-    print(f"Mulai {datetime.now():%Y-%m-%d %H:%M} | {', '.join(sorted(bagian))} | {a.dari} s.d. {a.sampai}")
+    if a.bagian:
+        bagian = {x.strip().upper().replace("SUBERP", "SUBDIST") for x in a.bagian.split(",") if x.strip()}
+        if not bagian or bagian - {"J028", "J073", "SUBDIST"}:
+            sys.exit("--bagian hanya boleh J028, J073, SUBDIST")
+    else:
+        bagian = {"J028", "J073", "SUBDIST"} if a.semua else {"SUBDIST"} if a.subdist else {"J073"} if a.j073 else {"J028"}
+    if not kunci_ambil():
+        sys.exit("Masih ada proses otomasi lain yang berjalan (dari aplikasi atau jadwal Windows). Coba lagi nanti.")
+    mulai = datetime.now()
+    print(f"Mulai {mulai:%Y-%m-%d %H:%M} | {', '.join(sorted(bagian))} | {a.dari} s.d. {a.sampai}")
+    h = Hasil()
+    try:
+        jalankan(a, bagian, daftar_bulan, h)
+    except (SystemExit, Exception) as e:  # noqa: BLE001 - galat umum (mis. login gagal) tetap dicatat
+        if not isinstance(e, SystemExit) or e.code not in (None, 0):
+            h.gagal.setdefault("Umum", pesan(e))
+    finally:
+        catat_riwayat(mulai, bagian, a, h)
+        kunci_lepas()
+    if h.gagal:
+        raise SystemExit("Selesai dengan kegagalan:\n" + "\n".join(f"- {k}: {v}" for k, v in h.gagal.items()))
+    print("Semua bagian berhasil.")
+
+
+def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
 
     with sync_playwright() as pw:
         dari_erp = bagian - ({"J028"} if a.berkas else set())
-        h = ambil_erp(pw, dari_erp, a.dari, a.sampai, daftar_bulan, tampil=not a.tanpa_layar) if dari_erp else Hasil()
+        if dari_erp:
+            h2 = ambil_erp(pw, dari_erp, a.dari, a.sampai, daftar_bulan, tampil=not a.tanpa_layar)
+            h.j028, h.j073, h.subdist = h2.j028, h2.j073, h2.subdist
+            h.gagal.update(h2.gagal)
         if a.berkas:
             h.j028 = list(a.berkas)
         if h.j028:
@@ -552,28 +653,128 @@ def main() -> None:
                     ("Sub ERP", h.subdist, lambda: tempel_subdist(page, url, h.subdist, not a.tanpa_simpan, a.paksa)),
                     ("J028", h.j028, lambda: unggah_berkas(page, url, "/kelola-data?data=transaksi&menu=upload", h.j028, "J028", not a.tanpa_simpan, True)),
                     # J073: satu file per distributor; tiap file mengganti data distributor itu pada rentang tanggalnya
-                    ("J073", h.j073, lambda: [unggah_berkas(page, url, "/kelola-data?data=sellout&menu=j073", [f], f.stem, not a.tanpa_simpan, True) for f in h.j073]),
+                    ("J073", h.j073, lambda: " + ".join(unggah_berkas(page, url, "/kelola-data?data=sellout&menu=j073", [f], f.stem, not a.tanpa_simpan, True) for f in h.j073)),
                 ]
                 for nama, isi, kerja in langkah:
                     if not isi:
                         continue
                     print(f"SEMENTRACK: {nama}")
                     try:
-                        kerja()
+                        h.berhasil[nama] = kerja() or "ok"
                     except (SystemExit, Exception) as e:  # noqa: BLE001 - bagian lain tetap jalan
                         h.catat_gagal(nama, e)
             finally:
                 browser.close()
+        if a.hanya_unduh:
+            for nama, isi in (("Sub ERP", h.subdist), ("J028", h.j028), ("J073", h.j073)):
+                if isi:
+                    h.berhasil[nama] = "terunduh"
 
-    if h.gagal:
-        raise SystemExit("Selesai dengan kegagalan:\n" + "\n".join(f"- {k}: {v}" for k, v in h.gagal.items()))
-    print("Semua bagian berhasil.")
+
+RIWAYAT = DASAR / "riwayat.json"
+KUNCI = DASAR / "sedang_jalan.lock"
 
 
-if __name__ == "__main__":
-    baca_akun_lokal()
+def kunci_ambil() -> bool:
+    """Satu proses saja dalam satu waktu. Kunci yang lebih tua dari 90 menit dianggap sisa proses yang macet."""
+    try:
+        if KUNCI.exists() and time.time() - KUNCI.stat().st_mtime < 90 * 60:
+            return False
+        KUNCI.write_text(f"{os.getpid()} {datetime.now():%Y-%m-%d %H:%M:%S}", encoding="utf-8")
+        return True
+    except OSError:
+        return True
+
+
+def kunci_lepas() -> None:
+    try:
+        KUNCI.unlink()
+    except OSError:
+        pass
+NAMA_BAGIAN = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP"}
+
+
+def catat_riwayat(mulai: datetime, bagian: set[str], a, h: "Hasil") -> None:
+    """Satu baris per jalan di riwayat.json (dibaca aplikasi Nazam Auto Task). Paling banyak 500 baris."""
+    status = {}
+    for b in sorted(bagian):
+        n = NAMA_BAGIAN[b]
+        gagal = next((v for k, v in h.gagal.items() if k == n or k.startswith(n + " ")), None)
+        status[n] = {"ok": False, "pesan": gagal} if gagal else {"ok": True, "pesan": h.berhasil.get(n, "tidak ada data baru")}
+    if "Umum" in h.gagal:
+        for v in status.values():
+            if v["ok"]:
+                v.update(ok=False, pesan=h.gagal["Umum"])
+    catatan = {"mulai": mulai.isoformat(timespec="seconds"), "selesai": datetime.now().isoformat(timespec="seconds"),
+               "rentang": f"{a.dari} s.d. {a.sampai}", "pratinjau": bool(a.tanpa_simpan or a.hanya_unduh), "bagian": status}
+    print("@@STATUS " + json.dumps(catatan, ensure_ascii=False))
+    try:
+        lama = json.loads(RIWAYAT.read_text(encoding="utf-8")) if RIWAYAT.exists() else []
+    except ValueError:
+        lama = []
+    RIWAYAT.write_text(json.dumps((lama + [catatan])[-500:], ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+class _Tee:
+    """Keluaran ke layar (kalau ada) dan ke file log sekaligus."""
+    def __init__(self, asli, f):
+        self.asli, self.f = asli, f
+
+    def write(self, s):
+        for t in (self.asli, self.f):
+            if t:
+                try:
+                    t.write(s)
+                    t.flush()
+                except Exception:  # noqa: BLE001
+                    pass
+        return len(s)
+
+    def flush(self):
+        pass
+
+
+def tulis_log_ke(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    f = open(path, "a", encoding="utf-8", buffering=1)
+    f.write(f"\n==================== {datetime.now():%Y-%m-%d %H:%M:%S} ====================\n")
+    sys.stdout = _Tee(sys.stdout, f)
+    sys.stderr = _Tee(sys.stderr, f)
+
+
+def uji_login(tampil: bool) -> None:
+    """Coba login ERP dan SEMENTRACK dengan akun yang tersimpan, lalu keluar."""
+    hasil = []
+    with sync_playwright() as pw:
+        try:
+            user = rahasia("ERP_USER", "User ERP")
+            pwd = rahasia("ERP_PASS", "Password ERP (tidak tampil)", tersembunyi=True)
+            browser, ctx, page = buka_browser(pw, tampil)
+            try:
+                login_erp(page, user, pwd)
+                hasil.append("ERP: berhasil")
+            finally:
+                browser.close()
+        except (SystemExit, Exception) as e:  # noqa: BLE001
+            hasil.append("ERP: GAGAL - " + pesan(e).splitlines()[0])
+        try:
+            browser, page, url = masuk_sementrack(pw, tampil)
+            browser.close()
+            hasil.append("SEMENTRACK: berhasil")
+        except (SystemExit, Exception) as e:  # noqa: BLE001
+            hasil.append("SEMENTRACK: GAGAL - " + pesan(e).splitlines()[0])
+    print("\n".join(hasil))
+    if any("GAGAL" in x for x in hasil):
+        raise SystemExit(1)
+
+
+def jalankan_cli() -> None:
+    """Mode baris perintah (dipakai juga oleh aplikasi dan Task Scheduler)."""
+    if not os.environ.get("NAT_DARI_APP"):      # dari aplikasi: akun sudah dikirim lewat environment
+        baca_akun_lokal()
     if getattr(sys, "frozen", False):
-        # dijalankan dari exe (biasanya diklik dua kali): jendela jangan langsung tertutup
+        if sys.stdout is None:            # exe jendela (tanpa konsol): keluaran hanya ke --log
+            sys.stdout = sys.stderr = open(os.devnull, "w", encoding="utf-8")
         kode = 0
         try:
             main()
@@ -585,7 +786,11 @@ if __name__ == "__main__":
         except Exception as e:  # noqa: BLE001
             print(f"\nGagal: {type(e).__name__}: {e}")
             kode = 1
-        if "--tanpa-jeda" not in sys.argv:
+        if "--tanpa-jeda" not in sys.argv and sys.stdin and sys.stdin.isatty():
             input("\nTekan Enter untuk menutup...")
         sys.exit(kode)
     main()
+
+
+if __name__ == "__main__":
+    jalankan_cli()

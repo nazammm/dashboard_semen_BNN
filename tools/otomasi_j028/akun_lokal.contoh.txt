@@ -1,8 +1,9 @@
-# Salin file ini menjadi akun_lokal.txt (di folder yang sama dengan j028_harian.py / j028_harian.exe),
-# lalu isi nilainya. Baris yang dikosongkan akan ditanyakan saat jalan.
+# Biasanya TIDAK perlu: isi akun lewat aplikasi (Pengaturan), password tersimpan terenkripsi.
+# File ini hanya untuk menjalankan j028_harian.py tanpa aplikasi. Salin menjadi akun_lokal.txt lalu isi.
 # akun_lokal.txt berisi password: jangan dikirim ke siapa pun dan jangan dimasukkan ke repo.
 ERP_USER=
 ERP_PASS=
 SEMENTRACK_URL=http://localhost:5173
 SEMENTRACK_USER=
 SEMENTRACK_PASS=
+J073_DIST=4094,9575
