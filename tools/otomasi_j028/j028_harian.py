@@ -13,6 +13,12 @@ Tempel Sub ERP, upload Transaksi (J028 + J028B), upload J073 (satu file per dist
     python j028_harian.py --hanya-unduh        # ambil dari ERP saja
     python j028_harian.py --tanpa-simpan       # di SEMENTRACK sampai pratinjau saja
 
+TIRO (Sell In = laporan per Pengiriman, OS DO = per Tanggal Pemesanan, 1 Januari s.d. hari ini) SETENGAH
+otomatis: email dan password diisi, captcha diketik sendiri di jendela yang terbuka; sesinya disimpan
+(tiro_sesi.json) dan dipakai lagi sampai habis. Captcha tidak pernah dibaca oleh program.
+    python j028_harian.py --login-tiro         # login TIRO saja (ketik captcha), simpan sesi
+    python j028_harian.py --bagian SELLIN,OSDO # unduh dari TIRO lalu upload Sell In dan Outstanding DO
+
 Satu bagian gagal tidak menghentikan bagian lain; semua kegagalan dilaporkan di akhir.
 Sub ERP: hanya bulan yang diambil yang diganti; tidak disimpan kalau ada angka yang turun (kecuali --paksa).
 J073: distributor diatur J073_DIST (bawaan 4094 = INSA, 9575 = PKB).
@@ -47,6 +53,10 @@ MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sam
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
 SUBDIST_HALAMAN = "SLS_Inq_Monthly_Sales_Summary_SubDist_By_Distributor.aspx"
 SUBDIST_GRUP = "01"              # Product Group SEMEN, sama dengan rekaman
+TIRO = os.environ.get("TIRO_URL", "https://tiro.indocement.co.id").rstrip("/")   # TIRO_URL hanya untuk uji
+TIRO_LAPORAN = "Pages/transaction_monitoring_report.aspx"
+TIRO_TUNGGU_MENIT = 10           # batas menunggu captcha diketik saat login TIRO
+TIRO_JENIS = {"SELLIN": ("Pengiriman", "SellIn"), "OSDO": ("Tanggal Pemesanan", "OSDO")}   # radio di laporan, nama file
 RINGKAS_SUBDIST: list[str] = []   # ringkasan Sub ERP per bulan untuk riwayat
 BULAN_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 BULAN_ID = ["JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"]
@@ -371,6 +381,97 @@ def halaman_subdist(page: Page) -> int:
     return p.locator("option").count() if p is not None else 1
 
 
+def tiro_sesi() -> Path:
+    return DASAR / "tiro_sesi.json"
+
+
+def tiro_login(pw, user: str, pwd: str):
+    """Login TIRO setengah otomatis: email dan password diisi, captcha DIKETIK PENGGUNA, lalu sesi disimpan.
+    Jendela browser selalu tampil karena butuh orang. Mengembalikan (browser, context, page) yang sudah login."""
+    browser = pw.chromium.launch(channel=KANAL, headless=False)
+    ctx = browser.new_context(accept_downloads=True)
+    page = ctx.new_page()
+    page.goto(f"{TIRO}/Pages/login.aspx")
+    page.get_by_role("textbox", name="Email Address").fill(user)
+    page.get_by_role("textbox", name="Password").fill(pwd)
+    page.locator("#txtVerify").click()
+    page.bring_to_front()
+    print(f"@@TIRO_LOGIN Ketik kode captcha di jendela TIRO lalu klik Masuk (ditunggu {TIRO_TUNGGU_MENIT} menit).")
+    try:
+        page.wait_for_url(lambda u: "login.aspx" not in u.lower(), timeout=TIRO_TUNGGU_MENIT * 60_000)
+    except PWTimeout:
+        browser.close()
+        raise SystemExit(f"Login TIRO tidak dilakukan dalam {TIRO_TUNGGU_MENIT} menit (captcha belum diketik).")
+    ctx.storage_state(path=str(tiro_sesi()))
+    print("  login TIRO berhasil, sesi disimpan")
+    return browser, ctx, page
+
+
+def tiro_buka(pw, tampil: bool):
+    """Pakai sesi TIRO yang tersimpan; kalau sudah habis, minta login (captcha diketik pengguna)."""
+    if tiro_sesi().exists():
+        browser = pw.chromium.launch(channel=KANAL, headless=not tampil)
+        ctx = browser.new_context(accept_downloads=True, storage_state=str(tiro_sesi()))
+        page = ctx.new_page()
+        page.goto(f"{TIRO}/{TIRO_LAPORAN}")
+        if "login.aspx" not in page.url.lower():
+            print("  sesi TIRO masih aktif")
+            return browser, ctx, page
+        browser.close()
+        print("  sesi TIRO sudah habis, perlu login lagi")
+    user = rahasia("TIRO_USER", "Email TIRO")
+    pwd = rahasia("TIRO_PASS", "Password TIRO (tidak tampil)", tersembunyi=True)
+    browser, ctx, page = tiro_login(pw, user, pwd)
+    page.goto(f"{TIRO}/{TIRO_LAPORAN}")
+    return browser, ctx, page
+
+
+def isi_date_start(page: Page, d: date) -> str:
+    """Kolom Date Start: diketik dengan format yang sama dengan isinya sekarang; kalau ditolak, lewat kalender."""
+    kotak = page.get_by_role("textbox", name="Date Start")
+    lama = (kotak.input_value() or "").strip()
+    pola = [(r"\d{2}/\d{2}/\d{4}", "%d/%m/%Y"), (r"\d{4}-\d{2}-\d{2}", "%Y-%m-%d"), (r"\d{2}-\d{2}-\d{4}", "%d-%m-%Y"),
+            (r"\d{2} [A-Za-z]{3} \d{4}", "%d %b %Y"), (r"\d{2}-[A-Za-z]{3}-\d{4}", "%d-%b-%Y")]
+    fmt = next((f for r, f in pola if re.fullmatch(r, lama)), None)
+    if fmt:
+        teks = d.strftime(fmt.replace("%b", BULAN_EN[d.month - 1]))
+        kotak.fill(teks)
+        kotak.press("Tab")
+        page.keyboard.press("Escape")
+        if (kotak.input_value() or "").strip() == teks:
+            return teks
+    # lewat kalender seperti di rekaman: judul bulan -> pilih bulan -> tanggal
+    kotak.click()
+    page.get_by_role("columnheader", name=re.compile("Toggle")).first.click()
+    page.get_by_text(BULAN_EN[d.month - 1], exact=True).first.click()
+    hari = page.locator("td:not(.old):not(.new):not(.disabled)").filter(has_text=re.compile(rf"^\s*{d.day}\s*$"))
+    hari.first.click()
+    return (kotak.input_value() or "").strip()
+
+
+def tiro_unduh(page: Page, jenis: list[str], dari: date) -> dict[str, Path]:
+    """Laporan Transaksi TIRO, Generate Excel per jenis (Pengiriman = Sell In, Tanggal Pemesanan = OS DO)."""
+    hasil: dict[str, Path] = {}
+    FOLDER.mkdir(exist_ok=True)
+    for kode in jenis:
+        radio, nama = TIRO_JENIS[kode]
+        if TIRO_LAPORAN not in page.url:
+            page.goto(f"{TIRO}/{TIRO_LAPORAN}")
+        page.get_by_role("radio", name=radio).check()
+        awal = isi_date_start(page, dari)
+        akhir = page.get_by_role("textbox", name="Date End")
+        print(f"  {nama}: {radio}, Date Start '{awal}'" + (f" s.d. '{akhir.input_value()}'" if akhir.count() else ""))
+        jejak(page, f"tiro_sebelum_{nama}")
+        with page.expect_download(timeout=15 * 60_000) as info:
+            page.get_by_role("button", name="Generate Excel").click()
+        d = info.value
+        tujuan = FOLDER / f"TIRO_{nama}_{date.today():%Y%m%d}{Path(d.suggested_filename).suffix or '.xlsx'}"
+        d.save_as(tujuan)
+        hasil[kode] = tujuan
+        print(f"  terunduh: {tujuan.name}")
+    return hasil
+
+
 def teks_subdist(page: Page, daftar_bulan: list[date]) -> dict[int, str]:
     """Teks tempelan Sub ERP per tahun: blok "NOVEMBER" lalu baris distributor | sub kategori | ton."""
     per_tahun: dict[int, list[str]] = {}
@@ -396,6 +497,7 @@ class Hasil:
     def __init__(self) -> None:
         self.j028: list[Path] = []
         self.j073: list[Path] = []
+        self.tiro: dict[str, Path] = {}
         self.subdist: dict[int, str] = {}
         self.gagal: dict[str, str] = {}
         self.berhasil: dict[str, str] = {}
@@ -538,7 +640,8 @@ def tempel_subdist(page: Page, url: str, per_tahun: dict[int, str], simpan: bool
     return ", ".join(RINGKAS_SUBDIST) + ("" if simpan else " (pratinjau)")
 
 
-def unggah_berkas(page: Page, url: str, alamat: str, files: list[Path], nama: str, simpan: bool, tolak_baris_rusak: bool) -> str:
+def unggah_berkas(page: Page, url: str, alamat: str, files: list[Path], nama: str, simpan: bool, tolak_baris_rusak: bool,
+                  hentikan_bila: tuple[tuple[str, str], ...] = ()) -> str:
     """Upload lewat Kelola Data (Transaksi / J073): pratinjau, berhenti kalau ditolak, lalu simpan."""
     page.goto(url + alamat)
     page.locator("input[type=file]").first.set_input_files([str(f) for f in files])
@@ -549,10 +652,13 @@ def unggah_berkas(page: Page, url: str, alamat: str, files: list[Path], nama: st
     page.screenshot(path=str(FOLDER / f"pratinjau_{nama}.png"), full_page=True)
     if tolak_baris_rusak and (page.locator("input[type=checkbox]").count() or page.get_by_text("isinya tidak terbaca").count()):
         raise SystemExit(f"Ada baris {nama} yang tidak terbaca. Tidak disimpan otomatis. Lihat unduhan/pratinjau_{nama}.png")
+    for pemilih, alasan in hentikan_bila:
+        if page.locator(pemilih).count():
+            raise SystemExit(f"{alasan} Tidak disimpan otomatis. Lihat unduhan/pratinjau_{nama}.png")
     siap = (page.locator("text=siap disimpan").first.text_content() or "").strip()
     print("  pratinjau:", siap)
-    baris = re.match(r"[\d.]+", siap)
-    ringkas = f"{baris.group(0) if baris else '?'} baris"
+    baris = re.match(r"([\d.]+)\s+(\w+)", siap)
+    ringkas = f"{baris.group(1)} {baris.group(2)}" if baris else siap
     if not simpan:
         print("  --tanpa-simpan: berhenti di pratinjau.")
         return ringkas + " (pratinjau)"
@@ -572,10 +678,11 @@ def main() -> None:
     ap.add_argument("--sampai", type=date.fromisoformat, default=hari_ini, help="YYYY-MM-DD, bawaan: hari ini")
     ap.add_argument("--sampai-hari-ini", action="store_true", help=argparse.SUPPRESS)   # sudah bawaan, tetap diterima
     ap.add_argument("--uji-login", action="store_true", help="hanya coba login ERP dan SEMENTRACK")
+    ap.add_argument("--login-tiro", action="store_true", help="login TIRO (ketik captcha) dan simpan sesinya, lalu keluar")
     ap.add_argument("--log", type=Path, help="tulis semua keluaran ke file ini juga")
     ap.add_argument("--subdist", action="store_true", help="Sub ERP saja")
     ap.add_argument("--j073", action="store_true", help="J073 saja")
-    ap.add_argument("--semua", action="store_true", help="J028, J073, dan Sub ERP sekaligus")
+    ap.add_argument("--semua", action="store_true", help="J028, J073, dan Sub ERP sekaligus (TIRO tidak, karena butuh captcha)")
     ap.add_argument("--bagian", help="gabungan bagian, mis. J028,J073 atau J028,SUBDIST")
     ap.add_argument("--bulan", nargs="+", metavar="YYYY-MM", help="bulan Sub ERP, bawaan: bulan-bulan dari --dari s.d. --sampai")
     ap.add_argument("--hanya-unduh", action="store_true", help="ambil dari ERP saja, tidak masuk SEMENTRACK")
@@ -589,6 +696,11 @@ def main() -> None:
         tulis_log_ke(a.log)
     if a.uji_login:
         uji_login(not a.tanpa_layar)
+        return
+    if a.login_tiro:
+        with sync_playwright() as pw:
+            browser, _, _ = tiro_buka(pw, True)
+            browser.close()
         return
     if a.dari > a.sampai:
         sys.exit("--dari harus sebelum atau sama dengan --sampai")
@@ -606,8 +718,8 @@ def main() -> None:
 
     if a.bagian:
         bagian = {x.strip().upper().replace("SUBERP", "SUBDIST") for x in a.bagian.split(",") if x.strip()}
-        if not bagian or bagian - {"J028", "J073", "SUBDIST"}:
-            sys.exit("--bagian hanya boleh J028, J073, SUBDIST")
+        if not bagian or bagian - SEMUA_BAGIAN:
+            sys.exit("--bagian hanya boleh " + ", ".join(sorted(SEMUA_BAGIAN)))
     else:
         bagian = {"J028", "J073", "SUBDIST"} if a.semua else {"SUBDIST"} if a.subdist else {"J073"} if a.j073 else {"J028"}
     if not kunci_ambil():
@@ -631,7 +743,20 @@ def main() -> None:
 def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
 
     with sync_playwright() as pw:
-        dari_erp = bagian - ({"J028"} if a.berkas else set())
+        jenis_tiro = [b for b in ("SELLIN", "OSDO") if b in bagian]
+        if jenis_tiro:
+            # TIRO dulu: kalau perlu login, captcha diketik di awal, sesudah itu semuanya jalan sendiri
+            print("TIRO: " + ", ".join(TIRO_JENIS[b][1] for b in jenis_tiro) + f", dari {date(a.sampai.year, 1, 1)}")
+            try:
+                browser, _, page = tiro_buka(pw, not a.tanpa_layar)
+                try:
+                    h.tiro = tiro_unduh(page, jenis_tiro, date(a.sampai.year, 1, 1))
+                finally:
+                    browser.close()
+            except (SystemExit, Exception) as e:  # noqa: BLE001
+                for b in jenis_tiro:
+                    h.catat_gagal(NAMA_BAGIAN[b], e)
+        dari_erp = (bagian & {"J028", "J073", "SUBDIST"}) - ({"J028"} if a.berkas else set())
         if dari_erp:
             h2 = ambil_erp(pw, dari_erp, a.dari, a.sampai, daftar_bulan, tampil=not a.tanpa_layar)
             h.j028, h.j073, h.subdist = h2.j028, h2.j073, h2.subdist
@@ -645,7 +770,7 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
                 h.catat_gagal("J028", e)
                 h.j028 = []
 
-        ada = h.subdist or h.j028 or h.j073
+        ada = h.subdist or h.j028 or h.j073 or h.tiro
         if ada and not a.hanya_unduh:
             browser, page, url = masuk_sementrack(pw, not a.tanpa_layar)
             try:
@@ -654,6 +779,12 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
                     ("J028", h.j028, lambda: unggah_berkas(page, url, "/kelola-data?data=transaksi&menu=upload", h.j028, "J028", not a.tanpa_simpan, True)),
                     # J073: satu file per distributor; tiap file mengganti data distributor itu pada rentang tanggalnya
                     ("J073", h.j073, lambda: " + ".join(unggah_berkas(page, url, "/kelola-data?data=sellout&menu=j073", [f], f.stem, not a.tanpa_simpan, True) for f in h.j073)),
+                    ("Sell In", h.tiro.get("SELLIN"), lambda: unggah_berkas(
+                        page, url, "/kelola-data?data=sellin&menu=upload", [h.tiro["SELLIN"]], "SellIn", not a.tanpa_simpan, True,
+                        (("input[aria-label^='Region untuk']", "Ada kode gudang baru yang belum punya region; isi dulu di Kelola Data → Sell In BNN."),))),
+                    ("OS DO", h.tiro.get("OSDO"), lambda: unggah_berkas(
+                        page, url, "/kelola-data?data=sellin&menu=outstanding", [h.tiro["OSDO"]], "OSDO", not a.tanpa_simpan, True,
+                        (("text=menurut tanggal pengiriman", "File OS DO ternyata export per tanggal pengiriman, bukan tanggal order."),))),
                 ]
                 for nama, isi, kerja in langkah:
                     if not isi:
@@ -666,11 +797,12 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
             finally:
                 browser.close()
         if a.hanya_unduh:
-            for nama, isi in (("Sub ERP", h.subdist), ("J028", h.j028), ("J073", h.j073)):
+            for nama, isi in (("Sub ERP", h.subdist), ("J028", h.j028), ("J073", h.j073), ("Sell In", h.tiro.get("SELLIN")), ("OS DO", h.tiro.get("OSDO"))):
                 if isi:
                     h.berhasil[nama] = "terunduh"
 
 
+SEMUA_BAGIAN = {"J028", "J073", "SUBDIST", "SELLIN", "OSDO"}
 RIWAYAT = DASAR / "riwayat.json"
 KUNCI = DASAR / "sedang_jalan.lock"
 
@@ -691,7 +823,7 @@ def kunci_lepas() -> None:
         KUNCI.unlink()
     except OSError:
         pass
-NAMA_BAGIAN = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP"}
+NAMA_BAGIAN = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO"}
 
 
 def catat_riwayat(mulai: datetime, bagian: set[str], a, h: "Hasil") -> None:

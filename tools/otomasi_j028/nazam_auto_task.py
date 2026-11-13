@@ -24,8 +24,10 @@ SETELAN = DASAR / "pengaturan.json"
 NAMA_TUGAS = "Nazam Auto Task"
 BAGIAN = [("J028", "J028 + J028B", "Transaksi toko (Kelola Data → Transaksi)"),
           ("J073", "J073", "Gudang INSA & PKB (Sell Out BNN)"),
-          ("SUBDIST", "Sub ERP", "Penjualan subdist (Sell Out BNN)")]
-NAMA_RIWAYAT = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP"}
+          ("SUBDIST", "Sub ERP", "Penjualan subdist (Sell Out BNN)"),
+          ("SELLIN", "Sell In", "TIRO, per tanggal pengiriman"),
+          ("OSDO", "Outstanding DO", "TIRO, per tanggal order")]
+NAMA_RIWAYAT = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO"}
 BAWAAN = {"jadwal_aktif": False, "tiap_jam": 4, "jam_mulai": "07:00", "bagian": ["J028", "J073", "SUBDIST"],
           "tampilkan_browser": False, "paksa_subdist": False}
 
@@ -76,9 +78,9 @@ def simpan_setelan(s: dict) -> None:
 def simpan_akun(nilai: dict[str, str]) -> None:
     """akun_lokal.txt: password terenkripsi Windows (hanya bisa dibuka akun Windows ini)."""
     baris = ["# Ditulis oleh Nazam Auto Task. Password terenkripsi; ubah lewat Pengaturan di aplikasi."]
-    for k in ("ERP_USER", "SEMENTRACK_URL", "SEMENTRACK_USER", "J073_DIST"):
+    for k in ("ERP_USER", "SEMENTRACK_URL", "SEMENTRACK_USER", "TIRO_USER", "J073_DIST"):
         baris.append(f"{k}={nilai.get(k, '').strip()}")
-    for k in ("ERP_PASS", "SEMENTRACK_PASS"):
+    for k in ("ERP_PASS", "SEMENTRACK_PASS", "TIRO_PASS"):
         v = nilai.get(k, "")
         baris.append(f"{k}_ENC={mesin.sandi_kunci(v)}" if v else f"{k}=")
     mesin.AKUN_LOKAL.write_text("\n".join(baris) + "\n", encoding="utf-8")
@@ -153,8 +155,8 @@ def jalankan_aplikasi() -> None:
         def __init__(self):
             super().__init__()
             self.title(APP)
-            self.geometry("1120x720")
-            self.minsize(980, 640)
+            self.geometry("1180x800")
+            self.minsize(1040, 720)
             self.configure(bg=C["bg"])
             ikon = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) / "ikon.ico"
             if ikon.exists() and os.name == "nt":
@@ -282,9 +284,19 @@ def jalankan_aplikasi() -> None:
             self.kartu = {}
             for i, (kode, judul, sub) in enumerate(BAGIAN):
                 kt = Kartu(baris, judul, sub)
-                kt.grid(row=0, column=i, sticky="nsew", padx=(0 if i == 0 else 12, 0))
-                baris.columnconfigure(i, weight=1, uniform="k")
+                kt.grid(row=i // 3, column=i % 3, sticky="nsew", padx=(0 if i % 3 == 0 else 12, 0), pady=(0 if i < 3 else 12, 0))
+                baris.columnconfigure(i % 3, weight=1, uniform="k")
                 self.kartu[kode] = kt
+            # sesi TIRO di sel ketiga baris kedua
+            sesi = tk.Frame(baris, bg=C["card"], highlightthickness=1, highlightbackground=C["line"], padx=16, pady=14)
+            sesi.grid(row=1, column=2, sticky="nsew", padx=(12, 0), pady=(12, 0))
+            tk.Label(sesi, text="Sesi TIRO", bg=C["card"], fg=C["txt"], font=self.f_bold).pack(anchor="w")
+            tk.Label(sesi, text="Login TIRO butuh captcha yang diketik sendiri. Selama sesinya aktif, Sell In dan OS DO jalan otomatis.",
+                     bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=250).pack(anchor="w", pady=(2, 8))
+            self.lbl_sesi = tk.Label(sesi, text="", bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=250)
+            self.lbl_sesi.pack(anchor="w")
+            self.b_tiro = self.tombol(sesi, "Login TIRO", self.login_tiro, kecil=True)
+            self.b_tiro.pack(anchor="w", pady=(8, 0))
 
             jalan = tk.Frame(h, bg=C["card"], highlightthickness=1, highlightbackground=C["line"], padx=18, pady=14)
             jalan.pack(fill="x", pady=14)
@@ -296,7 +308,7 @@ def jalankan_aplikasi() -> None:
             self.v_bagian = {}
             for kode, judul, _ in BAGIAN:
                 v = tk.BooleanVar(value=kode in self.setelan["bagian"])
-                ttk.Checkbutton(pilih, text=judul, variable=v, command=self.simpan_pilihan).pack(side="left", padx=(0, 16))
+                ttk.Checkbutton(pilih, text=judul.replace("Outstanding DO", "OS DO"), variable=v, command=self.simpan_pilihan).pack(side="left", padx=(0, 14))
                 self.v_bagian[kode] = v
             opsi = tk.Frame(kiri, bg=C["card"])
             opsi.pack(anchor="w", pady=(4, 0))
@@ -402,7 +414,13 @@ def jalankan_aplikasi() -> None:
         def bangun_pengaturan(self):
             h = tk.Frame(self.isi, bg=C["bg"], padx=28, pady=22)
             self.halaman["pengaturan"] = h
-            self.kepala(h, "Pengaturan", "Akun, jadwal, dan pilihan lain. Password disimpan terenkripsi di PC ini.")
+            k, _ = self.kepala(h, "Pengaturan", "Akun, jadwal, dan pilihan lain. Password disimpan terenkripsi di PC ini.")
+            atas = tk.Frame(k, bg=C["bg"])
+            atas.place(relx=1, rely=0, anchor="ne")
+            self.tombol(atas, "Simpan", self.simpan_pengaturan, utama=True).pack(side="right")
+            self.tombol(atas, "Uji login", self.uji_login).pack(side="right", padx=(0, 8))
+            self.lbl_simpan = tk.Label(k, text="", bg=C["bg"], fg=C["ok"])
+            self.lbl_simpan.place(relx=1, rely=1, anchor="se")
             kolom = tk.Frame(h, bg=C["bg"])
             kolom.pack(fill="both", expand=True)
             kolom.columnconfigure(0, weight=1, uniform="p")
@@ -441,15 +459,9 @@ def jalankan_aplikasi() -> None:
             isian(f, 1, "Alamat web", "SEMENTRACK_URL", nilai=akun.get("SEMENTRACK_URL", "http://localhost:5173"))
             isian(f, 2, "Username", "SEMENTRACK_USER")
             isian(f, 3, "Password", "SEMENTRACK_PASS", rahasia=True)
-            f = bagian(kiri, "Data")
-            isian(f, 1, "Distributor J073", "J073_DIST", nilai=akun.get("J073_DIST", ",".join(mesin.J073_DIST)))
-            tk.Label(f, text="Kode ERP dipisah koma (4094 = INSA, 9575 = PKB).", bg=C["card"], fg=C["muted"],
-                     font=self.f_kecil, wraplength=250, justify="left").grid(row=2, column=1, sticky="w")
-            a, b = rentang_bawaan()
-            tk.Label(f, text=f"Rentang tanggal: tanggal 1 bulan ini s.d. hari ini (sekarang {tanggal_id(a)} – {tanggal_id(b)}). "
-                             "Pada tanggal 1, bulan lalu ikut diambil supaya transaksi akhir bulan tidak tertinggal.",
-                     bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=370).grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
-
+            f = bagian(kiri, "Akun TIRO (Sell In, Outstanding DO)")
+            isian(f, 1, "Email", "TIRO_USER")
+            isian(f, 2, "Password", "TIRO_PASS", rahasia=True)
             f = bagian(kanan, "Jadwal otomatis")
             self.v_jadwal = tk.BooleanVar(value=self.setelan["jadwal_aktif"])
             ttk.Checkbutton(f, text="Jalankan otomatis selama aplikasi terbuka", variable=self.v_jadwal).grid(row=1, column=0, columnspan=3, sticky="w")
@@ -461,8 +473,9 @@ def jalankan_aplikasi() -> None:
             tk.Label(baris, text="jam, mulai pukul", bg=C["card"], fg=C["muted"]).pack(side="left")
             self.v_mulai = tk.StringVar(value=self.setelan["jam_mulai"])
             ttk.Entry(baris, textvariable=self.v_mulai, width=7).pack(side="left", padx=6)
-            tk.Label(f, text="Yang dijalankan: bagian yang dicentang di Beranda.", bg=C["card"], fg=C["muted"],
-                     font=self.f_kecil).grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+            tk.Label(f, text="Yang dijalankan: bagian yang dicentang di Beranda. Kalau Sell In / OS DO dicentang dan sesi TIRO "
+                             "sudah habis, jendela login TIRO terbuka dan menunggu captcha 10 menit; bagian lain tetap jalan.",
+                     bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=370).grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
             f = bagian(kanan, "Tetap jalan walau aplikasi ditutup")
             tk.Label(f, text="Didaftarkan ke Task Scheduler Windows dengan jadwal di atas. PC harus menyala "
@@ -473,20 +486,23 @@ def jalankan_aplikasi() -> None:
             self.tombol(bt, "Daftarkan ke Windows", self.pasang_tugas, kecil=True).pack(side="left")
             self.tombol(bt, "Hapus dari Windows", self.hapus_tugas, kecil=True).pack(side="left", padx=(8, 0))
             self.lbl_tugas = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=self.f_kecil)
-            self.lbl_tugas.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+            self.lbl_tugas.grid(row=3, column=0, columnspan=3, sticky="w")
 
-            f = bagian(kanan, "Lainnya")
+            f = bagian(kanan, "Data")
+            isian(f, 1, "Distributor J073", "J073_DIST", nilai=akun.get("J073_DIST", ",".join(mesin.J073_DIST)))
+            tk.Label(f, text="Kode ERP dipisah koma (4094 = INSA, 9575 = PKB).", bg=C["card"], fg=C["muted"],
+                     font=self.f_kecil, wraplength=250, justify="left").grid(row=2, column=1, sticky="w")
+            a, b = rentang_bawaan()
+            tk.Label(f, text=f"Rentang ERP: tanggal 1 bulan ini s.d. hari ini ({tanggal_id(a)} – {tanggal_id(b)}); tanggal 1 ikut bulan lalu. "
+                             "TIRO: 1 Januari s.d. hari ini.",
+                     bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=370).grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
+            f = bagian(kiri, "Lainnya")
             self.v_startup = tk.BooleanVar(value=self.startup_path().exists())
             ttk.Checkbutton(f, text="Buka aplikasi saat Windows menyala", variable=self.v_startup).grid(row=1, column=0, columnspan=3, sticky="w")
             self.v_paksa = tk.BooleanVar(value=self.setelan["paksa_subdist"])
             ttk.Checkbutton(f, text="Simpan Sub ERP walau ada angka yang turun", variable=self.v_paksa).grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
-            bawah = tk.Frame(h, bg=C["bg"])
-            bawah.pack(fill="x", pady=(4, 0))
-            self.tombol(bawah, "Simpan", self.simpan_pengaturan, utama=True).pack(side="right")
-            self.tombol(bawah, "Uji login", self.uji_login).pack(side="right", padx=(0, 8))
-            self.lbl_simpan = tk.Label(bawah, text="", bg=C["bg"], fg=C["ok"])
-            self.lbl_simpan.pack(side="right", padx=12)
 
         # ---------- aksi ----------
         def simpan_pilihan(self):
@@ -556,6 +572,7 @@ def jalankan_aplikasi() -> None:
                 return
             self.mulai_proses = datetime.now()
             self.mode_uji = "--uji-login" in argumen
+            self.mode_tiro = "--login-tiro" in argumen
             self.baris_uji: list[str] = []
             threading.Thread(target=self.baca_keluaran, args=(self.proses, awal), daemon=True).start()
             self.aktif(self.b_jalan, False)
@@ -612,6 +629,13 @@ def jalankan_aplikasi() -> None:
             self.progres.config(mode="determinate", value=0)
             self.aktif(self.b_jalan, True)
             self.aktif(self.b_henti, False)
+            if getattr(self, "mode_tiro", False):
+                self.mode_tiro = False
+                ok = kode == 0
+                self.lbl_langkah.config(text="Login TIRO berhasil, sesi tersimpan." if ok else "Login TIRO gagal / dibatalkan. Lihat log.",
+                                        fg=C["ok"] if ok else C["bad"])
+                self.status_sesi()
+                return
             if getattr(self, "mode_uji", False):
                 ok = self.baris_uji and all("berhasil" in x for x in self.baris_uji)
                 teks = "\n".join(self.baris_uji) or "Tidak ada hasil (lihat log)."
@@ -633,6 +657,22 @@ def jalankan_aplikasi() -> None:
                     Toast(self, "Data diperbarui" if not terakhir.get("pratinjau") else "Pratinjau selesai", ket, C["ok"])
             else:
                 self.lbl_langkah.config(text=f"Berhenti (kode {kode}). Lihat log di bawah.", fg=C["bad" if kode else "muted"])
+
+        def login_tiro(self):
+            if self.proses:
+                return
+            if not self.simpan_pengaturan(diam=True):
+                return
+            self.jalankan(argumen=["--login-tiro"])
+
+        def status_sesi(self):
+            f = mesin.DASAR / "tiro_sesi.json"
+            if f.exists():
+                t = datetime.fromtimestamp(f.stat().st_mtime)
+                self.lbl_sesi.config(text=f"Login terakhir: {tanggal_id(t.date())}, {t:%H:%M}. Kalau sudah habis, "
+                                          "Login TIRO lagi (atau jendelanya terbuka sendiri saat jalan).", fg=C["muted"])
+            else:
+                self.lbl_sesi.config(text="Belum pernah login dari aplikasi.", fg=C["warn"])
 
         def uji_login(self):
             if self.proses:
@@ -662,6 +702,10 @@ def jalankan_aplikasi() -> None:
                         break
                     if baris.startswith("@@STATUS"):
                         continue
+                    if baris.startswith("@@TIRO_LOGIN"):
+                        self.bell()
+                        Toast(self, "Ketik captcha TIRO", "Jendela login TIRO sudah terbuka. Ketik kodenya lalu klik Masuk.", C["gold"])
+                        baris = "TIRO: " + baris.split(" ", 1)[1]
                     self.tulis_log(baris)
                     if baris.startswith(("ERP:", "SEMENTRACK:")) and ("berhasil" in baris or "GAGAL" in baris):
                         self.baris_uji.append(baris)
@@ -696,6 +740,7 @@ def jalankan_aplikasi() -> None:
                 self.kartu[kode].isi(terakhir, terakhir["bagian"][nama] if terakhir else None)
             self.segarkan_jadwal()
             self.cek_tugas()
+            self.status_sesi()
 
         # ---------- Windows ----------
         def perintah_tugas(self) -> str:

@@ -7,3 +7,4 @@ sedang_jalan.lock
 build/
 dist/
 *.spec
+tiro_sesi.json
