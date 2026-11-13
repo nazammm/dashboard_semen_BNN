@@ -14,6 +14,9 @@ Hanya bulan yang diambil yang diganti; bulan lain tetap.
     python j028_harian.py --subdist --tanpa-simpan         # sampai pratinjau saja
     python j028_harian.py --semua                          # Sub ERP dulu, lalu J028
 
+Jadwal otomatis (mis. tiap 4 jam): jadwal_pasang.bat mendaftarkan jalan_terjadwal.bat ke Task Scheduler.
+Yang dijalankan: --semua --sampai-hari-ini --tanpa-layar --tanpa-jeda, hasilnya dicatat di unduhan/log.txt.
+
 Password TIDAK ditulis di file ini. Urutan sumbernya: environment variable Windows, lalu file
 akun_lokal.txt di folder yang sama dengan skrip / exe (baris NAMA=nilai, lihat akun_lokal.contoh.txt),
 lalu ditanya saat jalan (ketikan tidak tampil):
@@ -30,7 +33,7 @@ import os
 import re
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from playwright.sync_api import Page, TimeoutError as PWTimeout, sync_playwright
@@ -437,21 +440,40 @@ def main() -> None:
     ap.add_argument("--semua", action="store_true", help="Sub ERP lalu J028")
     ap.add_argument("--bulan", nargs="+", metavar="YYYY-MM", help="bulan Sub ERP, bawaan: bulan dari kemarin")
     ap.add_argument("--paksa", action="store_true", help="Sub ERP tetap disimpan walau ada angka yang turun")
+    ap.add_argument("--sampai-hari-ini", action="store_true", help="data sampai hari ini (untuk jadwal beberapa jam sekali)")
+    ap.add_argument("--tanpa-jeda", action="store_true", help="exe langsung tertutup setelah selesai (untuk jadwal)")
     a = ap.parse_args()
+    if a.sampai_hari_ini:
+        a.sampai = hari_ini
     if a.dari > a.sampai:
         sys.exit("--dari harus sebelum atau sama dengan --sampai")
     try:
-        daftar_bulan = sorted({date.fromisoformat(b + "-01") for b in a.bulan}) if a.bulan else [kemarin.replace(day=1)]
+        if a.bulan:
+            daftar_bulan = sorted({date.fromisoformat(b + "-01") for b in a.bulan})
+        else:
+            # semua bulan dari --dari s.d. --sampai (tanggal 1 bulan baru: bulan lalu ikut dirampungkan)
+            daftar_bulan, b = [], a.dari.replace(day=1)
+            while b <= a.sampai:
+                daftar_bulan.append(b)
+                b = (b + timedelta(days=32)).replace(day=1)
     except ValueError:
         sys.exit("--bulan ditulis YYYY-MM, mis. 2026-11")
+    print(f"Mulai {datetime.now():%Y-%m-%d %H:%M}")
 
     with sync_playwright() as pw:
+        gagal_subdist = None
         if a.subdist or a.semua:
             print("ERP: Sub ERP " + ", ".join(f"{BULAN_EN[b.month - 1]} {b.year}" for b in daftar_bulan))
-            teks = subdist_erp(pw, daftar_bulan, tampil=not a.tanpa_layar)
-            if teks and not a.hanya_unduh:
-                print("SEMENTRACK: tempel Sub ERP")
-                tempel_subdist(pw, teks, simpan=not a.tanpa_simpan, tampil=not a.tanpa_layar, paksa=a.paksa)
+            try:
+                teks = subdist_erp(pw, daftar_bulan, tampil=not a.tanpa_layar)
+                if teks and not a.hanya_unduh:
+                    print("SEMENTRACK: tempel Sub ERP")
+                    tempel_subdist(pw, teks, simpan=not a.tanpa_simpan, tampil=not a.tanpa_layar, paksa=a.paksa)
+            except (SystemExit, Exception) as e:  # noqa: BLE001 - dengan --semua, J028 tetap dijalankan
+                if a.subdist:
+                    raise
+                gagal_subdist = str(getattr(e, "code", None) or e)
+                print(f"  Sub ERP GAGAL: {gagal_subdist}\n  J028 tetap dijalankan.")
             if a.subdist:
                 return
         if a.berkas:
@@ -464,6 +486,8 @@ def main() -> None:
             return
         print("SEMENTRACK: unggah")
         unggah_sementrack(pw, files, simpan=not a.tanpa_simpan, tampil=not a.tanpa_layar)
+        if gagal_subdist:
+            raise SystemExit(f"J028 berhasil, tetapi Sub ERP gagal: {gagal_subdist}")
 
 
 if __name__ == "__main__":
@@ -481,6 +505,7 @@ if __name__ == "__main__":
         except Exception as e:  # noqa: BLE001
             print(f"\nGagal: {type(e).__name__}: {e}")
             kode = 1
-        input("\nTekan Enter untuk menutup...")
+        if "--tanpa-jeda" not in sys.argv:
+            input("\nTekan Enter untuk menutup...")
         sys.exit(kode)
     main()
