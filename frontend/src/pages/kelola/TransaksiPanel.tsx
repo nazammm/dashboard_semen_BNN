@@ -25,7 +25,7 @@ export function TransaksiUpload({ onChanged }: { onChanged: () => void }) {
   const [master, setMaster] = useState<DistMaster[]>([]);
   useEffect(() => {
     adminApi<Row[]>('GET', 'admin/data/distributor')
-      .then(r => setMaster(r.map(x => ({ dist_code: String(x.dist_code), dist_name: String(x.dist_name ?? '') }))))
+      .then(r => setMaster(r.map(x => ({ dist_code: String(x.dist_code), dist_name: String(x.dist_name ?? ''), kode_erp: x.kode_erp == null ? null : String(x.kode_erp) }))))
       .catch(() => setMaster([]));
   }, []);
 
@@ -160,6 +160,12 @@ function TrxPreview({ phase, onSave, onCancel, onDateOrder }: {
               {Object.keys(st.raw.dilewati).length > 0
                 ? <> Bukan retail, tidak ikut: {Object.entries(st.raw.dilewati).sort((a, b) => b[1] - a[1]).map(([g, n]) => `${g} ${fmt(n)}`).join(', ')}.</>
                 : <> Semua baris Cust Group RETAIL.</>}
+            </Note>
+          )}
+          {st.raw && st.raw.lewatNama.length > 0 && (
+            <Note tone="warn">
+              Kode ERP belum diisi di master, jadi dicocokkan lewat nama PT: {st.raw.lewatNama.map(x => `${x.kode} → ${x.dist_code}`).join(', ')}.
+              Isi kolom Kode ERP di Kelola Data → Tabel → Distributor supaya upload berikutnya tidak tergantung penulisan nama.
             </Note>
           )}
           <DateOrderNote info={st.dateOrder} onSwitch={onDateOrder} disabled={phase.kind === 'saving'} />
