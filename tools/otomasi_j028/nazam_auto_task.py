@@ -489,10 +489,15 @@ def jalankan_aplikasi() -> None:
             f = bagian(kanan, "Data")
             isian(f, 1, "Distributor J073", "J073_DIST", nilai=akun.get("J073_DIST", ",".join(mesin.J073_DIST)))
             tk.Label(f, text="Kode ERP dipisah koma (4094 = INSA, 9575 = PKB).", bg=C["card"], fg=C["muted"],
-                     font=self.f_kecil, wraplength=250, justify="left").grid(row=2, column=1, sticky="w")
+                     font=self.f_kecil, wraplength=270, justify="left").grid(row=2, column=1, columnspan=2, sticky="w")
             isian(f, 4, "File DO FAS", "DOFAS_FILE", nilai=akun.get("DOFAS_FILE", mesin.DOFAS_FILE_BAWAAN))
-            tk.Label(f, text="{tahun} diganti tahun berjalan.", bg=C["card"], fg=C["muted"],
-                     font=self.f_kecil).grid(row=5, column=1, sticky="w")
+            pilih = tk.Label(f, text="Pilih…", bg=C["card"], fg=C["pri"], cursor="hand2")
+            pilih.grid(row=4, column=2, padx=(8, 0))
+            pilih.bind("<Button-1>", lambda _e: self.pilih_dofas())
+            self.lbl_dofas = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=270)
+            self.lbl_dofas.grid(row=5, column=1, columnspan=2, sticky="w")
+            self.v_akun["DOFAS_FILE"].trace_add("write", lambda *_: self.cek_dofas())
+            self.cek_dofas()
             a, b = rentang_bawaan()
             tk.Label(f, text=f"Rentang ERP: tanggal 1 bulan ini s.d. hari ini ({tanggal_id(a)} – {tanggal_id(b)}); tanggal 1 ikut bulan lalu. "
                              "TIRO: 1 Januari s.d. hari ini.",
@@ -674,6 +679,31 @@ def jalankan_aplikasi() -> None:
                                           "kalau sesi habis, jendela login terbuka saat jalan.", fg=C["side_txt"])
             else:
                 self.lbl_sesi.config(text="Belum login. Sell In dan OS DO butuh login TIRO (captcha diketik sendiri).", fg=C["gold"])
+
+        def path_dofas(self) -> Path:
+            t = str(date.today().year)
+            return Path((self.v_akun["DOFAS_FILE"].get().strip() or mesin.DOFAS_FILE_BAWAAN).replace("{tahun}", t))
+
+        def cek_dofas(self):
+            p = self.path_dofas()
+            try:
+                ada = p.is_file()
+            except OSError:
+                ada = False
+            self.lbl_dofas.config(text=("✓ File ditemukan" if ada else "✗ File tidak ditemukan (cek jaringan ke folder bersama)")
+                                       + ". {tahun} diganti tahun berjalan.", fg=C["ok"] if ada else C["bad"])
+
+        def pilih_dofas(self):
+            from tkinter import filedialog
+            awal = self.path_dofas().parent
+            f = filedialog.askopenfilename(title="Pilih file rekap DO harian", initialdir=str(awal) if awal.exists() else None,
+                                           filetypes=[("Excel", "*.xlsx *.xlsm"), ("Semua file", "*.*")])
+            if not f:
+                return
+            t = str(date.today().year)
+            # tahun di alamat diganti {tahun} supaya tahun depan otomatis ikut berganti
+            self.v_akun["DOFAS_FILE"].set(str(Path(f)).replace(t, "{tahun}"))
+            self.lbl_simpan.config(text="Klik Simpan untuk menyimpan alamat file.", fg=C["warn"])
 
         def uji_login(self):
             if self.proses:
