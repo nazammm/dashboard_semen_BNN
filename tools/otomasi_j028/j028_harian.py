@@ -230,12 +230,16 @@ def daftar_job(page: Page) -> dict[str, tuple[str, str]]:
 
 def kirim_selesai(page: Page, menu: str) -> None:
     jejak(page, f"sebelum_submit_{menu}")
+    PESAN_ERP.clear()
     page.get_by_role("button", name="Submit").click()
+    page.wait_for_timeout(1500)
     try:
         page.get_by_role("button", name="OK").click(timeout=15_000)
     except PWTimeout:
         print(f"  {menu}: tidak ada tombol OK setelah Submit, lanjut. Halaman: {jejak(page, f'setelah_submit_{menu}')}")
-    print(f"  {menu}: job dikirim")
+    if PESAN_ERP:
+        jejak(page, f"setelah_submit_{menu}")
+    print(f"  {menu}: job dikirim" + (f" (pesan ERP: {' | '.join(PESAN_ERP)})" if PESAN_ERP else ""))
 
 
 def kirim_job(page: Page, menu: str, dari: date, sampai: date) -> None:
@@ -278,10 +282,24 @@ def kirim_j073(page: Page, dist: str, dari: date, sampai: date) -> None:
     kirim_selesai(page, f"J073_{dist}")
 
 
+PESAN_ERP: list[str] = []          # pesan pop-up (alert) dari ERP; tanpa ini Playwright menutupnya diam-diam
+
+
+def _dialog(d) -> None:
+    PESAN_ERP.append(d.message.strip())
+    print(f"  pesan ERP: {d.message.strip()}")
+    try:
+        d.accept()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def buka_browser(pw, tampil: bool):
     browser = pw.chromium.launch(channel=KANAL, headless=not tampil)
     ctx = browser.new_context(accept_downloads=True)
-    return browser, ctx, ctx.new_page()
+    page = ctx.new_page()
+    page.on("dialog", _dialog)
+    return browser, ctx, page
 
 
 def ambil_subdist(page: Page, bulan: date) -> list[list[str]]:
@@ -542,10 +560,24 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
             return h
         FOLDER.mkdir(exist_ok=True)
         terunduh: dict[str, str] = {}                 # Job ID -> Job Code
-        batas = time.time() + TUNGGU_JOB_MENIT * 60
+        mulai_tunggu = time.time()
+        batas = mulai_tunggu + TUNGGU_JOB_MENIT * 60
+        bagian_kode = lambda k: "J073" if k.startswith("J073") else "J028"   # noqa: E731
         while True:
-            for job, (kode, status) in sorted(daftar_job(page).items()):
-                if job in lama or job in terunduh or (status and status != "FINISHED"):
+            daftar = daftar_job(page)
+            baru = {j: v for j, v in daftar.items() if j not in lama}
+            if baru:
+                print("  View Job: " + ", ".join(f"{j} {k} {st or '?'}" for j, (k, st) in sorted(baru.items())))
+            # job yang tidak pernah muncul sama sekali = ditolak form ERP; jangan ditunggu sampai batas
+            if time.time() - mulai_tunggu > 5 * 60:
+                for b in ("J028", "J073"):
+                    if harap[b] and not any(bagian_kode(k) == b for k, _ in baru.values()):
+                        h.catat_gagal(b, SystemExit(f"Job {b} tidak muncul di View Job setelah dikirim (kemungkinan form {b} menolak isian). "
+                                                    f"Lihat unduhan/sebelum_submit_{b}*.png."))
+                        jumlah -= harap[b]
+                        harap[b] = 0
+            for job, (kode, status) in sorted(baru.items()):
+                if job in terunduh or (status and status != "FINISHED"):
                     continue
                 try:
                     with page.expect_download(timeout=60_000) as info:
@@ -562,10 +594,10 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                 break
             print(f"  {len(terunduh)}/{jumlah} job terunduh, cek lagi " + (f"{JEDA_CEK_DETIK // 60} menit" if JEDA_CEK_DETIK >= 60 else f"{JEDA_CEK_DETIK} detik") + " lagi")
             time.sleep(JEDA_CEK_DETIK)
-        if len(h.j028) < harap["J028"]:
+        if harap["J028"] and len(h.j028) < harap["J028"]:
             h.catat_gagal("J028", SystemExit(f"Job J028/J028B belum selesai setelah {TUNGGU_JOB_MENIT} menit."))
             h.j028 = []
-        if len(h.j073) < harap["J073"]:
+        if harap["J073"] and len(h.j073) < harap["J073"]:
             h.catat_gagal("J073", SystemExit(f"{len(h.j073)} dari {harap['J073']} job J073 selesai dalam {TUNGGU_JOB_MENIT} menit."))
         return h
     except PWTimeout as e:
