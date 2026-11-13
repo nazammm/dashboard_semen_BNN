@@ -1,7 +1,7 @@
 NAZAM AUTO TASK
 ================
-Aplikasi untuk mengambil data ERP (J028 + J028B, J073, Sub ERP) dan TIRO (Sell In, Outstanding DO)
-lalu memasukkannya ke SEMENTRACK. Rentang ERP: tanggal 1 bulan ini s.d. hari ini; TIRO: 1 Januari s.d. hari ini.
+Aplikasi untuk mengambil data ERP (J028 + J028B, J073, Sub ERP), TIRO (Sell In, Outstanding DO), dan
+rekap DO harian di folder korin (DO FAS), lalu memasukkannya ke SEMENTRACK. Rentang ERP: tanggal 1 bulan ini s.d. hari ini; TIRO: 1 Januari s.d. hari ini.
 
 TIRO butuh captcha: klik Login TIRO, ketik kodenya di jendela yang terbuka. Sesi disimpan dan dipakai
 lagi sampai habis; kalau habis saat jadwal jalan, jendela login terbuka sendiri dan menunggu 10 menit.

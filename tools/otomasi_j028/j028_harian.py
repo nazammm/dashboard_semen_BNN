@@ -19,6 +19,10 @@ otomatis: email dan password diisi, captcha diketik sendiri di jendela yang terb
     python j028_harian.py --login-tiro         # login TIRO saja (ketik captcha), simpan sesi
     python j028_harian.py --bagian SELLIN,OSDO # unduh dari TIRO lalu upload Sell In dan Outstanding DO
 
+DO FAS: baca rekap DO harian (Excel di folder bersama, DOFAS_FILE; bawaan folder korin di b186),
+lalu Tempel DO FAS (mengganti DO FAS setahun; tidak disimpan kalau ada angka yang turun, kecuali --paksa).
+    python j028_harian.py --bagian DOFAS
+
 Satu bagian gagal tidak menghentikan bagian lain; semua kegagalan dilaporkan di akhir.
 Sub ERP: hanya bulan yang diambil yang diganti; tidak disimpan kalau ada angka yang turun (kecuali --paksa).
 J073: distributor diatur J073_DIST (bawaan 4094 = INSA, 9575 = PKB).
@@ -490,6 +494,55 @@ def tiro_unduh(page: Page, jenis: list[str], dari: date) -> dict[str, Path]:
     return hasil
 
 
+DOFAS_FILE_BAWAAN = r"\\b186\korin\TAHUN {tahun}\1. REKAP DO HARIAN {tahun}.xlsx"
+
+
+def teks_dofas(tahun: int) -> str:
+    """Rekap DO harian (Excel di folder bersama) -> teks tempelan DO FAS: Tipe | Area | Distributor | Keterangan | 1..12.
+    Baris judul yang terulang dan baris total (distributor kosong) dibuang."""
+    import shutil
+    import tempfile
+
+    import openpyxl
+    sumber = Path((os.environ.get("DOFAS_FILE", "").strip() or DOFAS_FILE_BAWAAN).replace("{tahun}", str(tahun)))
+    if not sumber.exists():
+        raise SystemExit(f"File DO FAS tidak ditemukan: {sumber}. Cek jaringan ke folder bersama atau alamat file di Pengaturan.")
+    # salin dulu: file yang sedang dibuka orang lain di Excel tetap bisa dibaca
+    salinan = Path(tempfile.gettempdir()) / f"nat_dofas_{os.getpid()}.xlsx"
+    shutil.copyfile(sumber, salinan)
+    try:
+        wb = openpyxl.load_workbook(salinan, read_only=True, data_only=True)
+        nilai = lambda v: "" if v is None else (f"{v:g}" if isinstance(v, float) else str(v)).strip()   # noqa: E731
+        for ws in wb.worksheets:
+            baris = [[nilai(v) for v in r] for r in ws.iter_rows(values_only=True)]
+            judul = next((i for i, r in enumerate(baris[:40])
+                          if {"distributor", "keterangan"} <= {c.lower() for c in r} and all(str(k) in r for k in range(1, 13))), None)
+            if judul is None:
+                continue
+            kepala = [c.lower() for c in baris[judul]]
+            i_dist = kepala.index("distributor")
+            i_bulan = [baris[judul].index(str(k)) for k in range(1, 13)]
+            keluar = ["\t".join(baris[judul])]
+            for r in baris[judul + 1:]:
+                r = r + [""] * (len(baris[judul]) - len(r))
+                dist = r[i_dist]
+                ada_angka = any(r[j] not in ("", "-", "0") for j in i_bulan)
+                if dist.lower() == "distributor":           # judul kolom yang terulang (mis. di atas bagian RJW)
+                    continue
+                if not dist and ada_angka:                  # baris total
+                    continue
+                if any(r):
+                    keluar.append("\t".join(r[:len(baris[judul])]))
+            print(f"  DO FAS: {sumber.name}, sheet '{ws.title}', {len(keluar) - 1} baris")
+            return "\n".join(keluar) + "\n"
+        raise SystemExit(f"Tabel DO FAS (judul Distributor, Keterangan, 1..12) tidak ditemukan di {sumber.name}.")
+    finally:
+        try:
+            salinan.unlink()
+        except OSError:
+            pass
+
+
 def teks_subdist(page: Page, daftar_bulan: list[date]) -> dict[int, str]:
     """Teks tempelan Sub ERP per tahun: blok "NOVEMBER" lalu baris distributor | sub kategori | ton."""
     per_tahun: dict[int, list[str]] = {}
@@ -516,6 +569,7 @@ class Hasil:
         self.j028: list[Path] = []
         self.j073: list[Path] = []
         self.tiro: dict[str, Path] = {}
+        self.dofas: dict[int, str] = {}
         self.subdist: dict[int, str] = {}
         self.gagal: dict[str, str] = {}
         self.berhasil: dict[str, str] = {}
@@ -642,34 +696,51 @@ def masuk_sementrack(pw, tampil: bool):
 
 
 def tempel_subdist(page: Page, url: str, per_tahun: dict[int, str], simpan: bool, paksa: bool) -> str:
+    return tempel_sellout(page, url, "erp", "Sub ERP", per_tahun, simpan, paksa)
+
+
+def tempel_sellout(page: Page, url: str, dataset: str, label: str, per_tahun: dict[int, str], simpan: bool, paksa: bool) -> str:
+    """Kelola Data -> Sell Out BNN -> Tempel Sub ERP / Tempel DO FAS."""
+    ringkas = []
     for tahun, teks in sorted(per_tahun.items()):
-        page.goto(url + "/kelola-data?data=sellout&menu=erp")
-        pilih = page.locator("#so-erp-th")
+        page.goto(url + f"/kelola-data?data=sellout&menu={dataset}")
+        pilih = page.locator(f"#so-{dataset}-th")
         pilih.wait_for(timeout=30_000)
         if pilih.locator(f"option[value='{tahun}']").count() == 0:
-            raise SystemExit(f"Tahun {tahun} tidak bisa dipilih di Tempel Sub ERP (hanya tahun ini dan tahun lalu).")
+            raise SystemExit(f"Tahun {tahun} tidak bisa dipilih di Tempel {label} (hanya tahun ini dan tahun lalu).")
         pilih.select_option(str(tahun))
-        page.locator("#so-erp-paste").fill(teks)
+        page.locator(f"#so-{dataset}-paste").fill(teks)
         page.get_by_role("button", name="Periksa data").click()
-        tombol = page.get_by_role("button", name=f"Simpan Sub ERP {tahun}")
-        page.locator(f"[role=alert], button:has-text('Simpan Sub ERP {tahun}')").first.wait_for(timeout=60_000)
+        tombol = page.get_by_role("button", name=f"Simpan {label} {tahun}")
+        page.locator(f"[role=alert], button:has-text('Simpan {label} {tahun}')").first.wait_for(timeout=60_000)
+        nama = f"{dataset}_{tahun}"
         if not tombol.count():
-            page.screenshot(path=str(FOLDER / "subdist_ditolak.png"), full_page=True)
-            raise SystemExit("SEMENTRACK menolak tempelan Sub ERP: " + page.locator("[role=alert]").first.inner_text() + "\nLihat unduhan/subdist_ditolak.png")
-        page.screenshot(path=str(FOLDER / f"pratinjau_subdist_{tahun}.png"), full_page=True)
+            page.screenshot(path=str(FOLDER / f"ditolak_{nama}.png"), full_page=True)
+            raise SystemExit(f"SEMENTRACK menolak tempelan {label}: " + page.locator("[role=alert]").first.inner_text() + f"\nLihat unduhan/ditolak_{nama}.png")
+        page.screenshot(path=str(FOLDER / f"pratinjau_{nama}.png"), full_page=True)
         if page.get_by_text("baris dilewati").count():
-            raise SystemExit(f"Ada baris Sub ERP yang tidak terbaca. Tidak disimpan otomatis. Lihat unduhan/pratinjau_subdist_{tahun}.png")
+            raise SystemExit(f"Ada baris {label} yang tidak terbaca. Tidak disimpan otomatis. Lihat unduhan/pratinjau_{nama}.png")
         if page.get_by_text("Lebih kecil dari yang tersimpan").count() and not paksa:
-            raise SystemExit(f"Ada angka Sub ERP yang lebih kecil dari yang sudah tersimpan. Tidak disimpan otomatis; cek unduhan/pratinjau_subdist_{tahun}.png, "
+            raise SystemExit(f"Ada angka {label} yang lebih kecil dari yang sudah tersimpan. Tidak disimpan otomatis; cek unduhan/pratinjau_{nama}.png, "
                              "lalu jalankan lagi dengan --paksa kalau memang koreksi.")
-        print("  " + page.get_by_text(re.compile(r"akan diganti; bulan lain tetap")).first.inner_text())
+        if dataset == "dofas" and page.get_by_text("Tidak ditemukan di tempelan").count() and not paksa:
+            raise SystemExit("Ada baris Sell Out BNN yang tidak ada di file DO FAS (akan menjadi 0). Tidak disimpan otomatis; cek "
+                             f"unduhan/pratinjau_{nama}.png, lalu jalankan lagi dengan --paksa kalau memang benar.")
+        print("  " + page.get_by_text(re.compile(r"akan diganti")).last.inner_text())
         if not simpan:
             print("  --tanpa-simpan: berhenti di pratinjau.")
+            ringkas.append("pratinjau")
             continue
         tombol.click()
-        page.get_by_text(f"Sub ERP {tahun} tersimpan").wait_for(timeout=120_000)
-        print("  " + page.get_by_text(re.compile(r"baris \(.* ton\) menggantikan")).first.inner_text())
-    return ", ".join(RINGKAS_SUBDIST) + ("" if simpan else " (pratinjau)")
+        page.get_by_text(f"{label} {tahun} tersimpan").wait_for(timeout=120_000)
+        hasil = page.get_by_text(re.compile(r"baris \(.* ton\) menggantikan")).first.inner_text()
+        print("  " + hasil)
+        t = re.search(r"\(([\d.,]+) ton\)", hasil)
+        ringkas.append(f"{t.group(1)} ton" if t else "tersimpan")
+    if dataset == "erp":
+        return ", ".join(RINGKAS_SUBDIST) + ("" if simpan else " (pratinjau)")
+    tahun_teks = ", ".join(str(t) for t in sorted(per_tahun))
+    return f"{tahun_teks} (pratinjau)" if not simpan else f"{', '.join(ringkas)} ({tahun_teks})"
 
 
 def unggah_berkas(page: Page, url: str, alamat: str, files: list[Path], nama: str, simpan: bool, tolak_baris_rusak: bool,
@@ -788,6 +859,12 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
             except (SystemExit, Exception) as e:  # noqa: BLE001
                 for b in jenis_tiro:
                     h.catat_gagal(NAMA_BAGIAN[b], e)
+        if "DOFAS" in bagian:
+            print("DO FAS: baca rekap DO harian")
+            try:
+                h.dofas = {a.sampai.year: teks_dofas(a.sampai.year)}
+            except (SystemExit, Exception) as e:  # noqa: BLE001
+                h.catat_gagal("DO FAS", e)
         dari_erp = (bagian & {"J028", "J073", "SUBDIST"}) - ({"J028"} if a.berkas else set())
         if dari_erp:
             h2 = ambil_erp(pw, dari_erp, a.dari, a.sampai, daftar_bulan, tampil=not a.tanpa_layar)
@@ -802,12 +879,13 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
                 h.catat_gagal("J028", e)
                 h.j028 = []
 
-        ada = h.subdist or h.j028 or h.j073 or h.tiro
+        ada = h.subdist or h.j028 or h.j073 or h.tiro or h.dofas
         if ada and not a.hanya_unduh:
             browser, page, url = masuk_sementrack(pw, not a.tanpa_layar)
             try:
                 langkah = [
                     ("Sub ERP", h.subdist, lambda: tempel_subdist(page, url, h.subdist, not a.tanpa_simpan, a.paksa)),
+                    ("DO FAS", h.dofas, lambda: tempel_sellout(page, url, "dofas", "DO FAS", h.dofas, not a.tanpa_simpan, a.paksa)),
                     ("J028", h.j028, lambda: unggah_berkas(page, url, "/kelola-data?data=transaksi&menu=upload", h.j028, "J028", not a.tanpa_simpan, True)),
                     # J073: satu file per distributor; tiap file mengganti data distributor itu pada rentang tanggalnya
                     ("J073", h.j073, lambda: " + ".join(unggah_berkas(page, url, "/kelola-data?data=sellout&menu=j073", [f], f.stem, not a.tanpa_simpan, True) for f in h.j073)),
@@ -829,12 +907,12 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
             finally:
                 browser.close()
         if a.hanya_unduh:
-            for nama, isi in (("Sub ERP", h.subdist), ("J028", h.j028), ("J073", h.j073), ("Sell In", h.tiro.get("SELLIN")), ("OS DO", h.tiro.get("OSDO"))):
+            for nama, isi in (("Sub ERP", h.subdist), ("DO FAS", h.dofas), ("J028", h.j028), ("J073", h.j073), ("Sell In", h.tiro.get("SELLIN")), ("OS DO", h.tiro.get("OSDO"))):
                 if isi:
                     h.berhasil[nama] = "terunduh"
 
 
-SEMUA_BAGIAN = {"J028", "J073", "SUBDIST", "SELLIN", "OSDO"}
+SEMUA_BAGIAN = {"J028", "J073", "SUBDIST", "SELLIN", "OSDO", "DOFAS"}
 RIWAYAT = DASAR / "riwayat.json"
 KUNCI = DASAR / "sedang_jalan.lock"
 
@@ -855,7 +933,7 @@ def kunci_lepas() -> None:
         KUNCI.unlink()
     except OSError:
         pass
-NAMA_BAGIAN = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO"}
+NAMA_BAGIAN = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS"}
 
 
 def catat_riwayat(mulai: datetime, bagian: set[str], a, h: "Hasil") -> None:
