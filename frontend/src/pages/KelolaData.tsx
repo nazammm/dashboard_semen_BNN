@@ -20,13 +20,15 @@ import { SelloutPaste } from './kelola/SelloutPanel';
 import { J073Upload } from './kelola/J073Panel';
 import { TargetPanel } from './kelola/TargetPanel';
 import { TabelPanel } from './kelola/TabelPanel';
+import { StockUpload } from './kelola/StockPanel';
 import { JENIS_LABEL } from '../lib/targetImport';
 
-type Tab = 'transaksi' | 'sellin' | 'sellout' | 'target' | 'tabel' | 'riwayat';
+type Tab = 'transaksi' | 'sellin' | 'sellout' | 'stock' | 'target' | 'tabel' | 'riwayat';
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'transaksi', label: 'Transaksi', icon: 'M4 6.5h16M4 12h16M4 17.5h10' },
   { id: 'sellin', label: 'Sell In BNN', icon: 'M3.5 8 12 3.5 20.5 8v8L12 20.5 3.5 16V8ZM3.5 8 12 12.5 20.5 8M12 12.5v8' },
   { id: 'sellout', label: 'Sell Out BNN', icon: 'M4 20h16M6.5 16.5V11M11 16.5V7.5M15.5 16.5v-4M20 16.5V5' },
+  { id: 'stock', label: 'Stock', icon: 'M3.5 9.5 12 5l8.5 4.5V20h-17V9.5ZM7.5 20v-6h9v6M7.5 16.5h9' },
   { id: 'target', label: 'Target', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17ZM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 11.2v1.6' },
   { id: 'tabel', label: 'Tabel', icon: 'M3.5 5h17v14h-17zM3.5 10h17M3.5 14.5h17M9 5v14' },
   { id: 'riwayat', label: 'Riwayat', icon: ICON.clock },
@@ -37,6 +39,7 @@ const MENUS: Record<Exclude<Tab, 'riwayat'>, { id: string; label: string }[]> = 
   transaksi: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }, { id: 'sinkron', label: 'Waktu pembaruan' }],
   sellin: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'outstanding', label: 'Outstanding DO' }, { id: 'hapus', label: 'Hapus' }],
   sellout: [{ id: 'dofas', label: 'Tempel DO FAS' }, { id: 'erp', label: 'Tempel Sub ERP' }, { id: 'j073', label: 'Upload J073' }],
+  stock: [{ id: 'upload', label: 'Upload file stok' }],
 };
 
 export default function KelolaData() {
@@ -89,6 +92,7 @@ export default function KelolaData() {
           {tab === 'sellin' && menu === 'hapus' && <HapusPanel dataset="sellin" lastDate={statusRow?.data_sampai ? String(statusRow.data_sampai).slice(0, 10) : null} onChanged={changed} />}
           {tab === 'sellout' && (menu === 'dofas' || menu === 'erp') && <SelloutPaste dataset={menu} onChanged={changed} />}
           {tab === 'sellout' && menu === 'j073' && <J073Upload onChanged={changed} />}
+          {tab === 'stock' && <StockUpload onChanged={changed} />}
           {tab === 'target' && <TargetPanel onChanged={changed} />}
           {tab === 'tabel' && <TabelPanel onChanged={changed} />}
           {tab === 'riwayat' && <Riwayat version={version} />}
@@ -132,7 +136,7 @@ function StatusStrip({ row }: { row: Row | null }) {
 /* ---------------------------------------------------------------------------
    Riwayat upload & hapus (Transaksi + Sell In BNN)
 --------------------------------------------------------------------------- */
-const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', target: 'Target', outstanding: 'Outstanding DO', tabel: 'Edit tabel' };
+const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', target: 'Target', outstanding: 'Outstanding DO', tabel: 'Edit tabel', stock: 'Stock' };
 const inFilter = (f: string, ds: unknown) => f === 'all' || ds === f || (f === 'sellout' && (ds === 'dofas' || ds === 'erp' || ds === 'j073'))
   || (f === 'sellin' && ds === 'outstanding');
 
@@ -154,7 +158,7 @@ function Riwayat({ version, dataset, limit, compact }: { version: number; datase
     <div>
       {!compact && (
         <div className="flex gap-2 flex-wrap mb-3" role="group" aria-label="Saring riwayat">
-          {[['all', 'Semua'], ['transaksi', 'Transaksi'], ['sellin', 'Sell In BNN'], ['sellout', 'Sell Out BNN'], ['target', 'Target'], ['tabel', 'Edit tabel']].map(([k, l]) => <Chip key={k} active={filter === k} onClick={() => setFilter(k)}>{l}</Chip>)}
+          {[['all', 'Semua'], ['transaksi', 'Transaksi'], ['sellin', 'Sell In BNN'], ['sellout', 'Sell Out BNN'], ['stock', 'Stock'], ['target', 'Target'], ['tabel', 'Edit tabel']].map(([k, l]) => <Chip key={k} active={filter === k} onClick={() => setFilter(k)}>{l}</Chip>)}
         </div>
       )}
       {error && <div className="mb-3"><ErrorBox error={error} /></div>}

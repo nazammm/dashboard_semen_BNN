@@ -16,7 +16,7 @@ import {
 
 /* ============================================================================
    Overview: kondisi perusahaan dalam satu layar. Empat angka utama (sell in, sell out, toko aktif,
-   outstanding DO), satu baris per daerah, lalu jumlah salesman per kelompok capaian.
+   outstanding DO, plus stok semen kalau ada), satu baris per daerah, lalu jumlah salesman per kelompok capaian.
    Tanpa grafik: grafik ada di halaman detail masing-masing.
    Angka dihitung dengan aturan yang sama dengan halaman detailnya (lib/ringkasan.ts),
    jadi kartu di sini selalu sama dengan KPI di halaman Sell In BNN / Sell Out BNN.
@@ -33,10 +33,11 @@ export default function Overview() {
   useDocTitle('Overview');
   const { pageAllowed } = useAuth();
   const load = useAsync(async () => {
-    const [siRows, siInfo, siTarget, peta, soMonthly, soTarget, status, soTa, outRows, outInfo, salesRows, fresh] = await Promise.all([
+    const [siRows, siInfo, siTarget, peta, soMonthly, soTarget, status, soTa, outRows, outInfo, salesRows, fresh, stockRows] = await Promise.all([
       opt(DataSource.sellinDaily()), opt(DataSource.sellinInfo()), opt(DataSource.targetSellIn()),
       opt(DataSource.selloutPeta()), opt(DataSource.selloutMonthly()), opt(DataSource.targetSellOut()), opt(DataSource.dataStatus()), opt(DataSource.selloutTa()),
       opt(DataSource.outstandingRingkas()), opt(DataSource.outstandingInfo()), opt(DataSource.salesman()), opt(DataSource.dataFreshness()),
+      opt(DataSource.stockHarian()),
     ]);
     const last = String(siInfo?.data_sampai ?? '').slice(0, 10);
     const sellIn: SellInData | null = siRows && siRows.length && last
@@ -48,7 +49,8 @@ export default function Overview() {
       sellOut = { s: sellOutRingkasan(peta as unknown as Peta[], soMonthly, soTarget ? sellOutTargetsFor(soTarget, Y) : [], soTa, trx, Y) };
     }
     const outstanding = outRows && outInfo?.posisi ? { recs: outRecs(outRows), posisi: String(outInfo.posisi).slice(0, 10) } : null;
-    return { sellIn, sellOut, outstanding, sales: salesRows && salesRows.length ? salesRows : null, dataSampai: fresh ? String(fresh.max_do_date ?? '') : '' };
+    const stock = stockRows && stockRows.length ? stokRingkas(stockRows) : null;
+    return { sellIn, sellOut, outstanding, stock, sales: salesRows && salesRows.length ? salesRows : null, dataSampai: fresh ? String(fresh.max_do_date ?? '') : '' };
   }, []);
   if (load.error) return <ErrorBox error={load.error} />;
   if (!load.data) return <PageSkeleton />;
@@ -56,6 +58,7 @@ export default function Overview() {
     ...(pageAllowed('sell-in-bnn') || load.data.sellIn ? ['sellin' as const] : []),
     ...(load.data.sellOut ? ['transaksi' as const, 'dofas' as const, 'erp' as const] : []),
     ...(load.data.outstanding ? ['outstanding' as const] : []),
+    ...(load.data.stock ? ['stock' as const] : []),
   ];
   return <Body {...load.data} sources={sources} />;
 }
@@ -64,6 +67,31 @@ export default function Overview() {
 const SO_KE_DAERAH: Record<string, string> = {
   'North Sum': 'Sumut', 'West Sum': 'Padang', Riau: 'Pekanbaru', 'Riau Island': 'Kepri', 'South Sum': 'Sumsel', 'West Kal': 'Kalbar',
 };
+
+/** Stok tanggal terakhir dan tanggal sebelumnya (dari v_stock_harian): total, per jenis, per daerah. */
+interface StokRingkas { tgl: string; prev: string | null; ton: number; tonPrev: number | null; jenis: Record<string, number>; byDaerah: Map<string, { ton: number; prev: number | null }> }
+const JENIS_STOK: [string, string][] = [['STR', 'Tiga Roda'], ['RJW', 'Rajawali'], ['CWC', 'Semen putih']];
+function stokRingkas(rows: Row[]): StokRingkas | null {
+  const dates = [...new Set(rows.map(r => String(r.tanggal).slice(0, 10)))].sort();
+  const tgl = dates[dates.length - 1], prev = dates.length > 1 ? dates[dates.length - 2] : null;
+  if (!tgl) return null;
+  const jenis: Record<string, number> = {};
+  const byDaerah = new Map<string, { ton: number; prev: number | null }>();
+  let ton = 0, tonPrev = 0;
+  for (const r of rows) {
+    const t = String(r.tanggal).slice(0, 10);
+    if (t !== tgl && t !== prev) continue;
+    const v = Number(r.ton) || 0;
+    const d = SO_KE_DAERAH[String(r.region)] || String(r.region);
+    const x = byDaerah.get(d) || { ton: 0, prev: prev ? 0 : null };
+    if (t === tgl) { ton += v; jenis[String(r.jenis)] = (jenis[String(r.jenis)] || 0) + v; x.ton += v; }
+    else { tonPrev += v; x.prev = (x.prev || 0) + v; }
+    byDaerah.set(d, x);
+  }
+  return { tgl, prev, ton, tonPrev: prev ? tonPrev : null, jenis, byDaerah };
+}
+const fmtSelisih = (d: number) => (Math.abs(d) < 0.05 ? '0' : (d > 0 ? '+' : '−') + fmtTon(Math.abs(d)));
+
 const kosong = (): Bulanan => ({ cur: new Array(13).fill(0), target: new Array(13).fill(0), prev: new Array(13).fill(0) });
 const TOL = 5;   // selisih capaian terhadap laju (poin persen) yang masih dianggap sesuai
 
@@ -78,8 +106,8 @@ const baris = (b: Bulanan, per: Periode, lastMonth: number, cutDay: number, Y: n
 /** Selisih capaian terhadap laju, dalam poin persen dari target. Negatif = tertinggal. */
 const selisihLaju = (r: Baris) => (r.target > 0 ? (r.cur - r.laju) / r.target * 100 : null);
 
-function Body({ sellIn, sellOut, outstanding, sales, dataSampai, sources }: {
-  sellIn: SellInData | null; sellOut: SellOutData | null; outstanding: { recs: OutRec[]; posisi: string } | null; sales: Row[] | null; dataSampai: string; sources: DataSourceId[];
+function Body({ sellIn, sellOut, outstanding, stock, sales, dataSampai, sources }: {
+  sellIn: SellInData | null; sellOut: SellOutData | null; outstanding: { recs: OutRec[]; posisi: string } | null; stock: StokRingkas | null; sales: Row[] | null; dataSampai: string; sources: DataSourceId[];
 }) {
   const [kind, setKind] = useState<'ytd' | 'bulan'>('bulan');
   const si = sellIn?.s, so = sellOut?.s;
@@ -115,14 +143,16 @@ function Body({ sellIn, sellOut, outstanding, sales, dataSampai, sources }: {
     const soBy = new Map<string, Bulanan>();
     so?.byRegion.forEach((b, n) => { const d = SO_KE_DAERAH[n] || n; soBy.set(d, b); names.add(d); });
     out?.byRegion.forEach((_, n) => names.add(n));
+    stock?.byDaerah.forEach((_, n) => names.add(n));
     const urut = (n: string) => { const i = REGION_ORDER.indexOf(n); return i < 0 ? 99 : i; };
     return [...names].sort((a, b) => urut(a) - urut(b) || a.localeCompare(b)).map(n => ({
       nama: n,
       si: si && si.byRegion.has(n) ? baris(si.byRegion.get(n)!, perSi, si.lastMonth, si.cutDay, si.Y, si.P) : null,
       so: so && soBy.has(n) ? baris(soBy.get(n)!, perSo, so.lastMonth, so.cutDay, so.Y, so.P) : null,
       os: out?.byRegion.get(n) || null,
-    })).filter(r => (r.si && (r.si.target || r.si.cur)) || (r.so && (r.so.target || r.so.cur)) || (r.os && r.os.ton > 0));
-  }, [si, so, out, perSi.kind, perSo.kind]);   // eslint-disable-line react-hooks/exhaustive-deps
+      st: stock?.byDaerah.get(n) || null,
+    })).filter(r => (r.si && (r.si.target || r.si.cur)) || (r.so && (r.so.target || r.so.cur)) || (r.os && r.os.ton > 0) || (r.st && r.st.ton > 0));
+  }, [si, so, out, stock, perSi.kind, perSo.kind]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // toko aktif bulan terakhir sell out (baris distributor, tanpa subdist)
   const ta = so?.ta ? { m: so.taMonth, day: so.taDay, cur: so.ta.cur[so.taMonth], target: so.ta.target[so.taMonth], prev: so.ta.prevSame[so.taMonth] } : null;
@@ -140,7 +170,7 @@ function Body({ sellIn, sellOut, outstanding, sales, dataSampai, sources }: {
 
       {so && <DaerahHero rows={soRegions.map(r => ({ key: r.name, name: r.name, target: r.target, cur: r.cur, prev: r.prev }))} P={so.P} period={soLabel} kind={kind} />}
 
-      <div className="grid grid-cols-4 max-[1240px]:grid-cols-2 max-[640px]:grid-cols-1 gap-4">
+      <div className={cx('grid gap-4 max-[640px]:grid-cols-1', stock ? 'grid-cols-5 max-[1500px]:grid-cols-3 max-[980px]:grid-cols-2' : 'grid-cols-4 max-[1240px]:grid-cols-2')}>
         <Panel title="Sell in" period={siLabel}>
           {siTot ? <Capai r={siTot} P={si!.P} proyeksi={kind === 'bulan' && partial(si) ? siTot.cur / si!.cutDay * daysInMonth(si!.Y, si!.lastMonth) : null} /> : <Kosong />}
         </Panel>
@@ -177,6 +207,20 @@ function Body({ sellIn, sellOut, outstanding, sales, dataSampai, sources }: {
             </>
           ) : <Kosong />}
         </Panel>
+        {stock && (
+          <Panel title="Stock semen" period={`Posisi ${fmtDate(stock.tgl)}`}>
+            <div className="ov-k">Stok gudang</div>
+            <div className="kpi-value">{fmtTon(stock.ton)}<span className="unit">ton</span></div>
+            {stock.tonPrev != null && (
+              <div className="text-soft text-[12.5px] mt-0.5">
+                <span className={cx('font-medium', stock.ton - stock.tonPrev > 0 ? 'text-green' : stock.ton - stock.tonPrev < 0 ? 'text-red' : '')}>{fmtSelisih(stock.ton - stock.tonPrev)} ton</span> vs {fmtDate(stock.prev!)}
+              </div>
+            )}
+            <dl className="ov-list">
+              {JENIS_STOK.map(([j, l]) => <div key={j}><dt>{l}</dt><dd>{stock.jenis[j] ? `${fmtTon(stock.jenis[j])} ton` : '–'}</dd></div>)}
+            </dl>
+          </Panel>
+        )}
       </div>
 
       {daerah.length > 0 && (
@@ -189,11 +233,13 @@ function Body({ sellIn, sellOut, outstanding, sales, dataSampai, sources }: {
                   <th colSpan={4} className="!text-center otb-sep">Sell in (ton){siLabel ? ` · ${siLabel}` : ''}</th>
                   <th colSpan={4} className="!text-center otb-sep">Sell out (ton){soLabel ? ` · ${soLabel}` : ''}</th>
                   <th colSpan={2} className="!text-center otb-sep">Outstanding DO (ton)</th>
+                  {stock && <th colSpan={2} className="!text-center otb-sep">Stok (ton) · {fmtDate(stock.tgl)}</th>}
                 </tr>
                 <tr>
                   <th className="num otb-sep">Target</th><th className="num">Realisasi</th><th className="num">Capaian</th><th className="num">vs {si?.P ?? so?.P ?? ''}</th>
                   <th className="num otb-sep">Target</th><th className="num">Realisasi</th><th className="num">Capaian</th><th className="num">vs {so?.P ?? si?.P ?? ''}</th>
                   <th className="num otb-sep">Belum terkirim</th><th className="num">Lewat estimasi</th>
+                  {stock && <><th className="num otb-sep">Stok</th><th className="num">{stock.prev ? `vs ${fmtDate(stock.prev)}` : 'Perubahan'}</th></>}
                 </tr>
               </thead>
               <tbody>
@@ -204,6 +250,7 @@ function Body({ sellIn, sellOut, outstanding, sales, dataSampai, sources }: {
                     <SelRingkas r={d.so} />
                     <td className="num font-mono otb-sep">{d.os && d.os.ton > 0 ? fmtTon(d.os.ton) : '–'}</td>
                     <td className={cx('num font-mono', d.os && d.os.lewat > 0 && 'text-red')}>{d.os && d.os.lewat > 0 ? fmtTon(d.os.lewat) : '–'}</td>
+                    {stock && <StokSel ton={d.st ? d.st.ton : null} prev={d.st ? d.st.prev : null} />}
                   </tr>
                 ))}
               </tbody>
@@ -215,6 +262,7 @@ function Body({ sellIn, sellOut, outstanding, sales, dataSampai, sources }: {
                     <SelRingkas r={soTot} />
                     <td className="num font-mono otb-sep">{out ? fmtTon(out.all.ton) : '–'}</td>
                     <td className={cx('num font-mono', out && out.all.lewat > 0 && 'text-red')}>{out && out.all.lewat > 0 ? fmtTon(out.all.lewat) : '–'}</td>
+                    {stock && <StokSel ton={stock.ton} prev={stock.tonPrev} />}
                   </tr>
                 </tfoot>
               )}
@@ -328,6 +376,16 @@ function periodLabel(per: Periode, Y: number, lastMonth: number, cutDay: number)
   const m0 = per.kind === 'ytd' ? 1 : lastMonth;
   if (cutDay >= daysInMonth(Y, lastMonth)) return m0 === lastMonth ? `${MONTHS_ID[m0]} ${Y}` : `${MONTHS_ID[m0]}–${MONTHS_ID[lastMonth]} ${Y}`;
   return fmtRange({ from: toISO(Y, m0, 1), to: toISO(Y, lastMonth, cutDay) });
+}
+
+function StokSel({ ton, prev }: { ton: number | null; prev: number | null }) {
+  const d = ton != null && prev != null ? ton - prev : null;
+  return (
+    <>
+      <td className="num font-mono otb-sep">{ton ? fmtTon(ton) : '–'}</td>
+      <td className={cx('num font-mono', d != null && d > 0.05 && 'text-green', d != null && d < -0.05 && 'text-red')}>{d != null ? fmtSelisih(d) : '–'}</td>
+    </>
+  );
 }
 
 function Panel({ title, period, children }: { title: string; period: string; children: ReactNode }) {
