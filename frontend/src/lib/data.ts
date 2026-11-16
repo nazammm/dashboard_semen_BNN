@@ -58,6 +58,8 @@ export const channelRange = rangeBreakdown('dashboard_channel_breakdown_range', 
 export const paymentRange = rangeBreakdown('dashboard_payment_breakdown_range', 'rpay');
 export const deliveryTypeRange = rangeBreakdown('dashboard_delivery_type_breakdown_range', 'rdel');
 export const productMixRange = rangeBreakdown('dashboard_product_breakdown_range', 'rprod');
+/** Satu baris per toko (tanpa subdist): do_online, do_offline, total_qty. */
+export const tokoChannelRange = rangeBreakdown('dashboard_toko_channel_range', 'rtc');
 
 export const dailyMatrix = (year: number, month: number, productCodes?: string[] | null) =>
   getData<Row[]>(`daily:${year}:${month}:${pcKey(productCodes)}`, () => apiRpc('dashboard_daily_matrix', { p_year: year, p_month: month, p_product_codes: pcArg(productCodes) }));
