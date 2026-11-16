@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { ChartConfiguration } from 'chart.js';
-import { DataSource, rangeSummary, topCustomersRange, deliveryTypeRange, channelRange, paymentRange, productMixRange } from '../lib/data';
+import { DataSource, rangeSummary, topCustomersRange, deliveryTypeRange, channelRange, paymentRange, productMixRange, tokoChannelRange } from '../lib/data';
+import { TokoChannel } from '../components/TokoChannel';
+import { useAuth } from '../lib/auth';
 import { addDays, addMonths, endOfMonth, fmtRange, isISO, sameRangeLastYear, startOfMonth, startOfQuarter, startOfYear, toISO, type DateRange } from '../lib/dates';
 import { DateRangePicker, type RangePreset } from '../components/DateRangePicker';
 import {
@@ -229,6 +231,12 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
   const top = useAsync(() => topCustomersRange(distArg, range, productCodes, topN),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dist, jenis, range.from, range.to, topN]);
+  // Toko per cara order dimuat terpisah: kalau fungsinya belum dipasang, bagian lain tetap tampil.
+  const tc = useAsync(() => tokoChannelRange(distArg, range, productCodes),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dist, jenis, range.from, range.to]);
+  const { canDownload } = useAuth();
+  const distNameOf = (code: string) => String(m.distOptions.find(o => o.dist_code === code)?.dist_name ?? '');
   const d = f.data;
   const prodEntries = useMemo(() => (d?.product ?? []).map(r => [String(r.product_name), Number(r.total_qty)] as [string, number]), [d]);
   // Saat data filter baru dimuat, tampilan lama tetap ada tapi diredupkan (tidak berkedip jadi kosong).
@@ -337,6 +345,9 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
           </>
         ) : [0, 1, 2].map(i => <div key={i} className="skel h-[200px]" />)}
       </div>
+
+      <TokoChannel rows={tc.data ?? null} loading={tc.loading} error={tc.error ?? null} periodLabel={`${periodLabel}${distSuffix}${jenisSuffix}`}
+        distName={distNameOf} canDownload={canDownload('beranda')} />
 
       {/* ---------------- Top Customer ---------------- */}
       <div className="flex items-baseline justify-between flex-wrap gap-2.5 mt-[38px] mb-3.5">

@@ -118,6 +118,7 @@ public static class AccessRules
         ["dashboard_payment_breakdown_range"] = "sementrack",
         ["dashboard_delivery_type_breakdown_range"] = "sementrack",
         ["dashboard_product_breakdown_range"] = "sementrack",
+        ["dashboard_toko_channel_range"] = "sementrack",   // toko per cara order (offline / online / keduanya)
     };
 
     private static readonly string[] RangeArgs = { "p_dist_code", "p_start_date", "p_end_date", "p_product_codes" };
@@ -139,6 +140,7 @@ public static class AccessRules
         ["dashboard_payment_breakdown_range"] = RangeArgs,
         ["dashboard_delivery_type_breakdown_range"] = RangeArgs,
         ["dashboard_product_breakdown_range"] = RangeArgs,
+        ["dashboard_toko_channel_range"] = RangeArgs,
     };
 
     private sealed record PageDep(string[] Tables, string[] Functions);
@@ -149,7 +151,7 @@ public static class AccessRules
             new[] { "v_distributor_summary", "produk", "v_target_dist", "v_toko_agg", "v_transaksi_monthly", "v_dist_monthly_totals" },
             new[] { "dashboard_period_summary_v2", "dashboard_top_customers_v2", "dashboard_delivery_type_breakdown", "dashboard_channel_breakdown", "dashboard_payment_breakdown",
                     "dashboard_period_summary_range", "dashboard_top_customers_range", "dashboard_channel_breakdown_range",
-                    "dashboard_payment_breakdown_range", "dashboard_delivery_type_breakdown_range", "dashboard_product_breakdown_range" }),
+                    "dashboard_payment_breakdown_range", "dashboard_delivery_type_breakdown_range", "dashboard_product_breakdown_range", "dashboard_toko_channel_range" }),
         // Overview: rangkuman Sell In, Sell Out, Outstanding DO, dan kelompok capaian salesman
         ["overview"] = new(new[] { "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_target_sell_in", "v_sellout_bnn_monthly", "v_sellout_bnn_peta",
                                    "v_sellout_bnn_ta", "v_target_sell_out", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_salesman_performance",

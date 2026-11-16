@@ -42,14 +42,14 @@ const defaultPermFor = (role, p) => {
 const AllowedTables = new Set(['v_transaksi_monthly', 'v_distributor_summary', 'v_salesman_performance', 'v_toko_agg', 'v_yearly_totals', 'v_monthly_totals', 'v_dist_monthly_totals', 'produk', 'v_target_dist', 'v_transaksi_detail', 'v_toko_pegangan_sales', 'status_sync', 'toko', 'distributor_target_salesman', 'v_sellin_bnn_daily', 'v_sellin_bnn_info', 'v_data_status', 'v_sellout_bnn_monthly', 'v_sellout_bnn_peta', 'v_sellout_bnn_ta', 'v_target_sell_in', 'v_target_sell_out', 'v_outstanding_do', 'v_outstanding_do_ringkas', 'v_outstanding_do_info', 'v_sellin_po_bulanan', 'v_stock_semen', 'v_stock_harian', 'v_stock_info', 'stock_daerah']);
 const TablesWithDistCode = new Set(['v_salesman_performance', 'v_toko_agg', 'toko', 'v_transaksi_detail', 'v_toko_pegangan_sales', 'v_dist_monthly_totals', 'v_transaksi_monthly', 'distributor_target_salesman']);
 const ReadAlias = { toko: 'sementrack.v_toko_multi', v_toko_agg: 'sementrack.v_toko_agg', distributor_target_salesman: 'sementrack.distributor_target_salesman', v_sellin_bnn_daily: 'sementrack.v_sellin_bnn_daily', v_sellin_bnn_info: 'sementrack.v_sellin_bnn_info', v_data_status: 'sementrack.v_data_status', v_sellout_bnn_monthly: 'sementrack.v_sellout_bnn_monthly', v_sellout_bnn_peta: 'sementrack.v_sellout_bnn_peta', v_sellout_bnn_ta: 'sementrack.v_sellout_bnn_ta', v_salesman_performance: 'sementrack.v_salesman_performance', v_toko_pegangan_sales: 'sementrack.v_toko_pegangan_sales', v_transaksi_detail: 'sementrack.v_transaksi_detail', v_target_dist: 'sementrack.v_target_dist', v_target_sell_in: 'sementrack.v_target_sell_in', v_target_sell_out: 'sementrack.v_target_sell_out', v_outstanding_do: 'sementrack.v_outstanding_do', v_outstanding_do_ringkas: 'sementrack.v_outstanding_do_ringkas', v_outstanding_do_info: 'sementrack.v_outstanding_do_info', v_sellin_po_bulanan: 'sementrack.v_sellin_po_bulanan', v_stock_semen: 'sementrack.v_stock_semen', v_stock_harian: 'sementrack.v_stock_harian', v_stock_info: 'sementrack.v_stock_info', stock_daerah: 'sementrack.stock_daerah' };
-const RANGE_FNS = ['dashboard_period_summary_range', 'dashboard_top_customers_range', 'dashboard_channel_breakdown_range', 'dashboard_payment_breakdown_range', 'dashboard_delivery_type_breakdown_range', 'dashboard_product_breakdown_range'];
+const RANGE_FNS = ['dashboard_period_summary_range', 'dashboard_top_customers_range', 'dashboard_channel_breakdown_range', 'dashboard_payment_breakdown_range', 'dashboard_delivery_type_breakdown_range', 'dashboard_product_breakdown_range', 'dashboard_toko_channel_range'];
 const RpcSchema = { dashboard_toko_monthly_v2: 'sementrack', dashboard_top_customers_v2: 'sementrack', dashboard_store_year: 'sementrack' };
 RANGE_FNS.forEach((f) => { RpcSchema[f] = 'sementrack'; });
 // ORDER BY tidak bisa di dalam fungsi tabel SQL Server: urutan hasil ditambahkan saat memanggil
 const RpcOrder = {
   dashboard_top_customers_v2: 'total_qty DESC', dashboard_top_customers_range: 'total_qty DESC',
   dashboard_delivery_type_breakdown: 'total_qty DESC', dashboard_delivery_type_breakdown_range: 'total_qty DESC',
-  dashboard_product_breakdown_range: 'total_qty DESC',
+  dashboard_product_breakdown_range: 'total_qty DESC', dashboard_toko_channel_range: 'total_qty DESC',
   dashboard_channel_breakdown: 'num_do DESC', dashboard_channel_breakdown_range: 'num_do DESC',
   dashboard_payment_breakdown: 'net_amount DESC', dashboard_payment_breakdown_range: 'net_amount DESC',
   dashboard_store_year: '[month]',
@@ -71,6 +71,7 @@ const AllowedFunctions = {
   dashboard_payment_breakdown_range: RS,
   dashboard_delivery_type_breakdown_range: RS,
   dashboard_product_breakdown_range: RS,
+  dashboard_toko_channel_range: RS,
 };
 const PageDependencies = {
   beranda: [['v_distributor_summary', 'produk', 'v_target_dist', 'v_toko_agg', 'v_transaksi_monthly', 'v_dist_monthly_totals'], ['dashboard_period_summary_v2', 'dashboard_top_customers_v2', 'dashboard_delivery_type_breakdown', 'dashboard_channel_breakdown', 'dashboard_payment_breakdown', ...RANGE_FNS]],
