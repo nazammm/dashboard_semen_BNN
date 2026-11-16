@@ -90,6 +90,9 @@ Check(!ov.Tables.Contains("v_outstanding_do"), "overview tanpa daftar order outs
 Check(ov.Tables.Contains("v_salesman_performance") && !ov.Tables.Contains("v_transaksi_detail"), "overview membaca capaian salesman, tanpa detail transaksi");
 Check(AccessRules.ComputeAccess("mo", new[] { "outstanding-do" }).Tables.Contains("v_outstanding_do"), "halaman outstanding membaca daftar order");
 Check(AccessRules.KnownPageIds.Contains("overview") && AccessRules.KnownPageIds.Contains("outstanding-do"), "halaman baru dikenal");
+Check(AccessRules.ComputeAccess("mo", new[] { "stock" }).Tables.Contains("v_stock_semen"), "halaman stock membaca stok per daerah");
+Check(!AccessRules.ComputeAccess("mo", new[] { "stock" }).Tables.Contains("stock_daerah"), "mapping daerah stok hanya untuk admin");
+Check(AccessRules.ComputeAccess("mo", new[] { "overview" }).Tables.Contains("v_stock_harian"), "overview membaca ringkasan stok");
 
 Check(AccessRules.DefaultPermFor("sales", "daftar-toko") is { CanViewDetail: true, CanDownload: false }, "perm sales daftar-toko");
 Check(AccessRules.DefaultPermFor("spv", "rekap-harian") is { CanViewDetail: false, CanDownload: false }, "perm spv rekap");

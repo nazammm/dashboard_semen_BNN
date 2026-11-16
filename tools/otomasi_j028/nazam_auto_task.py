@@ -6,6 +6,7 @@ dipakai oleh aplikasi sendiri dan oleh jadwal Windows (Task Scheduler).
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -27,8 +28,9 @@ BAGIAN = [("J028", "J028 + J028B", "Transaksi toko (Kelola Data → Transaksi)")
           ("SUBDIST", "Sub ERP", "Penjualan subdist (Sell Out BNN)"),
           ("SELLIN", "Sell In", "TIRO, per tanggal pengiriman"),
           ("OSDO", "Outstanding DO", "TIRO, per tanggal order"),
-          ("DOFAS", "DO FAS", "Rekap DO harian (folder korin)")]
-NAMA_RIWAYAT = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS"}
+          ("DOFAS", "DO FAS", "Rekap DO harian (folder korin)"),
+          ("STOCK", "Stock", "Stock semen bulan berjalan (folder b236)")]
+NAMA_RIWAYAT = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS", "STOCK": "Stock"}
 BAWAAN = {"jadwal_aktif": False, "tiap_jam": 4, "jam_mulai": "07:00", "bagian": ["J028", "J073", "SUBDIST"],
           "tampilkan_browser": False, "paksa_subdist": False}
 
@@ -79,7 +81,7 @@ def simpan_setelan(s: dict) -> None:
 def simpan_akun(nilai: dict[str, str]) -> None:
     """akun_lokal.txt: password terenkripsi Windows (hanya bisa dibuka akun Windows ini)."""
     baris = ["# Ditulis oleh Nazam Auto Task. Password terenkripsi; ubah lewat Pengaturan di aplikasi."]
-    for k in ("ERP_USER", "SEMENTRACK_URL", "SEMENTRACK_USER", "TIRO_USER", "J073_DIST", "DOFAS_FILE"):
+    for k in ("ERP_USER", "SEMENTRACK_URL", "SEMENTRACK_USER", "TIRO_USER", "J073_DIST", "DOFAS_FILE", "STOCK_FILE"):
         baris.append(f"{k}={nilai.get(k, '').strip()}")
     for k in ("ERP_PASS", "SEMENTRACK_PASS", "TIRO_PASS"):
         v = nilai.get(k, "")
@@ -128,19 +130,19 @@ def jalankan_aplikasi() -> None:
             self.titik.pack(side="left")
             tk.Label(atas, text=judul, bg=C["card"], fg=C["txt"], font=induk.winfo_toplevel().f_bold).pack(side="left", padx=(6, 0))
             tk.Label(self, text=sub, bg=C["card"], fg=C["muted"], font=induk.winfo_toplevel().f_kecil, anchor="w", justify="left",
-                     wraplength=240).pack(anchor="w", fill="x", pady=(2, 8))
-            self.status = tk.Label(self, text="Belum pernah jalan", bg=C["card"], fg=C["txt"], font=induk.winfo_toplevel().f_besar)
+                     wraplength=170).pack(anchor="w", fill="x", pady=(2, 8))
+            self.status = tk.Label(self, text="Belum jalan", bg=C["card"], fg=C["txt"], font=induk.winfo_toplevel().f_besar)
             self.status.pack(anchor="w")
             self.waktu = tk.Label(self, text="", bg=C["card"], fg=C["muted"], font=induk.winfo_toplevel().f_kecil, anchor="w")
             self.waktu.pack(anchor="w", fill="x")
             self.pesan = tk.Label(self, text="", bg=C["card"], fg=C["muted"], font=induk.winfo_toplevel().f_kecil,
-                                  justify="left", wraplength=250, anchor="w")
+                                  justify="left", wraplength=180, anchor="w")
             self.pesan.pack(anchor="w", fill="x", pady=(6, 0))
 
         def isi(self, catatan: dict | None, bagian: dict | None):
             if not catatan or not bagian:
                 self.titik.config(fg=C["line"])
-                self.status.config(text="Belum pernah jalan", fg=C["txt"])
+                self.status.config(text="Belum jalan", fg=C["txt"])
                 self.waktu.config(text="")
                 self.pesan.config(text="")
                 return
@@ -292,8 +294,8 @@ def jalankan_aplikasi() -> None:
             self.kartu = {}
             for i, (kode, judul, sub) in enumerate(BAGIAN):
                 kt = Kartu(baris, judul, sub)
-                kt.grid(row=i // 3, column=i % 3, sticky="nsew", padx=(0 if i % 3 == 0 else 12, 0), pady=(0 if i < 3 else 12, 0))
-                baris.columnconfigure(i % 3, weight=1, uniform="k")
+                kt.grid(row=i // 4, column=i % 4, sticky="nsew", padx=(0 if i % 4 == 0 else 12, 0), pady=(0 if i < 4 else 12, 0))
+                baris.columnconfigure(i % 4, weight=1, uniform="k")
                 self.kartu[kode] = kt
 
             jalan = tk.Frame(h, bg=C["card"], highlightthickness=1, highlightbackground=C["line"], padx=18, pady=14)
@@ -488,7 +490,7 @@ def jalankan_aplikasi() -> None:
 
             f = bagian(kanan, "Data")
             isian(f, 1, "Distributor J073", "J073_DIST", nilai=akun.get("J073_DIST", ",".join(mesin.J073_DIST)))
-            tk.Label(f, text="Kode ERP dipisah koma (4094 = INSA, 9575 = PKB).", bg=C["card"], fg=C["muted"],
+            tk.Label(f, text="Dipisah koma: 4094 = INSA, 9575 = PKB.", bg=C["card"], fg=C["muted"],
                      font=self.f_kecil, wraplength=270, justify="left").grid(row=2, column=1, columnspan=2, sticky="w")
             isian(f, 4, "File DO FAS", "DOFAS_FILE", nilai=akun.get("DOFAS_FILE", mesin.DOFAS_FILE_BAWAAN))
             pilih = tk.Label(f, text="Pilih…", bg=C["card"], fg=C["pri"], cursor="hand2")
@@ -498,16 +500,24 @@ def jalankan_aplikasi() -> None:
             self.lbl_dofas.grid(row=5, column=1, columnspan=2, sticky="w")
             self.v_akun["DOFAS_FILE"].trace_add("write", lambda *_: self.cek_dofas())
             self.cek_dofas()
-            a, b = rentang_bawaan()
-            tk.Label(f, text=f"Rentang ERP: tanggal 1 bulan ini s.d. hari ini ({tanggal_id(a)} – {tanggal_id(b)}); tanggal 1 ikut bulan lalu. "
-                             "TIRO: 1 Januari s.d. hari ini.",
-                     bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=370).grid(row=6, column=0, columnspan=3, sticky="w", pady=(8, 0))
+            isian(f, 6, "File Stock", "STOCK_FILE", nilai=akun.get("STOCK_FILE", mesin.STOCK_FILE_BAWAAN))
+            pilih = tk.Label(f, text="Pilih…", bg=C["card"], fg=C["pri"], cursor="hand2")
+            pilih.grid(row=6, column=2, padx=(8, 0))
+            pilih.bind("<Button-1>", lambda _e: self.pilih_stok())
+            self.lbl_stok = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=270)
+            self.lbl_stok.grid(row=7, column=1, columnspan=2, sticky="w")
+            self.v_akun["STOCK_FILE"].trace_add("write", lambda *_: self.cek_stok())
+            self.cek_stok()
 
             f = bagian(kiri, "Lainnya")
             self.v_startup = tk.BooleanVar(value=self.startup_path().exists())
             ttk.Checkbutton(f, text="Buka aplikasi saat Windows menyala", variable=self.v_startup).grid(row=1, column=0, columnspan=3, sticky="w")
             self.v_paksa = tk.BooleanVar(value=self.setelan["paksa_subdist"])
             ttk.Checkbutton(f, text="Simpan Sub ERP / DO FAS walau ada angka yang turun", variable=self.v_paksa).grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
+            a, b = rentang_bawaan()
+            tk.Label(f, text=f"Rentang ERP: tanggal 1 bulan ini s.d. hari ini ({tanggal_id(a)} – {tanggal_id(b)}); tanggal 1 ikut bulan lalu. "
+                             "TIRO: 1 Januari s.d. hari ini. Di alamat file, {tahun} dan {bulan} (mis. 2026, NOV) otomatis diganti yang berjalan.",
+                     bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=400).grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
 
         # ---------- aksi ----------
@@ -690,8 +700,8 @@ def jalankan_aplikasi() -> None:
                 ada = p.is_file()
             except OSError:
                 ada = False
-            self.lbl_dofas.config(text=("✓ File ditemukan" if ada else "✗ File tidak ditemukan (cek jaringan ke folder bersama)")
-                                       + ". {tahun} diganti tahun berjalan.", fg=C["ok"] if ada else C["bad"])
+            self.lbl_dofas.config(text="✓ Ditemukan" if ada else "✗ Tidak ditemukan, cek jaringan ke folder bersama",
+                                  fg=C["ok"] if ada else C["bad"])
 
         def pilih_dofas(self):
             from tkinter import filedialog
@@ -703,6 +713,29 @@ def jalankan_aplikasi() -> None:
             t = str(date.today().year)
             # tahun di alamat diganti {tahun} supaya tahun depan otomatis ikut berganti
             self.v_akun["DOFAS_FILE"].set(str(Path(f)).replace(t, "{tahun}"))
+            self.lbl_simpan.config(text="Klik Simpan untuk menyimpan alamat file.", fg=C["warn"])
+
+        def cek_stok(self):
+            hari = date.today()
+            p = mesin.cari_stok(hari.replace(day=1), self.v_akun["STOCK_FILE"].get().strip())
+            bln = f"{mesin.BULAN_STOK[hari.month - 1][0]} {hari.year}"
+            self.lbl_stok.config(text=f"✓ {p.name}" if p else f"✗ {bln} tidak ditemukan, cek jaringan ke folder bersama",
+                                 fg=C["ok"] if p else C["bad"])
+
+        def pilih_stok(self):
+            from tkinter import filedialog
+            hari = date.today()
+            awal = mesin.alamat_stok(hari.replace(day=1), self.v_akun["STOCK_FILE"].get().strip())[0].parent
+            f = filedialog.askopenfilename(title="Pilih file Stock Semen bulan ini", initialdir=str(awal) if awal.exists() else None,
+                                           filetypes=[("Excel", "*.xlsx"), ("Semua file", "*.*")])
+            if not f:
+                return
+            # bulan dan tahun di alamat diganti {bulan} / {tahun} supaya bulan depan otomatis berganti
+            t = str(hari.year)
+            alamat = str(Path(f))
+            for b in mesin.BULAN_STOK[hari.month - 1]:
+                alamat = re.sub(rf"\b{b}\b", "{bulan}", alamat, flags=re.I)
+            self.v_akun["STOCK_FILE"].set(alamat.replace(t, "{tahun}"))
             self.lbl_simpan.config(text="Klik Simpan untuk menyimpan alamat file.", fg=C["warn"])
 
         def uji_login(self):

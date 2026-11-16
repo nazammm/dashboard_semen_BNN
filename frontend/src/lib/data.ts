@@ -111,6 +111,11 @@ export const DataSource = {
   outstandingRingkas: () => getData('po:ringkas', () => apiGetAll('v_outstanding_do_ringkas', '?select=*&order=tanggal_order.asc,region.asc,distributor.asc,semen.asc,status.asc,estimasi_kirim.asc,posisi.asc')),
   outstandingInfo: () => getData<Row | null>('po:info', async () => (await apiGet<Row[]>('v_outstanding_do_info?select=*'))[0] || null),
   poBulanan: () => getData('po:bulanan', () => apiGetAll('v_sellin_po_bulanan', '?select=*&order=tahun.asc,bulan.asc,region.asc,distributor.asc,semen.asc')),
+  /** Stock semen: info tanggal, ringkasan harian (tanggal x region x jenis), dan isi per daerah untuk tanggal tertentu. */
+  stockInfo: () => getData<Row | null>('stock:info', async () => (await apiGet<Row[]>('v_stock_info?select=*'))[0] || null),
+  stockHarian: () => getData('stock:harian', () => apiGetAll('v_stock_harian', '?select=*&order=tanggal.asc,region.asc,jenis.asc')),
+  stockTanggal: (tanggal: string[]) => getData(`stock:tgl:${tanggal.join(',')}`, () =>
+    apiGetAll('v_stock_semen', `?select=*&tanggal=in.(${tanggal.map(enc).join(',')})&order=urutan.asc,daerah.asc,produk.asc`)),
   /** Daftar order outstanding sesuai filter. limit = null: semua (untuk unduhan). */
   outstandingList: (f: { regions?: string[]; distributor?: string; semen?: string; status: string[] }, limit: number | null) => {
     const q = [`status=in.(${f.status.map(enc).join(',')})`];

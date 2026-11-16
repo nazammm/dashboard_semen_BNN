@@ -23,6 +23,11 @@ DO FAS: baca rekap DO harian (Excel di folder bersama, DOFAS_FILE; bawaan folder
 lalu Tempel DO FAS (mengganti DO FAS setahun; tidak disimpan kalau ada angka yang turun, kecuali --paksa).
     python j028_harian.py --bagian DOFAS
 
+Stock: file Stock Semen bulan berjalan (satu sheet per tanggal, folder bersama STOCK_FILE; bawaan b236) diunggah
+ke Kelola Data → Stock. Tanggal yang ada di file diganti; sheet setelah hari ini dilewati oleh web. Tanggal 1–3 bulan
+baru: file bulan lalu ikut diunggah supaya revisi hari terakhir bulan lalu terbawa.
+    python j028_harian.py --bagian STOCK
+
 Satu bagian gagal tidak menghentikan bagian lain; semua kegagalan dilaporkan di akhir.
 Sub ERP: hanya bulan yang diambil yang diganti; tidak disimpan kalau ada angka yang turun (kecuali --paksa).
 J073: distributor diatur J073_DIST (bawaan 4094 = INSA, 9575 = PKB).
@@ -565,6 +570,65 @@ def teks_dofas(tahun: int) -> str:
             pass
 
 
+STOCK_FILE_BAWAAN = r"\\b236\File {tahun}\Stock\{bulan} {tahun}\Stock Semen {bulan} {tahun}.xlsx"
+# nama bulan di folder stok: singkatan Indonesia; ejaan lain ikut dicoba
+BULAN_STOK = [["JAN"], ["FEB", "PEB"], ["MAR"], ["APR"], ["MEI", "MAY"], ["JUN"], ["JUL"], ["AGU", "AGS", "AGT", "AUG"],
+              ["SEP"], ["OKT", "OCT"], ["NOV", "NOP"], ["DES", "DEC"]]
+
+
+def alamat_stok(bulan: date, pola: str = "") -> list[Path]:
+    """Calon alamat file stok satu bulan ({tahun} dan {bulan} diganti), ejaan bulan utama lebih dulu."""
+    pola = pola or os.environ.get("STOCK_FILE", "").strip() or STOCK_FILE_BAWAAN
+    return [Path(pola.replace("{tahun}", str(bulan.year)).replace("{bulan}", b)) for b in BULAN_STOK[bulan.month - 1]]
+
+
+def cari_stok(bulan: date, pola: str = "") -> Path | None:
+    """File stok satu bulan. Kalau nama file persis tidak ada tetapi foldernya ada, pakai file .xlsx berisi kata 'stock'."""
+    calon = alamat_stok(bulan, pola)
+    for p in calon:
+        try:
+            if p.is_file():
+                return p
+        except OSError:
+            pass
+    for p in calon:
+        try:
+            if p.parent.is_dir():
+                ada = sorted((f for f in p.parent.glob("*.xlsx") if "stock" in f.name.lower() and not f.name.startswith("~$")),
+                             key=lambda f: f.stat().st_mtime, reverse=True)
+                if ada:
+                    return ada[0]
+        except OSError:
+            pass
+    return None
+
+
+def berkas_stok(hari: date) -> list[Path]:
+    """Salinan lokal file stok bulan berjalan (dan bulan lalu pada tanggal 1-3). Nama file asli dipertahankan
+    karena web memakai nama bulan di nama file kalau judul sheet tidak memuat tanggal."""
+    import shutil
+    import tempfile
+    bulan = [hari.replace(day=1)]
+    if hari.day <= 3:
+        bulan.insert(0, (hari.replace(day=1) - timedelta(days=1)).replace(day=1))
+    keluar: list[Path] = []
+    tmp = Path(tempfile.gettempdir()) / f"nat_stock_{os.getpid()}"
+    tmp.mkdir(exist_ok=True)
+    for b in bulan:
+        sumber = cari_stok(b)
+        if sumber is None:
+            if b.month == hari.month:
+                raise SystemExit(f"File stok {BULAN_STOK[b.month - 1][0]} {b.year} tidak ditemukan: {alamat_stok(b)[0]}. "
+                                 "Cek jaringan ke folder bersama atau alamat file di Pengaturan.")
+            print(f"  file stok {BULAN_STOK[b.month - 1][0]} {b.year} tidak ditemukan, dilewati")
+            continue
+        salinan = tmp / sumber.name                 # disalin: file yang sedang dibuka di Excel tetap bisa dibaca
+        shutil.copyfile(sumber, salinan)
+        print(f"  Stock: {sumber}")
+        keluar.append(salinan)
+    return keluar
+
+
 def teks_subdist(page: Page, daftar_bulan: list[date]) -> dict[int, str]:
     """Teks tempelan Sub ERP per tahun: blok "NOVEMBER" lalu baris distributor | sub kategori | ton."""
     per_tahun: dict[int, list[str]] = {}
@@ -592,6 +656,7 @@ class Hasil:
         self.j073: list[Path] = []
         self.tiro: dict[str, Path] = {}
         self.dofas: dict[int, str] = {}
+        self.stock: list[Path] = []
         self.subdist: dict[int, str] = {}
         self.gagal: dict[str, str] = {}
         self.berhasil: dict[str, str] = {}
@@ -794,7 +859,7 @@ def unggah_berkas(page: Page, url: str, alamat: str, files: list[Path], nama: st
     if page.locator("text=siap disimpan").count() == 0:
         page.screenshot(path=str(FOLDER / f"ditolak_{nama}.png"), full_page=True)
         kurang = ""
-        if page.get_by_text("Kolom yang tidak ditemukan").count():   # baris judul kolom (nama kolom saja, bukan data)
+        if page.get_by_text("Kolom yang tidak ditemukan").count() and files[0].suffix.lower() not in (".xlsx", ".xlsm"):   # baris judul kolom (nama kolom saja, bukan data)
             judul = files[0].read_text(encoding="utf-8", errors="replace").splitlines()
             judul = next((b for b in judul if b.strip()), "")
             kurang = f"\n  Baris judul file: {judul[:300]}"
@@ -912,6 +977,12 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
                 h.dofas = {a.sampai.year: teks_dofas(a.sampai.year)}
             except (SystemExit, Exception) as e:  # noqa: BLE001
                 h.catat_gagal("DO FAS", e)
+        if "STOCK" in bagian:
+            print("Stock: baca file stok semen")
+            try:
+                h.stock = berkas_stok(a.sampai)
+            except (SystemExit, Exception) as e:  # noqa: BLE001
+                h.catat_gagal("Stock", e)
         dari_erp = (bagian & {"J028", "J073", "SUBDIST"}) - ({"J028"} if a.berkas else set())
         if dari_erp:
             h2 = ambil_erp(pw, dari_erp, a.dari, a.sampai, daftar_bulan, tampil=not a.tanpa_layar)
@@ -926,7 +997,7 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
                 h.catat_gagal("J028", e)
                 h.j028 = []
 
-        ada = h.subdist or h.j028 or h.j073 or h.tiro or h.dofas
+        ada = h.subdist or h.j028 or h.j073 or h.tiro or h.dofas or h.stock
         if ada and not a.hanya_unduh:
             browser, page, url = masuk_sementrack(pw, not a.tanpa_layar)
             try:
@@ -942,6 +1013,8 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
                     ("OS DO", h.tiro.get("OSDO"), lambda: unggah_berkas(
                         page, url, "/kelola-data?data=sellin&menu=outstanding", [h.tiro["OSDO"]], "OSDO", not a.tanpa_simpan, True,
                         (("text=menurut tanggal pengiriman", "File OS DO ternyata export per tanggal pengiriman, bukan tanggal order."),))),
+                    # Stock: satu file per bulan; tanggal yang ada di file diganti
+                    ("Stock", h.stock, lambda: " + ".join(unggah_berkas(page, url, "/kelola-data?data=stock&menu=upload", [f], "Stock_" + f.stem.replace(" ", "_"), not a.tanpa_simpan, True) for f in h.stock)),
                 ]
                 for nama, isi, kerja in langkah:
                     if not isi:
@@ -954,12 +1027,12 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
             finally:
                 browser.close()
         if a.hanya_unduh:
-            for nama, isi in (("Sub ERP", h.subdist), ("DO FAS", h.dofas), ("J028", h.j028), ("J073", h.j073), ("Sell In", h.tiro.get("SELLIN")), ("OS DO", h.tiro.get("OSDO"))):
+            for nama, isi in (("Sub ERP", h.subdist), ("DO FAS", h.dofas), ("J028", h.j028), ("J073", h.j073), ("Sell In", h.tiro.get("SELLIN")), ("OS DO", h.tiro.get("OSDO")), ("Stock", h.stock)):
                 if isi:
                     h.berhasil[nama] = "terunduh"
 
 
-SEMUA_BAGIAN = {"J028", "J073", "SUBDIST", "SELLIN", "OSDO", "DOFAS"}
+SEMUA_BAGIAN = {"J028", "J073", "SUBDIST", "SELLIN", "OSDO", "DOFAS", "STOCK"}
 RIWAYAT = DASAR / "riwayat.json"
 KUNCI = DASAR / "sedang_jalan.lock"
 
@@ -980,7 +1053,7 @@ def kunci_lepas() -> None:
         KUNCI.unlink()
     except OSError:
         pass
-NAMA_BAGIAN = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS"}
+NAMA_BAGIAN = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS", "STOCK": "Stock"}
 
 
 def catat_riwayat(mulai: datetime, bagian: set[str], a, h: "Hasil") -> None:

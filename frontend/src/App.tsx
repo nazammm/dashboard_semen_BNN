@@ -20,6 +20,7 @@ const pages: Record<string, ReturnType<typeof lazy>> = {
   'sell-in-bnn': lazy(() => import('./pages/SellInBnn')),
   'outstanding-do': lazy(() => import('./pages/OutstandingDo')),
   'sell-out-bnn': lazy(() => import('./pages/SellOutBnn')),
+  stock: lazy(() => import('./pages/Stock')),
   'kelola-data': lazy(() => import('./pages/KelolaData')),
 };
 

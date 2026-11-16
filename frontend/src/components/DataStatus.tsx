@@ -17,7 +17,7 @@ import { MONTHS_ID } from '../lib/format';
 import type { Row } from '../lib/types';
 import { cx } from './ui';
 
-export type DataSourceId = 'transaksi' | 'sellin' | 'sellout_bulanan' | 'sellin_bulanan' | 'dofas' | 'erp' | 'j073' | 'outstanding';
+export type DataSourceId = 'transaksi' | 'sellin' | 'sellout_bulanan' | 'sellin_bulanan' | 'dofas' | 'erp' | 'j073' | 'outstanding' | 'stock';
 export type FreshLevel = 'good' | 'warn' | 'bad' | 'none';
 
 export interface Freshness {
@@ -101,9 +101,10 @@ const SOURCE_PAGES: Record<string, string[]> = {
   dofas: ['overview', 'sell-out-bnn', 'kelola-data'],
   erp: ['overview', 'sell-out-bnn', 'kelola-data'],
   j073: ['overview', 'sell-out-bnn', 'kelola-data'],
+  stock: ['overview', 'stock', 'kelola-data'],
   sellin_bulanan: [],   // halaman Sell In dihapus; target & 2025 di Sell In BNN tidak bergantung pada closing terbaru
 };
-const SHORT_NAME: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', sellout_bulanan: 'Sell Out bulanan', sellin_bulanan: 'Sell In bulanan', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', outstanding: 'Outstanding DO' };
+const SHORT_NAME: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', sellout_bulanan: 'Sell Out bulanan', sellin_bulanan: 'Sell In bulanan', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', outstanding: 'Outstanding DO', stock: 'Stock' };
 const LEVEL_LABEL: Record<FreshLevel, string> = { good: 'Terkini', warn: 'Tertinggal', bad: 'Perlu dicek', none: 'Kosong' };
 
 function Detail({ row, f }: { row: Row; f: Freshness }) {

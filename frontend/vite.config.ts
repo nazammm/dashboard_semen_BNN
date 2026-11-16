@@ -7,5 +7,6 @@ export default defineConfig({
   base: process.env.VITE_BASE ?? '/',
   plugins: [react()],
   server: { port: 5173, proxy: { '^.*/api': { target: process.env.VITE_API_PROXY ?? 'http://127.0.0.1:5080', changeOrigin: true } } },
+  worker: { format: 'es' },   // worker importer memuat xlsx secara dinamis (file stok)
   build: { outDir: 'dist', sourcemap: false, chunkSizeWarningLimit: 1500 },
 });

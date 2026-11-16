@@ -8,7 +8,7 @@ public static class AccessRules
 {
     public static readonly string[] DashboardPages =
     {
-        "overview", "beranda", "sell-in-bnn", "outstanding-do", "sell-out-bnn", "rekap-harian", "tim-sales",
+        "overview", "beranda", "sell-in-bnn", "outstanding-do", "sell-out-bnn", "stock", "rekap-harian", "tim-sales",
         "peta-toko", "daftar-toko", "transaksi-detail", "toko-detail",
     };
 
@@ -62,6 +62,7 @@ public static class AccessRules
         "distributor_target_salesman", "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_data_status",
         "v_sellout_bnn_monthly", "v_sellout_bnn_peta", "v_sellout_bnn_ta", "v_target_sell_in", "v_target_sell_out",
         "v_outstanding_do", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_sellin_po_bulanan",
+        "v_stock_semen", "v_stock_harian", "v_stock_info", "stock_daerah",
     };
 
     /// <summary>Tabel di atas yang punya kolom dist_code -> filter distributor DIPAKSA server untuk spv/sales.</summary>
@@ -97,6 +98,11 @@ public static class AccessRules
         ["v_outstanding_do_ringkas"] = "sementrack.v_outstanding_do_ringkas",
         ["v_outstanding_do_info"] = "sementrack.v_outstanding_do_info",
         ["v_sellin_po_bulanan"] = "sementrack.v_sellin_po_bulanan",
+        // Stock semen (stock_semen.sql)
+        ["v_stock_semen"] = "sementrack.v_stock_semen",
+        ["v_stock_harian"] = "sementrack.v_stock_harian",
+        ["v_stock_info"] = "sementrack.v_stock_info",
+        ["stock_daerah"] = "sementrack.stock_daerah",
     };
 
     /// <summary>Fungsi yang versi barunya ada di schema sementrack.</summary>
@@ -146,10 +152,12 @@ public static class AccessRules
                     "dashboard_payment_breakdown_range", "dashboard_delivery_type_breakdown_range", "dashboard_product_breakdown_range" }),
         // Overview: rangkuman Sell In, Sell Out, Outstanding DO, dan kelompok capaian salesman
         ["overview"] = new(new[] { "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_target_sell_in", "v_sellout_bnn_monthly", "v_sellout_bnn_peta",
-                                   "v_sellout_bnn_ta", "v_target_sell_out", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_salesman_performance" }, Array.Empty<string>()),
+                                   "v_sellout_bnn_ta", "v_target_sell_out", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_salesman_performance",
+                                   "v_stock_harian", "v_stock_info" }, Array.Empty<string>()),
         ["sell-in-bnn"] = new(new[] { "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_target_sell_in" }, Array.Empty<string>()),
         ["outstanding-do"] = new(new[] { "v_outstanding_do", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_sellin_po_bulanan", "v_target_sell_in" }, Array.Empty<string>()),
         ["sell-out-bnn"] = new(new[] { "v_sellout_bnn_monthly", "v_sellout_bnn_peta", "v_sellout_bnn_ta", "v_target_sell_out" }, Array.Empty<string>()),
+        ["stock"] = new(new[] { "v_stock_semen", "v_stock_harian", "v_stock_info" }, Array.Empty<string>()),
         ["rekap-harian"] = new(new[] { "v_distributor_summary", "v_monthly_totals", "produk", "v_target_dist" }, new[] { "dashboard_daily_matrix" }),
         ["tim-sales"] = new(new[] { "v_salesman_performance", "distributor_target_salesman" }, Array.Empty<string>()),
         ["peta-toko"] = new(new[] { "v_monthly_totals" }, new[] { "dashboard_toko_monthly_v2" }),

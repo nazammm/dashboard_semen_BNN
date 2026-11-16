@@ -6,9 +6,10 @@ import { J073Collector, type J073ParseResult } from './j073Import';
 import { TargetCollector, type TargetParseResult } from './targetImport';
 import { PoCollector, type PoParseResult } from './outstandingImport';
 import { gabungJ028, isRawJ028, type DistMaster } from './j028Raw';
+import { parseStockSheets, parseStockText, type StockParseResult, type StockSheetIn } from './stockImport';
 
-export type Dataset = 'sellin' | 'transaksi' | 'j073' | 'target' | 'outstanding';
-export type ImportResult = SellinParseResult | TrxParseResult | J073ParseResult | TargetParseResult | PoParseResult;
+export type Dataset = 'sellin' | 'transaksi' | 'j073' | 'target' | 'outstanding' | 'stock';
+export type ImportResult = SellinParseResult | TrxParseResult | J073ParseResult | TargetParseResult | PoParseResult | StockParseResult;
 /** kind 'files' = beberapa file sekaligus (hanya transaksi: file mentah J028 + J028B). distributor = master untuk mencocokkan kode ERP. */
 export type ImportWorkerIn = { dataset: Dataset; dateOrder?: DateOrder | null; distributor?: DistMaster[] }
   & ({ kind: 'file'; file: File } | { kind: 'files'; files: File[] } | { kind: 'text'; text: string });
@@ -29,9 +30,35 @@ async function readCsv(file: File) {
   return (utf.match(/�/g) || []).length > 20 ? new TextDecoder('windows-1252').decode(buf) : utf;
 }
 
+/** Tanggal hari ini di WIB (sheet stok setelah tanggal ini = template bulan berjalan). */
+const hariIniWib = () => new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
+
+/** File Stock Semen: semua sheet dibaca (satu sheet per tanggal), termasuk tanda baris tersembunyi. */
+async function bacaStock(file: File): Promise<StockParseResult> {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellStyles: true });
+  const sheets: StockSheetIn[] = wb.SheetNames.map(name => {
+    const ws = wb.Sheets[name];
+    if (!ws || !ws['!ref']) return { name, aoa: [] };
+    const awal = XLSX.utils.decode_range(ws['!ref']).s.r;
+    const aoa = XLSX.utils.sheet_to_json<(string | number | null)[]>(ws, { header: 1, raw: true, defval: null, blankrows: true });
+    const hidden = new Set<number>();
+    (ws['!rows'] || []).forEach((r, i) => { if (r && r.hidden) hidden.add(i - awal); });
+    return { name, aoa, hidden };
+  });
+  return parseStockSheets(sheets, file.name, hariIniWib());
+}
+
 self.onmessage = async (e: MessageEvent<ImportWorkerIn>) => {
   try {
     const msg = e.data;
+    if (msg.dataset === 'stock') {
+      if (msg.kind === 'text') { post({ type: 'done', res: parseStockText(msg.text, hariIniWib()) }); return; }
+      const f = msg.kind === 'files' ? msg.files[0] : msg.file;
+      if (!/\.xlsx$/i.test(f.name)) throw new Error('Pilih file Stock Semen dalam format .xlsx.');
+      post({ type: 'done', res: await bacaStock(f) });
+      return;
+    }
     const col = collectorFor(msg.dataset, msg.dateOrder);
     if (msg.kind === 'text') { post({ type: 'done', res: parseTextWith(msg.text, col) }); return; }
     const files = msg.kind === 'files' ? msg.files : [msg.file];
