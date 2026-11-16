@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react';
 import { COLORS, fmt } from '../lib/format';
 import type { Row } from '../lib/types';
 import { CellLink, Th, cx } from './ui';
-import { exportRowsToExcel } from '../lib/xlsx';
+import { exportBlocksToExcel, exportRowsToExcel } from '../lib/xlsx';
 
 type Cara = 'offline' | 'keduanya' | 'online';
 const CARA: { id: Cara; label: string; desc: string; color: string }[] = [
@@ -56,11 +56,48 @@ export function TokoChannel({ rows, loading, error, periodLabel, distName, canDo
     widths: [14, 34, 10, 10, 10, 10, 16],
   }], `Toko_${info!.label.replace(/\W+/g, '_')}_${periodLabel.replace(/\W+/g, '_')}.xlsx`, 'beranda');
 
+  /** Rekap per distributor: tabel 1 jumlah DO, tabel 2 jumlah toko, kolom offline / off + on / online. */
+  const unduhRekap = () => {
+    const per = new Map<string, Record<Cara, { do: number; toko: number }>>();
+    (rows || []).forEach(r => {
+      const k = String(r.dist_code ?? '');
+      const o = per.get(k) || { offline: { do: 0, toko: 0 }, keduanya: { do: 0, toko: 0 }, online: { do: 0, toko: 0 } };
+      const c = o[caraOf(r)];
+      c.toko++; c.do += Number(r.do_online || 0) + Number(r.do_offline || 0);
+      per.set(k, o);
+    });
+    const dists = [...per.keys()].sort();
+    const tabel = (f: 'do' | 'toko') => {
+      const baris = dists.map(k => {
+        const o = per.get(k)!;
+        const v = CARA.map(c => o[c.id][f]);
+        return [k, distName(k), ...v, v.reduce((a, b) => a + b, 0)];
+      });
+      const tot = CARA.map((_, i) => baris.reduce((a, b) => a + Number(b[2 + i]), 0));
+      return [...baris, ['Total', '', ...tot, tot.reduce((a, b) => a + b, 0)]];
+    };
+    const header = ['Distributor', 'Nama distributor', 'Offline', 'Off + On', 'Online', 'Total'];
+    exportBlocksToExcel({
+      name: 'Cara order', title: `Toko per cara order · ${periodLabel}`, widths: [12, 38, 12, 12, 12, 12],
+      blocks: [
+        { title: 'Berdasarkan jumlah DO', header, rows: tabel('do'),
+          note: 'Jumlah DO dari toko di tiap kelompok: Offline = toko yang semua DO-nya tanpa order MSS, Off + On = toko yang punya DO offline dan online, Online = toko yang semua DO-nya lewat order MSS.' },
+        { title: 'Berdasarkan jumlah toko', header, rows: tabel('toko'),
+          note: 'Toko tanpa subdist yang punya DO pada periode dan filter ini.' },
+      ],
+    }, `Toko_cara_order_${periodLabel.replace(/\W+/g, '_')}.xlsx`, 'beranda');
+  };
+
   return (
     <section className="card mt-4" aria-labelledby="tc-judul">
       <div className="flex items-baseline justify-between flex-wrap gap-2">
         <h2 id="tc-judul" className="card-title !mb-0">Toko per cara order · {periodLabel}</h2>
-        {rows && <span className="text-faint text-[12.5px]">{fmt(g.toko)} toko order (tanpa subdist)</span>}
+        {rows && (
+          <div className="flex items-center gap-3">
+            <span className="text-faint text-[12.5px]">{fmt(g.toko)} toko order (tanpa subdist)</span>
+            {canDownload && g.toko > 0 && <button type="button" className="btn btn-sm" onClick={unduhRekap}>Download rekap per distributor</button>}
+          </div>
+        )}
       </div>
 
       {error ? <p className="text-red text-[13px] mt-3">{/404|belum aktif/i.test(error.message) ? 'Fungsi database dashboard_toko_channel_range belum dipasang (12_toko_channel.sql).' : error.message}</p>

@@ -47,3 +47,31 @@ export async function exportRowsToExcel(
   XLSX.writeFile(wb, filename);
   void logActivity('download', pageId, filename);
 }
+
+/**
+ * Satu sheet berisi beberapa tabel bertumpuk (judul tabel, header, baris), dipisah dua baris kosong.
+ * Angka tetap angka dengan format ribuan seperti exportRowsToExcel.
+ */
+export async function exportBlocksToExcel(
+  sheet: { name: string; title?: string; blocks: { title: string; header: string[]; rows: (string | number | null)[][]; note?: string }[]; widths?: number[] },
+  filename: string, pageId?: string | null,
+) {
+  const XLSX = await loadXlsx();
+  const aoa: (string | number | null)[][] = [];
+  if (sheet.title) aoa.push([xlsxSafeCell(sheet.title)], []);
+  sheet.blocks.forEach((b, i) => {
+    if (i) aoa.push([], []);
+    aoa.push([xlsxSafeCell(b.title)], b.header, ...b.rows.map(r => r.map(c => (typeof c === 'string' ? xlsxSafeCell(c) : c))));
+    if (b.note) aoa.push([xlsxSafeCell(b.note)]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  Object.keys(ws).forEach(k => {
+    const cell = ws[k];
+    if (k[0] !== '!' && cell && cell.t === 'n') cell.z = '#,##0;(#,##0);"-"';
+  });
+  if (sheet.widths) ws['!cols'] = sheet.widths.map(w => ({ wch: w }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, (sheet.name || 'Sheet').slice(0, 31));
+  XLSX.writeFile(wb, filename);
+  void logActivity('download', pageId, filename);
+}
