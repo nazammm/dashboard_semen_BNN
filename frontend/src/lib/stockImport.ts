@@ -23,7 +23,7 @@ export interface StockSheetIn { name: string; aoa: Cell[][]; hidden?: Set<number
 export interface StockSheetInfo {
   sheet: string;
   tanggal: string | null;
-  status: 'dipakai' | 'kosong' | 'masa depan' | 'tidak terbaca' | 'tanggal ganda';
+  status: 'dipakai' | 'kosong' | 'masa depan' | 'tidak terbaca' | 'tanggal ganda' | 'bulan lain';
   daerah: number;
   zak: number;
   ton: number;
@@ -107,6 +107,12 @@ function bacaSheet(sh: StockSheetIn, fileYm: { y: number; m: number } | null, ha
   const tSheet = hariSheet && fileYm ? iso(fileYm.y, fileYm.m, Number(hariSheet)) : null;
   info.tanggal = tJudul ?? tSheet;
   if (tJudul && tSheet && tJudul !== tSheet) info.catatan = `judul sheet ${sh.name} menyebut ${tJudul}`;
+  // nama sheet berupa hari yang tidak ada di bulan file (mis. sheet 31 di file November)
+  if (!info.tanggal && hariSheet && fileYm) { info.status = 'bulan lain'; info.catatan = `tidak ada tanggal ${hariSheet} di bulan file`; return { info, out }; }
+  // sheet sisa bulan lain (mis. "3 Jul" dari 2021) di file bulanan: dilewati
+  if (info.tanggal && fileYm && info.tanggal.slice(0, 7) !== `${fileYm.y}-${pad(fileYm.m)}`) {
+    info.status = 'bulan lain'; info.catatan = undefined; return { info, out };
+  }
 
   // baris judul kolom
   const h = aoa.findIndex((r, i) => i < 20 && (r || []).some(c => teks(c).toUpperCase() === 'DAERAH'));
@@ -133,9 +139,11 @@ function bacaSheet(sh: StockSheetIn, fileYm: { y: number; m: number } | null, ha
   for (let r = h + 1; r < aoa.length; r++) {
     const row = aoa[r] || [];
     const daerah = teks(row[dc]);
+    // tabel lain di bawah tabel utama (mis. REKAP STOCK SEMEN (SKP)) tidak dibaca
+    if ((row || []).some(c => /^REKAP\b/i.test(teks(c)) || teks(c).toUpperCase() === 'DAERAH')) break;
     if (!daerah) continue;
     const zak = kolom.map(k => angka(row[k.j]));
-    if (/^total$/i.test(daerah)) { total = zak.map(z => z ?? 0); continue; }   // baris Total akhir: untuk pemeriksaan
+    if (/^(grand\s+)?total$/i.test(daerah)) { total = zak.map(z => z ?? 0); break; }   // baris Total akhir: akhir tabel utama
     if (/^total\b/i.test(daerah)) continue;                                     // Total Lampung, Total Medan, ...
     stats.rowsRead++;
     const salah = zak.findIndex(z => z === null);
@@ -149,6 +157,7 @@ function bacaSheet(sh: StockSheetIn, fileYm: { y: number; m: number } | null, ha
 
   // cocokkan dengan baris Total: semua baris, atau hanya yang tampil
   let pakai = isi;
+  let selisih = '';
   if (total) {
     const jumlah = (rows: Baris[]) => kolom.map((_, i) => rows.reduce((a, b) => a + b.zak[i], 0));
     const sama = (a: number[]) => a.every((v, i) => Math.abs(v - total![i]) < 0.5);
@@ -158,7 +167,7 @@ function bacaSheet(sh: StockSheetIn, fileYm: { y: number; m: number } | null, ha
       info.catatan = [info.catatan, `${isi.length - tampil.length} baris tersembunyi tidak dihitung (sesuai baris Total)`].filter(Boolean).join('; ');
     } else if (!sama(jumlah(isi))) {
       const beda = kolom.map((k, i) => ({ k, s: jumlah(isi)[i] - total![i] })).filter(x => Math.abs(x.s) >= 0.5);
-      stats.peringatan.push(`Sheet ${sh.name}: jumlah daerah tidak sama dengan baris Total (${beda.map(x => `${x.k.p.produk} selisih ${x.s.toLocaleString('id-ID')} zak`).join(', ')}).`);
+      selisih = (`Sheet ${sh.name}: jumlah daerah tidak sama dengan baris Total (${beda.map(x => `${x.k.p.produk} selisih ${x.s.toLocaleString('id-ID')} zak`).join(', ')}).`);
     }
   }
 
@@ -175,6 +184,7 @@ function bacaSheet(sh: StockSheetIn, fileYm: { y: number; m: number } | null, ha
   }
   info.daerah = pakai.length;
   info.status = 'dipakai';
+  if (selisih) stats.peringatan.push(selisih);   // hanya untuk sheet yang dipakai
   return { info, out };
 }
 

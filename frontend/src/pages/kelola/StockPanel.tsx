@@ -138,7 +138,7 @@ function StockPreview({ phase, peta, onSave, onCancel }: {
                     <tr key={s.sheet} className={cx(s.status !== 'dipakai' && 'text-faint')}>
                       <td className="font-mono">{s.sheet}</td>
                       <td className="whitespace-nowrap">{s.tanggal ? fmtDate(s.tanggal) : '–'}</td>
-                      <td className="text-[12px]">{s.status === 'dipakai' ? 'Dipakai' : s.status === 'masa depan' ? 'Setelah hari ini, dilewati' : s.status === 'kosong' ? 'Kosong, dilewati' : s.status === 'tanggal ganda' ? 'Tanggal ganda, dilewati' : 'Tidak terbaca'}{s.catatan ? ` · ${s.catatan}` : ''}</td>
+                      <td className="text-[12px]">{s.status === 'dipakai' ? 'Dipakai' : s.status === 'masa depan' ? 'Setelah hari ini, dilewati' : s.status === 'kosong' ? 'Kosong, dilewati' : s.status === 'tanggal ganda' ? 'Tanggal ganda, dilewati' : s.status === 'bulan lain' ? 'Bukan bulan file ini, dilewati' : 'Tidak terbaca'}{s.catatan ? ` · ${s.catatan}` : ''}</td>
                       <td className="num font-mono">{s.daerah ? fmt(s.daerah) : '–'}</td>
                       <td className="num font-mono">{s.ton ? fmtTon(s.ton) : '–'}</td>
                     </tr>
