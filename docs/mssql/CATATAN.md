@@ -15,6 +15,7 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 08_kelola_tulis.sql | hapus data, status sinkron, DO FAS, Sub ERP, J073, target | `node salin.cjs --uji kelola` |
 | 09_kelola_tabel.sql | Kelola Data → Tabel (edit langsung) | `node salin.cjs --uji tabel` |
 | 10_kode_erp.sql | kolom `distributor.kode_erp` untuk upload mentah J028 / J028B | daftar kode di akhir skrip |
+| 11_stock.sql | Stock semen: tabel daerah stok + region, upload stok harian, view untuk halaman Stock dan Overview | `SELECT * FROM sementrack.v_stock_info` |
 
 ## Untuk tahap 5 (backend)
 
