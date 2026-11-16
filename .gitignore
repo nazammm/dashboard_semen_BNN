@@ -2,3 +2,11 @@ node_modules
 frontend/dist/
 bin/
 obj/
+
+# hasil build / dependensi alat SQL Server (sumbernya di branch pindah-mssql)
+tools/web_mssql/node_modules/
+tools/web_mssql/out/
+tools/web_mssql/package-lock.json
+tools/salin_mssql/node_modules/
+tools/salin_mssql/dist/
+tools/salin_mssql/package-lock.json
