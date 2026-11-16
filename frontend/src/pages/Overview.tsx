@@ -211,7 +211,7 @@ function Body({ sellIn, sellOut, outstanding, stock, sales, dataSampai, sources 
           <Panel title="Stock semen" period={`Posisi ${fmtDate(stock.tgl)}`}>
             <div className="ov-k">Stok gudang</div>
             <div className="kpi-value">{fmtTon(stock.ton)}<span className="unit">ton</span></div>
-            {stock.tonPrev != null && (
+            {stock.tonPrev != null && Math.abs(stock.ton - stock.tonPrev) >= 0.05 && (
               <div className="text-soft text-[12.5px] mt-0.5">
                 <span className={cx('font-medium', stock.ton - stock.tonPrev > 0 ? 'text-green' : stock.ton - stock.tonPrev < 0 ? 'text-red' : '')}>{fmtSelisih(stock.ton - stock.tonPrev)} ton</span> vs {fmtDate(stock.prev!)}
               </div>
