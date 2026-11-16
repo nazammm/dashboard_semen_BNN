@@ -20,6 +20,8 @@ import { exportRowsToExcel } from '../lib/xlsx';
 
 const fmtTon = (t: number) => fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0);
 const fmtDelta = (d: number) => (Math.abs(d) < 0.05 ? '0' : (d > 0 ? '+' : '−') + fmtTon(Math.abs(d)));
+/** Ada perubahan berarti dibanding tanggal sebelumnya (stok sama persis tidak ditampilkan). */
+const berubah = (x: number, p: number | null) => p != null && Math.abs(x - p) >= 0.05;
 const JENIS = [
   { value: 'STR', label: 'Tiga Roda (STR)', color: COLORS.accent },
   { value: 'RJW', label: 'Rajawali (RJW)', color: COLORS.mark },
@@ -127,16 +129,18 @@ function Body({ info, harian }: { info: Row; harian: Row[] }) {
     if (rentang !== '0') keys = keys.slice(-Number(rentang));
     const tahunBeda = new Set(keys.map(k => k.slice(0, 4))).size > 1;
     const label = (k: string) => new Date(k + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', ...(tahunBeda ? { year: '2-digit' } : {}) });
-    const seri = (jenisList: string[]) => keys.map(k => jenisList.reduce((a, j) => a + (byT.get(k)![j] || 0), 0));
-    const tampil = jenis === 'all' ? JENIS : JENIS.filter(j => j.value === jenis);
-    return { keys, labels: keys.map(label), total: seri(tampil.map(j => j.value)), perJenis: tampil.map(j => ({ ...j, data: seri([j.value]) })) };
+    const pilih = jenis === 'all' ? JENIS.map(j => j.value) : [jenis];
+    return { keys, labels: keys.map(label), total: keys.map(k => pilih.reduce((a, j) => a + (byT.get(k)![j] || 0), 0)) };
   }, [harian, region, jenis, rentang]);
 
+  const warnaTren = JENIS.find(j => j.value === jenis)?.color ?? COLORS.accent;
   const scope = [region !== 'all' && region, jenis !== 'all' && JENIS.find(j => j.value === jenis)?.label].filter(Boolean).join(' · ') || 'Semua region';
   const prevLabel = prev ? fmtDate(prev) : null;
   const filterActive = region !== 'all' || jenis !== 'all';
   const nilai = (x: number) => (satuan === 'ton' ? fmtTon(x) : fmt(x));
 
+  const [buka, setBuka] = useState<Set<string>>(() => new Set());
+  const toggle = (reg: string) => setBuka(s => { const n = new Set(s); if (n.has(reg)) n.delete(reg); else n.add(reg); return n; });
   const [busy, setBusy] = useState(false);
   const download = async () => {
     setBusy(true);
@@ -175,31 +179,24 @@ function Body({ info, harian }: { info: Row; harian: Row[] }) {
 
       <div className="grid-kpi">
         <Kpi title={`Total stok · ${scope}`} value={fmtTon(v.total)} unit="ton"
-          delta={v.totalPrev != null ? `${fmtDelta(v.total - v.totalPrev)} ton dari ${prevLabel}` : 'Belum ada tanggal sebelumnya'} />
+          delta={berubah(v.total, v.totalPrev) ? `${fmtDelta(v.total - v.totalPrev!)} ton dari ${prevLabel}` : undefined} />
         {v.perJenis.map(j => (
           <Kpi key={j.value} title={j.label} value={fmtTon(j.ton)} unit="ton"
-            delta={j.prev != null ? `${fmtDelta(j.ton - j.prev)} ton dari ${prevLabel}` : undefined} />
+            delta={berubah(j.ton, j.prev) ? `${fmtDelta(j.ton - j.prev!)} ton dari ${prevLabel}` : undefined} />
         ))}
       </div>
 
       <Card title={`Tren stok harian (ton) · ${scope}`} className="mt-4">
-        <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
-          <div className="legend !mb-0">
-            <span><i style={{ background: COLORS.ink }} aria-hidden="true" />Total</span>
-            {tren.perJenis.length > 1 && tren.perJenis.map(j => <span key={j.value}><i style={{ background: j.color }} aria-hidden="true" />{j.label}</span>)}
-          </div>
+        <div className="flex items-center justify-end flex-wrap gap-2 mb-1">
           <Select label="Rentang" value={rentang} onChange={e => setRentang(e.target.value)} options={RENTANG} />
         </div>
-        <ChartBox label={chartSRSummary(tren.labels, tren.total, 'ton stok')} deps={[tren.labels.join('|'), tren.total.join('|'), tren.perJenis.map(j => j.data.join(',')).join('|')]}
+        <ChartBox label={chartSRSummary(tren.labels, tren.total, 'ton stok')} deps={[tren.labels.join('|'), tren.total.join('|')]}
           build={() => ({
             type: 'line',
             data: {
               labels: tren.labels,
               datasets: [
-                { label: 'Total', data: tren.total, borderColor: COLORS.ink, backgroundColor: COLORS.ink, borderWidth: 2.2, pointRadius: tren.keys.length > 40 ? 0 : 2.5, tension: 0.25 },
-                ...(tren.perJenis.length > 1 ? tren.perJenis.map(j => ({
-                  label: j.label, data: j.data, borderColor: j.color, backgroundColor: j.color, borderWidth: 1.6, pointRadius: tren.keys.length > 40 ? 0 : 2, tension: 0.25,
-                })) : []),
+                { label: 'Stok', data: tren.total, borderColor: warnaTren, backgroundColor: warnaTren, borderWidth: 2.2, pointRadius: tren.keys.length > 40 ? 0 : 2.5, tension: 0.25 },
               ],
             },
             options: {
@@ -237,7 +234,8 @@ function Body({ info, harian }: { info: Row; harian: Row[] }) {
             {!detail.data && <tr><td colSpan={v.produk.length + 3} className="!text-center !text-faint !p-5">Memuat…</td></tr>}
             {detail.data && !v.daerah.length && <tr><td colSpan={v.produk.length + 3} className="!text-center !text-faint !p-5">Tidak ada stok pada filter ini.</td></tr>}
             {v.grup.map(g => (
-              <RegionRows key={g.region} g={g} produk={v.produk} prev={!!prev} nilai={nilai} onPilih={region === 'all' ? () => setRegion(g.region) : undefined} />
+              <RegionRows key={g.region} g={g} produk={v.produk} prev={!!prev} nilai={nilai}
+                buka={region !== 'all' || buka.has(g.region)} onToggle={region === 'all' ? () => toggle(g.region) : undefined} />
             ))}
           </tbody>
           {v.grup.length > 1 && (
@@ -252,31 +250,34 @@ function Body({ info, harian }: { info: Row; harian: Row[] }) {
           )}
         </table>
       </TableWrap>
-      <p className="text-faint text-[12px] mt-2">
-        Ton = zak × berat per zak (PCC 50 dan RAJAWALI 50 = 50 kg; PCC 40, WC 40, dan RAJAWALI 40 = 40 kg). TR-30 tidak dimasukkan.
-        {prev && ` Perubahan dibanding stok ${prevLabel}.`}
-      </p>
     </>
   );
 }
 
 type Grup = { region: string; daerah: { daerah: string; nilai: Record<string, number>; ton: number; tonPrev: number | null }[]; nilai: Record<string, number>; ton: number; tonPrev: number | null };
 
-function RegionRows({ g, produk, prev, nilai, onPilih }: { g: Grup; produk: string[]; prev: boolean; nilai: (x: number) => string; onPilih?: () => void }) {
+function RegionRows({ g, produk, prev, nilai, buka, onToggle }: {
+  g: Grup; produk: string[]; prev: boolean; nilai: (x: number) => string; buka: boolean; onToggle?: () => void;
+}) {
   return (
     <>
-      <tr className="bg-[#F7F8FA]">
+      <tr className={cx(buka && 'bg-[#F7F8FA]', onToggle && 'cursor-pointer hover:bg-[#F7F8FA]')} onClick={onToggle}>
         <td className="font-semibold">
-          {onPilih ? <button type="button" className="link-btn !no-underline font-semibold text-left" onClick={onPilih}>{g.region}</button> : g.region}
+          {onToggle ? (
+            <button type="button" className="inline-flex items-center gap-1.5 font-semibold text-left" aria-expanded={buka}
+              onClick={e => { e.stopPropagation(); onToggle(); }}>
+              <span aria-hidden="true" className={cx('inline-block text-faint text-[10px] transition-transform', buka && 'rotate-90')}>▶</span>{g.region}
+            </button>
+          ) : g.region}
           <span className="text-faint font-normal text-[12px]"> · {fmt(g.daerah.length)} daerah</span>
         </td>
         {produk.map(p => <td key={p} className="num font-mono font-semibold">{g.nilai[p] ? nilai(g.nilai[p]) : '–'}</td>)}
         <td className="num font-mono font-semibold">{fmtTon(g.ton)}</td>
         {prev && <td className="num font-mono font-semibold">{fmtDelta(g.ton - (g.tonPrev || 0))}</td>}
       </tr>
-      {g.daerah.map(d => (
+      {buka && g.daerah.map(d => (
         <tr key={d.daerah} className={cx(d.ton === 0 && 'text-faint')}>
-          <td className="pl-6">{d.daerah}</td>
+          <td className="pl-9">{d.daerah}</td>
           {produk.map(p => <td key={p} className="num font-mono">{d.nilai[p] ? nilai(d.nilai[p]) : '–'}</td>)}
           <td className="num font-mono">{d.ton ? fmtTon(d.ton) : '–'}</td>
           {prev && <td className="num font-mono text-soft">{d.tonPrev != null ? fmtDelta(d.ton - d.tonPrev) : '–'}</td>}
