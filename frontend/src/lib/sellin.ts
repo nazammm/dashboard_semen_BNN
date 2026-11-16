@@ -346,11 +346,27 @@ export function detectDelimiter(firstLine: string) {
   return semi > comma ? ';' : comma > 0 ? ',' : '\t';
 }
 
+/** Pemisah dipilih dari baris data, bukan baris pertama saja: file ERP (J073) kadang punya baris
+    judul/laporan di atas tabel yang jumlah pemisahnya berbeda. Ambil pemisah yang paling konsisten
+    di 25 baris pertama. */
+export function detectDelimiterText(text: string) {
+  const baris = text.replace(/^﻿/, '').split(/\r?\n/).filter(b => b.trim() !== '').slice(0, 25);
+  if (!baris.length) return ',';
+  let terbaik = '\t', skorTerbaik = -1;
+  for (const d of ['|', '\t', ';', ',']) {
+    const jml = baris.map(b => b.split(d).length - 1).filter(n => n > 0);
+    if (jml.length < baris.length * 0.6) continue;        // pemisah ini tidak muncul di mayoritas baris
+    jml.sort((a, b) => a - b);
+    const median = jml[Math.floor(jml.length / 2)];       // jumlah pemisah yang khas di baris data
+    if (median > skorTerbaik) { skorTerbaik = median; terbaik = d; }
+  }
+  return skorTerbaik >= 2 ? terbaik : detectDelimiter(baris[0]);
+}
+
 /** Parser CSV/TSV sederhana sesuai RFC 4180 (tanda kutip ganda, baris baru di dalam kutip). Memanggil onRow per baris. */
-export function parseDelimited(text: string, onRow: (cells: string[], lineNo: number) => void) {
+export function parseDelimited(text: string, onRow: (cells: string[], lineNo: number) => void, delimPaksa?: string) {
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-  const nl = text.indexOf('\n');
-  const delim = detectDelimiter(nl >= 0 ? text.slice(0, nl) : text);
+  const delim = delimPaksa ?? detectDelimiterText(text);
   let row: string[] = [], field = '', inQ = false, line = 1;
   const n = text.length;
   for (let i = 0; i < n; i++) {
@@ -379,16 +395,23 @@ export interface RowCollector<R> {
 
 export function parseSellinText(text: string): SellinParseResult { return parseTextWith(text, new SellinCollector()); }
 export function parseTextWith<R>(text: string, col: RowCollector<R>): R {
-  let headerDone = false;
-  const awal = text.replace(/^\ufeff/, '');
-  if (detectDelimiter(awal.slice(0, Math.max(0, awal.indexOf('\n')) || awal.length)) === '|') col.angkaErp = true;
+  const delim = detectDelimiterText(text);
+  col.angkaErp = delim === '|';
+  // Baris judul dicari, bukan diasumsikan baris pertama: file ERP (J073) bisa punya baris laporan di atas tabel.
+  // col.header mengembalikan true saat kolom wajib lengkap; kalau belum, baris itu dilewati dan dicoba baris berikutnya.
+  let headerDone = false, coba = 0;
+  let pertama: string[] | null = null;
   parseDelimited(text, (cells, lineNo) => {
     if (!headerDone) {
       if (cells.every(x => x.trim() === '')) return;        // baris kosong di atas judul
-      headerDone = true; col.header(cells); return;
+      if (pertama === null) pertama = cells;
+      coba++;
+      if (col.header(cells)) { headerDone = true; return; } // judul lengkap ditemukan
+      if (coba >= 25) { col.header(pertama); headerDone = true; }   // menyerah: pakai baris pertama agar pesan "kolom kurang" muncul
+      return;                                               // baris di atas judul (laporan/judul laporan) dilewati
     }
     col.push(cells.map(x => (x.trim() === '' ? null : x)), lineNo);
-  });
+  }, delim);
   return col.result();
 }
 

@@ -793,7 +793,12 @@ def unggah_berkas(page: Page, url: str, alamat: str, files: list[Path], nama: st
     page.wait_for_selector("text=/siap disimpan|tidak bisa dipakai|Tidak ada baris/", timeout=180_000)
     if page.locator("text=siap disimpan").count() == 0:
         page.screenshot(path=str(FOLDER / f"ditolak_{nama}.png"), full_page=True)
-        raise SystemExit(f"SEMENTRACK menolak file {nama}. Lihat unduhan/ditolak_{nama}.png")
+        kurang = ""
+        if page.get_by_text("Kolom yang tidak ditemukan").count():   # baris judul kolom (nama kolom saja, bukan data)
+            judul = files[0].read_text(encoding="utf-8", errors="replace").splitlines()
+            judul = next((b for b in judul if b.strip()), "")
+            kurang = f"\n  Baris judul file: {judul[:300]}"
+        raise SystemExit(f"SEMENTRACK menolak file {nama}. Lihat unduhan/ditolak_{nama}.png{kurang}")
     page.screenshot(path=str(FOLDER / f"pratinjau_{nama}.png"), full_page=True)
     if tolak_baris_rusak and (page.locator("input[type=checkbox]").count() or page.get_by_text("isinya tidak terbaca").count()):
         raise SystemExit(f"Ada baris {nama} yang tidak terbaca. Tidak disimpan otomatis. Lihat unduhan/pratinjau_{nama}.png")
