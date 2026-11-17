@@ -12,8 +12,8 @@ export type Dimensi = 'bulan' | 'dist' | 'jenis' | 'region' | null;
 type Jenis = 'STR' | 'RJW' | 'CWC';
 
 export interface TanyaCtx {
-  trx: Row[];            // v_transaksi_monthly: year, month, dist_code, product_code, total_qty, net_amount, num_do
-  distM: Row[];          // v_dist_monthly_totals: dist_code, year, month, num_do, num_active_stores
+  trx: Row[];            // v_penjualan_toko_bulanan (tanpa subdist): year, month, dist_code, product_code, total_qty, net_amount, num_do
+  distM: Row[];          // v_penjualan_toko_dist_bulanan (tanpa subdist): dist_code, year, month, num_do
   allM: Row[];           // v_monthly_totals: year, month, num_do
   ta: Row[];             // v_toko_aktif_bulanan: dist_code ('*' = semua, toko unik), year, month, num_active_stores (tanpa subdist)
   dists: { code: string; name: string; wilayah: string }[];
