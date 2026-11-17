@@ -62,7 +62,7 @@ public static class AccessRules
         "distributor_target_salesman", "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_data_status",
         "v_sellout_bnn_monthly", "v_sellout_bnn_peta", "v_sellout_bnn_ta", "v_target_sell_in", "v_target_sell_out",
         "v_outstanding_do", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_sellin_po_bulanan",
-        "v_stock_semen", "v_stock_harian", "v_stock_info", "stock_daerah", "v_toko_aktif_bulanan",
+        "v_stock_semen", "v_stock_harian", "v_stock_info", "stock_daerah", "v_toko_aktif_bulanan", "v_penjualan_toko_bulanan", "v_penjualan_toko_dist_bulanan",
     };
 
     /// <summary>Tabel di atas yang punya kolom dist_code -> filter distributor DIPAKSA server untuk spv/sales.</summary>
@@ -104,6 +104,8 @@ public static class AccessRules
         ["v_stock_info"] = "sementrack.v_stock_info",
         ["stock_daerah"] = "sementrack.stock_daerah",
         ["v_toko_aktif_bulanan"] = "sementrack.v_toko_aktif_bulanan",   // tanya_data.sql
+        ["v_penjualan_toko_bulanan"] = "sementrack.v_penjualan_toko_bulanan",           // penjualan_toko_tanpa_subdist.sql
+        ["v_penjualan_toko_dist_bulanan"] = "sementrack.v_penjualan_toko_dist_bulanan",
     };
 
     /// <summary>Fungsi yang versi barunya ada di schema sementrack.</summary>
@@ -149,10 +151,10 @@ public static class AccessRules
     private static readonly Dictionary<string, PageDep> PageDependencies = new()
     {
         // Tanya Data: ringkasan bulanan transaksi; sell in / stok hanya kalau role juga punya halaman itu
-        ["tanya-data"] = new(new[] { "v_transaksi_monthly", "v_dist_monthly_totals", "v_monthly_totals", "v_distributor_summary", "v_toko_aktif_bulanan" },
+        ["tanya-data"] = new(new[] { "v_transaksi_monthly", "v_dist_monthly_totals", "v_monthly_totals", "v_distributor_summary", "v_toko_aktif_bulanan", "v_penjualan_toko_bulanan", "v_penjualan_toko_dist_bulanan" },
                              new[] { "dashboard_top_customers_range" }),
         ["beranda"] = new(
-            new[] { "v_distributor_summary", "produk", "v_target_dist", "v_toko_agg", "v_transaksi_monthly", "v_dist_monthly_totals" },
+            new[] { "v_distributor_summary", "produk", "v_target_dist", "v_toko_agg", "v_transaksi_monthly", "v_dist_monthly_totals", "v_penjualan_toko_bulanan", "v_penjualan_toko_dist_bulanan" },
             new[] { "dashboard_period_summary_v2", "dashboard_top_customers_v2", "dashboard_delivery_type_breakdown", "dashboard_channel_breakdown", "dashboard_payment_breakdown",
                     "dashboard_period_summary_range", "dashboard_top_customers_range", "dashboard_channel_breakdown_range",
                     "dashboard_payment_breakdown_range", "dashboard_delivery_type_breakdown_range", "dashboard_product_breakdown_range", "dashboard_toko_channel_range" }),

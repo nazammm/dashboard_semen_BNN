@@ -107,7 +107,8 @@ export default function Beranda() {
   useDocTitle('Penjualan Toko');
   const base = useAsync(async () => {
     const [dists, distMonthly, transMonthly, produk, targetDist, freshnessData] = await Promise.all([
-      DataSource.distributors(), DataSource.distMonthlyTotals(), DataSource.transaksiMonthly(), DataSource.produk(), DataSource.targetDist(), DataSource.dataFreshness(),
+      // tanpa subdist: subdist bukan toko (14_penjualan_toko_tanpa_subdist.sql)
+      DataSource.distributors(), DataSource.penjualanTokoDistBulanan(), DataSource.penjualanTokoBulanan(), DataSource.produk(), DataSource.targetDist(), DataSource.dataFreshness(),
     ]);
     return { dists, distMonthly, transMonthly, produk, targetDist, freshnessData };
   }, []);
@@ -280,7 +281,7 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
 
   return (
     <>
-      <PageHeader title="Penjualan Toko" status={<DataBadge source="transaksi" />} />
+      <PageHeader title="Penjualan Toko" desc="Penjualan distributor ke toko. Pembelian subdist tidak dihitung di halaman ini." status={<DataBadge source="transaksi" />} />
       <FilterBar label="Filter Penjualan Toko" className="max-[880px]:grid max-[880px]:grid-cols-2 max-[880px]:gap-2 max-[880px]:[&_select]:w-full max-[880px]:[&_select]:min-w-0">
         <Select label="Distributor" value={dist} onChange={e => onDist(e.target.value)} style={{ minWidth: 200 }}
           options={[{ value: 'all', label: 'Semua Distributor' }, ...distOpts.map(o => ({ value: String(o.dist_code), label: `${o.dist_code} · ${o.dist_name}` }))]} />
@@ -300,7 +301,7 @@ function BerandaBody({ dists, distMonthly, transMonthly, produk, targetDist, fre
             <Kpi title={`Tonase · ${periodLabel}`} value={fmt(d.cur.total_qty)} unit="ton"
               delta={<span className={kpi.growth == null ? '' : kpi.growth >= 0 ? 'text-green' : 'text-red'}>{growthTxt} <span className="text-soft">vs {fmtRange(prevRange)}</span></span>} />
             <Kpi title="Delivery order" value={fmt(d.cur.num_do)} delta={kpi.avgPerDO == null ? undefined : `Rata-rata ${fmt(kpi.avgPerDO, 1)} ton per DO`} />
-            <Kpi title="Toko aktif (tanpa subdist)" value={fmt(d.cur.num_active_stores)}
+            <Kpi title="Toko aktif" value={fmt(d.cur.num_active_stores)}
               delta={`${kpi.coverage == null ? '–' : fmt(kpi.coverage, 1) + '%'} dari ${fmt(d.totalStores)} toko terdaftar`} />
             <Kpi title="Amount" value={<span className="text-[22px] max-[520px]:text-[15px]">{fmtIDR(d.cur.net_amount)}</span>}
               delta={kpi.totalDO > 0 ? `DO online ${fmt(kpi.onlinePct)}% · offline ${fmt(kpi.offlinePct)}%` : undefined} />

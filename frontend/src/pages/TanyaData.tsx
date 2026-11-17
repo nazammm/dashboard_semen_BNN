@@ -26,7 +26,7 @@ export default function TanyaData() {
 
   const load = useAsync(async () => {
     const [trx, distM, allM, ta, dists, sellin, stok] = await Promise.all([
-      DataSource.transaksiMonthly(), DataSource.distMonthlyTotals(), DataSource.monthlyTotals(), DataSource.tokoAktifBulanan(), DataSource.distributors(),
+      DataSource.penjualanTokoBulanan(), DataSource.penjualanTokoDistBulanan(), DataSource.monthlyTotals(), DataSource.tokoAktifBulanan(), DataSource.distributors(),
       pageAllowed('sell-in-bnn') ? opt(DataSource.sellinDaily()) : Promise.resolve(null),
       pageAllowed('stock') ? opt(DataSource.stockHarian()) : Promise.resolve(null),
     ]);
