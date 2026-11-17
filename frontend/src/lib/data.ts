@@ -85,6 +85,8 @@ export const DataSource = {
   tokoMaster: () => getData('tokoMaster', () => apiGetAll('toko', '?select=*&order=cust_name.asc')),
   tokoMonthly: (year: number, month: number) => getData<Row[]>(`tokoMonthly:${year}:${month}`, () => apiRpc('dashboard_toko_monthly_v2', { p_year: year, p_month: month })),
   yearlyTotals: () => getData('yearlyTotals', () => apiGetAll('v_yearly_totals', '?select=*&order=year.asc')),
+  /** Toko aktif per bulan tanpa subdist (dist_code '*' = semua distributor, toko unik). */
+  tokoAktifBulanan: () => getData('tokoAktifBulanan', () => apiGetAll('v_toko_aktif_bulanan', '?select=*&order=dist_code.asc,year.asc,month.asc')),
   monthlyTotals: () => getData('monthlyTotals', () => apiGetAll('v_monthly_totals', '?select=*&order=year.asc,month.asc')),
   distMonthlyTotals: () => getData('distMonthlyTotals', () => apiGetAll('v_dist_monthly_totals', '?select=*&order=dist_code.asc,year.asc,month.asc')),
   produk: () => getData('produk', () => apiGetAll('produk', '?select=*')),

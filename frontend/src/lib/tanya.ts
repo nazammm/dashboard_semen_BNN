@@ -14,7 +14,8 @@ type Jenis = 'STR' | 'RJW' | 'CWC';
 export interface TanyaCtx {
   trx: Row[];            // v_transaksi_monthly: year, month, dist_code, product_code, total_qty, net_amount, num_do
   distM: Row[];          // v_dist_monthly_totals: dist_code, year, month, num_do, num_active_stores
-  allM: Row[];           // v_monthly_totals: year, month, num_do, num_active_stores
+  allM: Row[];           // v_monthly_totals: year, month, num_do
+  ta: Row[];             // v_toko_aktif_bulanan: dist_code ('*' = semua, toko unik), year, month, num_active_stores (tanpa subdist)
   dists: { code: string; name: string; wilayah: string }[];
   sellin: Row[] | null;  // v_sellin_bnn_daily (null = tidak punya akses)
   stok: Row[] | null;    // v_stock_harian (null = tidak punya akses / belum ada)
@@ -364,7 +365,7 @@ export async function jawab(tanya: string, ctx: TanyaCtx): Promise<Jawaban> {
     catatan.push('Toko aktif = toko (tanpa subdist) dengan belanja minimal Rp200 ribu dalam sebulan.');
     const banyak = p.bulan.length > 1;
     // semua distributor tanpa rincian: pakai total unik per bulan
-    const sumber = !dset && dim !== 'dist' ? ctx.allM.map(r => ({ ...r, dist_code: '' })) : ctx.distM.filter(r => !dset || dset.has(String(r.dist_code)));
+    const sumber = !dset && dim !== 'dist' ? ctx.ta.filter(r => r.dist_code === '*') : ctx.ta.filter(r => r.dist_code !== '*' && (!dset || dset.has(String(r.dist_code))));
     if (dset && dset.size > 1 && dim !== 'dist') catatan.push('Toko yang dilayani lebih dari satu distributor bisa terhitung dua kali pada penjumlahan antar distributor.');
     const d2: Dimensi = dim || (banyak ? 'bulan' : null);
     const p3 = { ...p2, dimensi: d2 };
