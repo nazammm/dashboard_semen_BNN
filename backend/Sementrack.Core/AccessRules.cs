@@ -8,7 +8,7 @@ public static class AccessRules
 {
     public static readonly string[] DashboardPages =
     {
-        "overview", "beranda", "sell-in-bnn", "outstanding-do", "sell-out-bnn", "stock", "rekap-harian", "tim-sales",
+        "overview", "tanya-data", "beranda", "sell-in-bnn", "outstanding-do", "sell-out-bnn", "stock", "rekap-harian", "tim-sales",
         "peta-toko", "daftar-toko", "transaksi-detail", "toko-detail",
     };
 
@@ -147,6 +147,9 @@ public static class AccessRules
 
     private static readonly Dictionary<string, PageDep> PageDependencies = new()
     {
+        // Tanya Data: ringkasan bulanan transaksi; sell in / stok hanya kalau role juga punya halaman itu
+        ["tanya-data"] = new(new[] { "v_transaksi_monthly", "v_dist_monthly_totals", "v_monthly_totals", "v_distributor_summary" },
+                             new[] { "dashboard_top_customers_range" }),
         ["beranda"] = new(
             new[] { "v_distributor_summary", "produk", "v_target_dist", "v_toko_agg", "v_transaksi_monthly", "v_dist_monthly_totals" },
             new[] { "dashboard_period_summary_v2", "dashboard_top_customers_v2", "dashboard_delivery_type_breakdown", "dashboard_channel_breakdown", "dashboard_payment_breakdown",
