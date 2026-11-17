@@ -49,7 +49,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
   // bulan masih berjalan: tetap dibandingkan dengan target sebulan penuh, hanya diberi keterangan
   const hari = hariBerjalan(year, month, freshnessData?.max_do_date);
   const list = useMemo<Sales[]>(() => rows.filter(r =>
-    Number(r.month) === month && (dist === 'all' || r.dist_code === dist) && r.status === 'Sales Real'
+    Number(r.month) === month && (dist === 'all' || r.dist_code === dist) && (r.status === 'Sales Real' || r.status === 'Tanpa target')
   ).map(r => {
     const capaian_ta = pct(r.actual_ta, r.target_ta) ?? -1;
     const capaian_tonase = pct(r.actual_tonase, r.target_tonase) ?? -1;
@@ -65,7 +65,8 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
   const tTon = sum(withTon, 'target_tonase'), aTon = sum(withTon, 'actual_tonase');
   const scored = list.filter(r => r.kelompok !== 'tanpa');
   const reached = scored.filter(r => r.kelompok === 'capai').length;
-  const salesAktif = new Set(list.map(r => `${r.dist_code}|${r.salesman_code}`)).size;
+  const salesAktif = new Set(list.filter(r => r.status === 'Sales Real').map(r => `${r.dist_code}|${r.salesman_code}`)).size;
+  const tanpaTarget = list.filter(r => r.kelompok === 'tanpa').length;
   const targetSales = targets ? targets.filter(t => dist === 'all' || t.dist_code === dist).reduce((a, t) => a + Number(t.target_salesman || 0), 0) : 0;
 
   /* ---------- jumlah salesman per kelompok ---------- */
@@ -136,6 +137,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
         <div>
           <h2 className="section-title !m-0">Daftar Salesman</h2>
           <p className="text-faint text-[12px] mt-1 max-w-[640px]">Dikelompokkan menurut tercapai atau belumnya target, tanpa nomor peringkat karena besar target tiap salesman berbeda. Di dalam kelompok, urutan menurut tonase terbesar.
+            {' '}Salesman yang ada di transaksi tetapi belum punya target bulan ini tetap tampil di kelompok <b className="text-ink font-medium">Tanpa target</b>.
             {hari != null && <> <b className="text-ink font-medium">Bulan masih berjalan</b> (data sampai tanggal {hari}): capaian dibandingkan dengan target sebulan penuh, jadi wajar masih banyak yang belum tercapai.</>}</p>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
@@ -143,6 +145,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
           <div className="pill-row" role="group" aria-label="Kelompok capaian">
             <Chip active={kel === 'all'} onClick={() => setKel('all')}>Semua</Chip>
             {grup.map((k, i) => <Chip key={k.id} active={kel === k.id} onClick={() => setKel(k.id)}>{k.label} ({fmt(bucketCounts[i])})</Chip>)}
+            {tanpaTarget > 0 && <Chip active={kel === 'tanpa'} onClick={() => setKel('tanpa')}>Tanpa target ({fmt(tanpaTarget)})</Chip>}
           </div>
           {!query && (
             <div className="pill-row" role="group" aria-label="Jumlah baris yang ditampilkan">
