@@ -25,13 +25,13 @@ export default function TanyaData() {
   const input = useRef<HTMLInputElement>(null);
 
   const load = useAsync(async () => {
-    const [trx, distM, allM, dists, sellin, stok] = await Promise.all([
-      DataSource.transaksiMonthly(), DataSource.distMonthlyTotals(), DataSource.monthlyTotals(), DataSource.distributors(),
+    const [trx, distM, allM, ta, dists, sellin, stok] = await Promise.all([
+      DataSource.transaksiMonthly(), DataSource.distMonthlyTotals(), DataSource.monthlyTotals(), DataSource.tokoAktifBulanan(), DataSource.distributors(),
       pageAllowed('sell-in-bnn') ? opt(DataSource.sellinDaily()) : Promise.resolve(null),
       pageAllowed('stock') ? opt(DataSource.stockHarian()) : Promise.resolve(null),
     ]);
     const ctx: TanyaCtx = {
-      trx, distM, allM, sellin, stok,
+      trx, distM, allM, ta, sellin, stok,
       dists: dists.map((d: Row) => ({ code: String(d.dist_code), name: String(d.dist_name || ''), wilayah: String(d.wilayah || '') })),
       topToko: (dist, from, to, kode, limit) => topCustomersRange(dist, { from, to }, kode, limit),
     };
