@@ -5,6 +5,7 @@ const ICONS = {
   rekap: '<rect x="3.5" y="4" width="17" height="16" rx="1"/><path d="M3.5 9h17"/><path d="M8 4v-1.5M16 4v-1.5"/><path d="M7 13h2M11 13h2M15 13h2M7 16.5h2M11 16.5h2"/>',
   timsales: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><circle cx="17.5" cy="9" r="2.3"/><path d="M15.5 20c.3-2.6 2-4.5 4.3-4.9"/>',
   peta: '<path d="M12 21s7-6.3 7-12a7 7 0 1 0-14 0c0 5.7 7 12 7 12Z"/><circle cx="12" cy="9" r="2.4"/>',
+  tanya: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8M9.2 9.3a2 2 0 1 1 2.7 1.9c-.6.3-.9.7-.9 1.3M11 14.6v.1"/>',
   interaksi: '<path d="M4 4h16v12H8l-4 4Z"/><path d="M8 9h8M8 12.5h5"/>',
   kelola: '<circle cx="12" cy="8" r="3.2"/><path d="M4.5 20c.6-4 3.5-6.5 7.5-6.5s6.9 2.5 7.5 6.5"/><path d="M18.5 5.5l1.2 1.2M19.7 4.3l-1.2 1.2" stroke-width="1.3"/>',
   sellin: '<rect x="3.5" y="12.5" width="7.5" height="7" rx=".6"/><rect x="13" y="12.5" width="7.5" height="7" rx=".6"/><rect x="8.25" y="4.5" width="7.5" height="7" rx=".6"/><path d="M7.25 12.5v2M16.75 12.5v2M12 4.5v2"/>',
@@ -17,6 +18,7 @@ const ICONS = {
 export const NAV_GROUPS = [
   { label: '', items: [
     { id: 'overview', label: 'Overview', icon: ICONS.beranda },
+    { id: 'tanya-data', label: 'Tanya Data', icon: ICONS.tanya },
   ] },
   { label: 'Sell In', items: [
     { id: 'sell-in-bnn', label: 'Sell In BNN', icon: ICONS.sellin },
