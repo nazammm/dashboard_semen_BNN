@@ -19,6 +19,7 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 12_toko_channel.sql | Penjualan Toko: toko per cara order (offline / online / keduanya) | query cek di akhir skrip |
 | 13_tanya_data.sql | Halaman Tanya Data: hak halaman untuk role yang diatur manual (tanpa tabel baru) | hasil SELECT di akhir skrip |
 | 14_penjualan_toko_tanpa_subdist.sql | Penjualan Toko dan Tanya Data tanpa subdist: fungsi *_range menyaring subdist, dua view bulanan baru | query cek di akhir skrip |
+| 15_salesman_tanpa_target.sql | Tim Sales: salesman yang ada di transaksi tapi belum punya target ikut tampil (status Tanpa target) | query cek di akhir skrip |
 
 ## Untuk tahap 5 (backend)
 
