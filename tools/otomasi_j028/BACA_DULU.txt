@@ -1,6 +1,6 @@
 NAZAM AUTO TASK
 ================
-Aplikasi untuk mengambil data ERP (J028 + J028B, J073, Sub ERP), TIRO (Sell In, Outstanding DO), dan
+Aplikasi untuk mengambil data ERP (J028 + J028B, J073, Sub ERP, ongkos kirim J073 + ORDB019), TIRO (Sell In, Outstanding DO), dan
 rekap DO harian di folder korin (DO FAS), file Stock Semen bulan berjalan di folder b236 (Stock), lalu memasukkannya ke SEMENTRACK. Rentang ERP: tanggal 1 bulan ini s.d. hari ini; TIRO: 1 Januari s.d. hari ini.
 
 TIRO butuh captcha: klik Login TIRO, ketik kodenya di jendela yang terbuka. Sesi disimpan dan dipakai
@@ -19,3 +19,13 @@ Pertama kali dibuka
    supaya tetap jalan walau aplikasi ditutup. Pilih salah satu saja.
 
 Tanpa aplikasi (baris perintah) tetap bisa: python j028_harian.py --semua (lihat keterangan di atas file itu).
+
+Ongkos kirim (halaman Ongkos Kirim di SEMENTRACK)
+- Centang "Ongkos kirim" di Beranda (dan ikut jadwal). Dari jadwal bagian ini hanya jalan seminggu sekali.
+- Tiap distributor di Pengaturan -> Distributor ongkos: J073 3 bulan terakhir (satu job) dan laporan ORDB019
+  bulan lalu + bulan ini (satu laporan per bulan). INSA-E tidak perlu: datanya ada di INSA (4094).
+- Antrian ERP paling banyak 2 job/laporan sekaligus; sisanya dikirim begitu ada yang selesai.
+- Data lama: Pengaturan -> "Isi data lama sejak" 2025-01 -> Isi ulang ongkos. Dikerjakan per 8 job/laporan
+  (unduh lalu langsung upload) dan dicatat di isi_ulang_ongkos.json. Kalau terhenti, klik lagi; yang sudah
+  masuk dilewati. Hapus file itu kalau ingin mengulang semuanya dari awal.
+- Baris perintah: python j028_harian.py --bagian ONGKOS    atau    --bagian ONGKOS --isi-ulang 2025-01

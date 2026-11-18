@@ -29,8 +29,9 @@ BAGIAN = [("J028", "J028 + J028B", "Transaksi toko (Kelola Data → Transaksi)")
           ("SELLIN", "Sell In", "TIRO, per tanggal pengiriman"),
           ("OSDO", "Outstanding DO", "TIRO, per tanggal order"),
           ("DOFAS", "DO FAS", "Rekap DO harian (folder korin)"),
-          ("STOCK", "Stock", "Stock semen bulan berjalan (folder b236)")]
-NAMA_RIWAYAT = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS", "STOCK": "Stock"}
+          ("STOCK", "Stock", "Stock semen bulan berjalan (folder b236)"),
+          ("ONGKOS", "Ongkos kirim", "J073 + ORDB019 semua distributor, seminggu sekali")]
+NAMA_RIWAYAT = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS", "STOCK": "Stock", "ONGKOS": "Ongkos kirim"}
 BAWAAN = {"jadwal_aktif": False, "tiap_jam": 4, "jam_mulai": "07:00", "bagian": ["J028", "J073", "SUBDIST"],
           "tampilkan_browser": False, "paksa_subdist": False}
 
@@ -81,7 +82,7 @@ def simpan_setelan(s: dict) -> None:
 def simpan_akun(nilai: dict[str, str]) -> None:
     """akun_lokal.txt: password terenkripsi Windows (hanya bisa dibuka akun Windows ini)."""
     baris = ["# Ditulis oleh Nazam Auto Task. Password terenkripsi; ubah lewat Pengaturan di aplikasi."]
-    for k in ("ERP_USER", "SEMENTRACK_URL", "SEMENTRACK_USER", "TIRO_USER", "J073_DIST", "DOFAS_FILE", "STOCK_FILE"):
+    for k in ("ERP_USER", "SEMENTRACK_URL", "SEMENTRACK_USER", "TIRO_USER", "J073_DIST", "ONGKOS_DIST", "DOFAS_FILE", "STOCK_FILE"):
         baris.append(f"{k}={nilai.get(k, '').strip()}")
     for k in ("ERP_PASS", "SEMENTRACK_PASS", "TIRO_PASS"):
         v = nilai.get(k, "")
@@ -421,8 +422,21 @@ def jalankan_aplikasi() -> None:
             self.tombol(atas, "Uji login", self.uji_login).pack(side="right", padx=(0, 8))
             self.lbl_simpan = tk.Label(k, text="", bg=C["bg"], fg=C["ok"])
             self.lbl_simpan.place(relx=1, rely=1, anchor="se")
-            kolom = tk.Frame(h, bg=C["bg"])
-            kolom.pack(fill="both", expand=True)
+            # isi pengaturan bisa digulir (layar laptop pendek)
+            wadah = tk.Frame(h, bg=C["bg"])
+            wadah.pack(fill="both", expand=True)
+            kanvas = tk.Canvas(wadah, bg=C["bg"], highlightthickness=0, bd=0)
+            gulir = ttk.Scrollbar(wadah, orient="vertical", command=kanvas.yview)
+            kanvas.configure(yscrollcommand=gulir.set)
+            gulir.pack(side="right", fill="y")
+            kanvas.pack(side="left", fill="both", expand=True)
+            kolom = tk.Frame(kanvas, bg=C["bg"])
+            jendela = kanvas.create_window(0, 0, window=kolom, anchor="nw")
+            kolom.bind("<Configure>", lambda _e: kanvas.configure(scrollregion=kanvas.bbox("all")))
+            kanvas.bind("<Configure>", lambda e: kanvas.itemconfigure(jendela, width=e.width - 4))
+            roda = lambda e: kanvas.yview_scroll(-1 if (e.delta > 0 or getattr(e, "num", 0) == 4) else 1, "units")
+            kanvas.bind("<Enter>", lambda _e: (kanvas.bind_all("<MouseWheel>", roda), kanvas.bind_all("<Button-4>", roda), kanvas.bind_all("<Button-5>", roda)))
+            kanvas.bind("<Leave>", lambda _e: (kanvas.unbind_all("<MouseWheel>"), kanvas.unbind_all("<Button-4>"), kanvas.unbind_all("<Button-5>")))
             kolom.columnconfigure(0, weight=1, uniform="p")
             kolom.columnconfigure(1, weight=1, uniform="p")
             kolom.rowconfigure(0, weight=1)
@@ -491,12 +505,12 @@ def jalankan_aplikasi() -> None:
             f = bagian(kanan, "Data")
             isian(f, 1, "Distributor J073", "J073_DIST", nilai=akun.get("J073_DIST", ",".join(mesin.J073_DIST)))
             tk.Label(f, text="Dipisah koma: 4094 = INSA, 9575 = PKB.", bg=C["card"], fg=C["muted"],
-                     font=self.f_kecil, wraplength=270, justify="left").grid(row=2, column=1, columnspan=2, sticky="w")
+                     font=self.f_kecil, wraplength=240, justify="left").grid(row=2, column=1, columnspan=2, sticky="w")
             isian(f, 4, "File DO FAS", "DOFAS_FILE", nilai=akun.get("DOFAS_FILE", mesin.DOFAS_FILE_BAWAAN))
             pilih = tk.Label(f, text="Pilih…", bg=C["card"], fg=C["pri"], cursor="hand2")
             pilih.grid(row=4, column=2, padx=(8, 0))
             pilih.bind("<Button-1>", lambda _e: self.pilih_dofas())
-            self.lbl_dofas = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=270)
+            self.lbl_dofas = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=240)
             self.lbl_dofas.grid(row=5, column=1, columnspan=2, sticky="w")
             self.v_akun["DOFAS_FILE"].trace_add("write", lambda *_: self.cek_dofas())
             self.cek_dofas()
@@ -504,10 +518,23 @@ def jalankan_aplikasi() -> None:
             pilih = tk.Label(f, text="Pilih…", bg=C["card"], fg=C["pri"], cursor="hand2")
             pilih.grid(row=6, column=2, padx=(8, 0))
             pilih.bind("<Button-1>", lambda _e: self.pilih_stok())
-            self.lbl_stok = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=270)
+            self.lbl_stok = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=240)
             self.lbl_stok.grid(row=7, column=1, columnspan=2, sticky="w")
             self.v_akun["STOCK_FILE"].trace_add("write", lambda *_: self.cek_stok())
             self.cek_stok()
+            isian(f, 8, "Distributor ongkos", "ONGKOS_DIST", nilai=akun.get("ONGKOS_DIST", mesin.ONGKOS_DIST_BAWAAN))
+            tk.Label(f, text="Kode ERP, dipisah koma. INSA-E tidak perlu (ikut 4094). Tiap distributor: J073 3 bulan terakhir "
+                             "dan ORDB019 bulan lalu + bulan ini, seminggu sekali dari jadwal.",
+                     bg=C["card"], fg=C["muted"], font=self.f_kecil, wraplength=240, justify="left").grid(row=9, column=1, columnspan=2, sticky="w")
+            iu = tk.Frame(f, bg=C["card"])
+            iu.grid(row=10, column=0, columnspan=3, sticky="w", pady=(8, 0))
+            tk.Label(iu, text="Isi data lama sejak", bg=C["card"], fg=C["muted"]).pack(side="left")
+            self.v_isi_ulang = tk.StringVar(value=self.setelan.get("isi_ulang_mulai", "2025-01"))
+            ttk.Entry(iu, textvariable=self.v_isi_ulang, width=8).pack(side="left", padx=6)
+            self.tombol(iu, "Isi ulang ongkos", self.isi_ulang, kecil=True).pack(side="left")
+            self.lbl_isi_ulang = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=400)
+            self.lbl_isi_ulang.grid(row=11, column=0, columnspan=3, sticky="w")
+            self.cek_isi_ulang()
 
             f = bagian(kiri, "Lainnya")
             self.v_startup = tk.BooleanVar(value=self.startup_path().exists())
@@ -570,6 +597,8 @@ def jalankan_aplikasi() -> None:
                     argumen.append("--paksa")
             if not self.v_browser.get() or terjadwal:
                 argumen.append("--tanpa-layar")
+            if terjadwal:
+                argumen.append("--jadwal")             # Ongkos kirim: seminggu sekali
             FOLDER.mkdir(exist_ok=True)
             perintah = perintah_dasar() + argumen + ["--tanpa-jeda", "--log", str(LOG)]
             self.tampil("beranda")
@@ -738,6 +767,30 @@ def jalankan_aplikasi() -> None:
             self.v_akun["STOCK_FILE"].set(alamat.replace(t, "{tahun}"))
             self.lbl_simpan.config(text="Klik Simpan untuk menyimpan alamat file.", fg=C["warn"])
 
+        def cek_isi_ulang(self):
+            n = len(mesin.baca_isi_ulang())
+            self.lbl_isi_ulang.config(text=(f"{n} job/laporan isi ulang sudah masuk. Menjalankan lagi hanya mengerjakan yang belum." if n else
+                                            "J073 per 3 bulan dan ORDB019 per bulan untuk semua distributor ongkos; bisa berjam-jam. "
+                                            "Kalau terhenti, klik lagi: yang sudah masuk dilewati."))
+
+        def isi_ulang(self):
+            if self.proses:
+                return
+            teks = self.v_isi_ulang.get().strip()
+            try:
+                mulai = date.fromisoformat(teks[:7] + "-01")
+            except ValueError:
+                messagebox.showerror(APP, "Tulis bulan mulai sebagai YYYY-MM, mis. 2025-01.")
+                return
+            if not self.simpan_pengaturan(diam=True):
+                return
+            self.setelan["isi_ulang_mulai"] = f"{mulai:%Y-%m}"
+            simpan_setelan(self.setelan)
+            if not messagebox.askyesno(APP, f"Unduh dan upload J073 + ORDB019 semua distributor ongkos sejak {tanggal_id(mulai)[2:]}?\n\n"
+                                            "Prosesnya panjang (antrian ERP hanya 2 sekaligus). Jadwal lain menunggu sampai selesai."):
+                return
+            self.jalankan(argumen=["--isi-ulang", f"{mulai:%Y-%m}"])
+
         def uji_login(self):
             if self.proses:
                 return
@@ -805,11 +858,13 @@ def jalankan_aplikasi() -> None:
             self.segarkan_jadwal()
             self.cek_tugas()
             self.status_sesi()
+            if hasattr(self, "lbl_isi_ulang"):
+                self.cek_isi_ulang()
 
         # ---------- Windows ----------
         def perintah_tugas(self) -> str:
             bagian = ",".join(self.setelan["bagian"]) or "J028,J073,SUBDIST"
-            argumen = f'--bagian {bagian} --tanpa-layar --tanpa-jeda --log "{LOG}"' + (" --paksa" if self.setelan.get("paksa_subdist") else "")
+            argumen = f'--bagian {bagian} --jadwal --tanpa-layar --tanpa-jeda --log "{LOG}"' + (" --paksa" if self.setelan.get("paksa_subdist") else "")
             return " ".join(f'"{x}"' for x in perintah_dasar()) + " " + argumen
 
         def pasang_tugas(self):

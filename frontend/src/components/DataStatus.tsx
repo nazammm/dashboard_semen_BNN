@@ -5,6 +5,7 @@
    Aturan warna:
    - harian  : hari kerja (Senin–Sabtu) yang belum masuk, dihitung s.d. kemarin.
                0 = terkini (hijau), 1–2 = tertinggal (kuning), ≥3 = perlu dicek (merah)
+   - mingguan: hari kalender sejak data terakhir, s.d. kemarin. ≤7 = terkini, ≤14 = tertinggal, lebih = perlu dicek
    - bulanan : bulan closing yang belum masuk, dihitung s.d. bulan lalu
                (sebelum tanggal 10, closing bulan lalu belum dituntut).
                0 = terkini, 1 = tertinggal, ≥2 = perlu dicek
@@ -17,7 +18,7 @@ import { MONTHS_ID } from '../lib/format';
 import type { Row } from '../lib/types';
 import { cx } from './ui';
 
-export type DataSourceId = 'transaksi' | 'sellin' | 'sellout_bulanan' | 'sellin_bulanan' | 'dofas' | 'erp' | 'j073' | 'outstanding' | 'stock';
+export type DataSourceId = 'transaksi' | 'sellin' | 'sellout_bulanan' | 'sellin_bulanan' | 'dofas' | 'erp' | 'j073' | 'outstanding' | 'stock' | 'ongkos';
 export type FreshLevel = 'good' | 'warn' | 'bad' | 'none';
 
 export interface Freshness {
@@ -47,6 +48,15 @@ export function workdaysBetween(from: string, to: string) {
 export function freshnessOf(row: Row | null | undefined, today = todayWIB()): Freshness {
   const sampai = row?.data_sampai ? String(row.data_sampai).slice(0, 10) : null;
   const harian = row?.frekuensi !== 'bulanan';
+  if (sampai && row?.frekuensi === 'mingguan') {
+    const lag = Math.max(0, Math.round((+new Date(addDays(today, -1) + 'T00:00:00') - +new Date(sampai + 'T00:00:00')) / 864e5));
+    return {
+      level: lag <= 7 ? 'good' : lag <= 14 ? 'warn' : 'bad',
+      sampai: fmtDay(sampai),
+      keadaan: lag <= 7 ? 'Terkini' : `Tertinggal ${lag} hari`,
+      harapan: 'Diperbarui seminggu sekali (bulan lalu dan bulan berjalan).',
+    };
+  }
   if (!sampai) return { level: 'none', sampai: null, keadaan: 'Belum ada data', harapan: harian ? 'Diperbarui setiap hari kerja.' : 'Diperbarui setelah closing bulanan.' };
   if (harian) {
     const lag = workdaysBetween(sampai, addDays(today, -1));
@@ -102,9 +112,10 @@ const SOURCE_PAGES: Record<string, string[]> = {
   erp: ['overview', 'sell-out-bnn', 'kelola-data'],
   j073: ['overview', 'sell-out-bnn', 'kelola-data'],
   stock: ['overview', 'stock', 'kelola-data'],
+  ongkos: ['ongkos-kirim', 'kelola-data'],
   sellin_bulanan: [],   // halaman Sell In dihapus; target & 2025 di Sell In BNN tidak bergantung pada closing terbaru
 };
-const SHORT_NAME: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', sellout_bulanan: 'Sell Out bulanan', sellin_bulanan: 'Sell In bulanan', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', outstanding: 'Outstanding DO', stock: 'Stock' };
+const SHORT_NAME: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', sellout_bulanan: 'Sell Out bulanan', sellin_bulanan: 'Sell In bulanan', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', outstanding: 'Outstanding DO', stock: 'Stock', ongkos: 'Ongkos kirim' };
 const LEVEL_LABEL: Record<FreshLevel, string> = { good: 'Terkini', warn: 'Tertinggal', bad: 'Perlu dicek', none: 'Kosong' };
 
 function Detail({ row, f }: { row: Row; f: Freshness }) {
@@ -149,7 +160,7 @@ export function DataBadge({ source, dark }: { source: DataSourceId | DataSourceI
   const worst = items.reduce((a, b) => (LEVEL_RANK[b.f.level] > LEVEL_RANK[a.f.level] ? b : a));
   const earliest = items.filter(x => x.row.data_sampai).sort((a, b) => String(a.row.data_sampai).localeCompare(String(b.row.data_sampai)))[0];
   const level = worst.f.level, single = items.length === 1;
-  const freq = items.every(x => x.row.frekuensi === 'bulanan') ? 'Bulanan' : 'Harian';
+  const freq = items.every(x => x.row.frekuensi === 'bulanan') ? 'Bulanan' : items.every(x => x.row.frekuensi === 'mingguan') ? 'Mingguan' : 'Harian';
   const title = single ? String(items[0].row.nama) : items.map(x => SHORT_NAME[String(x.row.sumber)] || x.row.nama).join(' + ');
   return (
     <div className="relative shrink-0 inline-block" ref={ref}>

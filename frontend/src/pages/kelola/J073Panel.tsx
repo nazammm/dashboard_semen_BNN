@@ -1,7 +1,8 @@
 /* ============================================================================
-   Kelola Data · Sell Out BNN · Upload J073 (transaksi warehouse INSA & PKB).
-   Disaring semen + white cement, retail saja. Data lama per distributor pada rentang
-   tanggal file diganti. Pembagian ke baris Sell Out BNN mengikuti peta di database.
+   Kelola Data · Upload J073 (transaksi warehouse per distributor).
+   Disaring semen + white cement. Retail masuk Sell Out BNN (dibagi menurut peta di database);
+   semua baris (termasuk proyek) dan kolom pengiriman dipakai halaman Ongkos Kirim.
+   Data lama per distributor pada rentang tanggal file diganti.
 ============================================================================ */
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -43,15 +44,15 @@ export function J073Upload({ onChanged }: { onChanged: () => void }) {
       <ErrorLine error={imp.error} />
       <div hidden={phase.kind !== 'idle' && phase.kind !== 'reading'}>
         <SourcePicker key={round} id="j073" reading={phase.kind === 'reading' ? phase : null} onFile={imp.readFile} onText={imp.readText} onCancel={imp.cancelRead}
-          fileHint="Export J073 INSA / PKB (.TXT langsung dari ERP, .xlsx, atau .csv). Yang dipakai hanya semen & white cement, cust group RETAIL. Data distributor yang ada di file, pada rentang tanggal di file, akan diganti."
+          fileHint="Export J073 per distributor (.TXT langsung dari ERP, .xlsx, atau .csv). Yang dipakai hanya semen & white cement; retail masuk Sell Out BNN, semua baris dipakai Ongkos Kirim. Data distributor yang ada di file, pada rentang tanggal di file, akan diganti."
           pastePlaceholder={'Distributor Code\tDistributor Name\tNo. DO\t…\tDO Date\t…\tWarehouse\t…\n4094\tPT. INTINIAGA SUKSES ABADI\t2517332\t…'} />
       </div>
 
       {(phase.kind === 'preview' || phase.kind === 'saving') && (
         phase.res.ok && phase.res.stats.rowsUsed === 0
-          ? <Unusable error="Tidak ada baris semen / white cement retail di file ini." hint="" onCancel={imp.reset}>
+          ? <Unusable error="Tidak ada baris semen / white cement di file ini." hint="" onCancel={imp.reset}>
               <p className="text-soft text-[13px]">
-                {fmt(phase.res.stats.rowsRead)} baris dibaca: {fmt(phase.res.stats.skippedProduk)} bukan semen, {fmt(phase.res.stats.skippedRetail)} bukan retail
+                {fmt(phase.res.stats.rowsRead)} baris dibaca: {fmt(phase.res.stats.skippedProduk)} bukan semen
                 {phase.res.stats.invalid > 0 && `, ${fmt(phase.res.stats.invalid)} tidak terbaca`}.
               </p>
             </Unusable>
@@ -84,7 +85,7 @@ function J073Preview({ phase, peta, onSave, onCancel, onDateOrder }: {
 
   return (
     <PreviewFrame phase={phase} title={phase.source === 'tempel' ? 'Data tempelan' : phase.name} onSave={onSave} onCancel={onCancel}
-      canSave={st.rowsUsed > 0} readyText={`${fmt(st.rowsUsed)} baris semen retail siap disimpan.`}>
+      canSave={st.rowsUsed > 0} readyText={`${fmt(st.rowsUsed)} baris semen siap disimpan.`}>
       <div className="upl-facts">
         <div>
           <div className="card-title">Periode di file</div>
@@ -94,7 +95,7 @@ function J073Preview({ phase, peta, onSave, onCancel, onDateOrder }: {
         <div>
           <div className="card-title">Baris dipakai</div>
           <div className="upl-fact">{fmt(st.rowsUsed)} <span className="upl-of">dari {fmt(st.rowsRead)}</span></div>
-          <div className="upl-sub">Semen & white cement, retail</div>
+          <div className="upl-sub">Semen & white cement{st.proyek > 0 ? ` · ${fmt(st.proyek)} proyek (hanya Ongkos Kirim)` : ''}</div>
         </div>
         <div>
           <div className="card-title">Tonase</div>
@@ -103,8 +104,8 @@ function J073Preview({ phase, peta, onSave, onCancel, onDateOrder }: {
         </div>
         <div>
           <div className="card-title">Tidak dipakai</div>
-          <div className="upl-fact">{fmt(st.skippedProduk + st.skippedRetail)}</div>
-          <div className="upl-sub">{fmt(st.skippedProduk)} bukan semen · {fmt(st.skippedRetail)} bukan retail</div>
+          <div className="upl-fact">{fmt(st.skippedProduk)}</div>
+          <div className="upl-sub">Bukan semen / white cement</div>
         </div>
       </div>
 
@@ -145,6 +146,9 @@ function J073Preview({ phase, peta, onSave, onCancel, onDateOrder }: {
 
         <div className="flex flex-col gap-3">
           <DateOrderNote info={st.dateOrder} onSwitch={onDateOrder} disabled={phase.kind === 'saving'} />
+          {!st.kolomKirim && (
+            <Note tone="info">File ini tidak punya kolom pengiriman (Delivery Type, Delivery Price). Sell Out tetap terisi, tapi halaman Ongkos Kirim tidak bisa menghitung ongkos yang ditagih ke toko untuk periode ini.</Note>
+          )}
           <Note tone="warn">
             Data J073 {dists.map(distLabel).join(' dan ')} pada <b>{range}</b> akan <b>diganti</b> dengan isi file ini. Tanggal di luar rentang itu tidak berubah.
           </Note>
