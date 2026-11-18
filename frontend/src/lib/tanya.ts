@@ -7,6 +7,7 @@
 ============================================================================ */
 import type { Row } from './types';
 import { analisis } from './tanyaAnalisis';
+import { jawabSales } from './tanyaSales';
 
 export type Metrik = 'omzet' | 'tonase' | 'do' | 'ta' | 'sellin' | 'stok';
 export type Dimensi = 'bulan' | 'dist' | 'jenis' | 'region' | null;
@@ -20,6 +21,7 @@ export interface TanyaCtx {
   dists: { code: string; name: string; wilayah: string }[];
   sellin: Row[] | null;  // v_sellin_bnn_daily (null = tidak punya akses)
   stok: Row[] | null;    // v_stock_harian (null = tidak punya akses / belum ada)
+  sales: Row[] | null;   // v_salesman_performance (null = tidak punya akses Tim Sales)
   /** Semua toko terdaftar satu bulan (dashboard_toko_monthly_v2): zona, is_active, is_subdist, total_qty, last_transaction. */
   tokoBulan: (year: number, month: number, dist: string | null) => Promise<Row[]>;
   topToko: (dist: string | null, from: string, to: string, productCodes: string[] | null, limit: number) => Promise<Row[]>;
@@ -33,6 +35,7 @@ export interface Jawaban {
   chart?: { labels: string[]; values: number[]; garis?: boolean; satuan: string };
   catatan: string[];
   link?: { to: string; label: string };
+  saran?: string[];                // pertanyaan contoh yang mirip (kalau tidak dikenali)
 }
 
 export const BULAN = ['', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -74,6 +77,7 @@ export const CONTOH: { grup: string; items: string[] }[] = [
     'Daerah mana yang bisa dikembangkan PKB untuk menambah toko aktif?', 'Toko mana yang berhenti order di NSA?', 'Kenapa tonase PKB turun?',
     'Distributor mana yang perlu perhatian?', 'Bagaimana kinerja BMM bulan lalu?',
   ] },
+  { grup: 'Salesman', items: ['Siapa salesman paling konsisten tahun ini?', 'Salesman omzet tertinggi PKB bulan ini', 'Salesman mana yang belum capai target?', 'Berapa jumlah salesman INSA?'] },
   { grup: 'Sell in & stok', items: ['Sell in Riau bulan ini', 'Region mana sell in tertinggi tahun ini?', 'Stok semen per region', 'Stok Rajawali Lampung'] },
 ];
 
@@ -258,7 +262,7 @@ function susun(p: Paham, baris: Baris[], konteks: string, catatan: string[], pah
 }
 
 export async function jawab(tanya: string, ctx: TanyaCtx): Promise<Jawaban> {
-  const bersih = tanya.trim();
+  const bersih = perbaikiEjaan(tanya.trim());
   if (bersih.length < 3) return { ok: false, paham: [], teks: 'Tulis pertanyaannya dulu, misalnya "bulan apa omzet tertinggi PKB".', catatan: [] };
   const ym = ctx.trx.reduce((a, r) => Math.max(a, Number(r.year) * 100 + Number(r.month)), 0);
   if (!ym) return { ok: false, paham: [], teks: 'Data transaksi belum tersedia.', catatan: [] };
@@ -271,6 +275,10 @@ export async function jawab(tanya: string, ctx: TanyaCtx): Promise<Jawaban> {
   const catatan: string[] = [];
   const namaDist = (c: string) => c;
 
+  // pertanyaan tentang salesman (konsisten, tertinggi, capai target, jumlah)
+  const s = jawabSales(p, ctx.sales, akhir);
+  if (s) return s;
+
   // pertanyaan analisis (potensi daerah, toko berhenti order, kenapa naik/turun, perlu perhatian, ringkasan kinerja)
   const a = await analisis(p, c2, akhir);
   if (a) return a;
@@ -278,7 +286,7 @@ export async function jawab(tanya: string, ctx: TanyaCtx): Promise<Jawaban> {
   // tidak ada satu pun yang dikenali -> jangan mengarang
   const kenal = !p.metrikTersirat || p.dists.length || p.regions.length || p.jenis || p.bulanDisebut || p.tahunDisebut || p.topToko;
   if (!kenal || (p.metrikTersirat && !p.dimensi && !p.urut && !p.topToko && !p.dists.length)) {
-    return { ok: false, paham: [], teks: 'Saya belum bisa memahami pertanyaan itu. Sebutkan apa yang ingin dilihat (omzet, tonase, toko aktif, DO, sell in, atau stok), boleh ditambah distributor, jenis semen, dan bulannya.', catatan: [] };
+    return { ok: false, paham: [], teks: 'Saya belum bisa memahami pertanyaan itu. Sebutkan apa yang ingin dilihat (omzet, tonase, toko aktif, DO, salesman, sell in, atau stok), boleh ditambah distributor, jenis semen, dan bulannya. Mungkin maksudnya salah satu ini:', catatan: [], saran: mirip(bersih) };
   }
   if (p.metrikTersirat) catatan.push('Metrik tidak disebut, jadi dipakai omzet.');
 
@@ -420,4 +428,36 @@ export async function jawab(tanya: string, ctx: TanyaCtx): Promise<Jawaban> {
   if (p.tahun === akhir.y && set.has(akhir.m) && kini.getUTCFullYear() === akhir.y && kini.getUTCMonth() + 1 === akhir.m)
     catatan.push(`Bulan ${BULAN[akhir.m]} ${akhir.y} masih berjalan, angkanya belum sebulan penuh.`);
   return susun(p2, [...map.values()], konteks, catatan, paham, link);
+}
+
+/* ---------------- toleransi salah ketik dan pertanyaan mirip ---------------- */
+const KAMUS = ['omzet', 'tonase', 'toko', 'aktif', 'salesman', 'distributor', 'tertinggi', 'terendah', 'terbanyak', 'terbesar', 'terkecil', 'konsisten',
+  'kenapa', 'mengapa', 'berhenti', 'dikembangkan', 'potensi', 'perhatian', 'kinerja', 'ringkasan', 'bandingkan', 'dibanding', 'target', 'capai',
+  'januari', 'februari', 'maret', 'april', 'juni', 'juli', 'agustus', 'september', 'oktober', 'november', 'desember', 'bulan', 'tahun', 'semester',
+  'kuartal', 'rajawali', 'semen', 'putih', 'stok', 'region', 'daerah', 'zona', 'wilayah', 'transaksi', 'tumbuh', 'turun', 'naik', 'bagaimana',
+  'pelanggan', 'customer', 'jumlah', 'berapa', 'paling', 'menambah', 'meningkatkan'];
+function jarak(a: string, b: string) {
+  if (Math.abs(a.length - b.length) > 2) return 9;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+/** Kata panjang yang mirip kata kunci (beda 1 huruf, atau 2 huruf untuk kata 8+ huruf) diganti kata kuncinya: "tonasse" -> "tonase". */
+export function perbaikiEjaan(t: string) {
+  return t.replace(/[A-Za-z]{5,}/g, w => {
+    const k = w.toLowerCase();
+    if (KAMUS.includes(k)) return w;
+    let best = '', bd = 9;
+    KAMUS.forEach(c => { const d = jarak(k, c); if (d < bd) { bd = d; best = c; } });
+    return bd <= (k.length >= 8 ? 2 : 1) ? best : w;
+  });
+}
+const kata = (t: string) => new Set(t.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2));
+/** Tiga contoh pertanyaan dengan kata yang paling banyak sama. */
+export function mirip(t: string): string[] {
+  const a = kata(t);
+  return CONTOH.flatMap(g => g.items).map(c => { const b = kata(c); let n = 0; b.forEach(w => a.has(w) && n++); return { c, n: n / Math.sqrt(b.size || 1) }; })
+    .sort((x, y) => y.n - x.n).slice(0, 3).map(x => x.c);
 }
