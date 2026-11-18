@@ -8,7 +8,7 @@ public static class AccessRules
 {
     public static readonly string[] DashboardPages =
     {
-        "overview", "tanya-data", "beranda", "sell-in-bnn", "outstanding-do", "sell-out-bnn", "stock", "rekap-harian", "tim-sales",
+        "overview", "tanya-data", "beranda", "sell-in-bnn", "outstanding-do", "sell-out-bnn", "stock", "ongkos-kirim", "rekap-harian", "tim-sales",
         "peta-toko", "daftar-toko", "transaksi-detail", "toko-detail",
     };
 
@@ -63,6 +63,7 @@ public static class AccessRules
         "v_sellout_bnn_monthly", "v_sellout_bnn_peta", "v_sellout_bnn_ta", "v_target_sell_in", "v_target_sell_out",
         "v_outstanding_do", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_sellin_po_bulanan",
         "v_stock_semen", "v_stock_harian", "v_stock_info", "stock_daerah", "v_toko_aktif_bulanan", "v_penjualan_toko_bulanan", "v_penjualan_toko_dist_bulanan", "v_toko_baru", "v_salesman_baru",
+        "v_ongkos_info", "v_ongkos_trip", "v_ongkos_do",
     };
 
     /// <summary>Tabel di atas yang punya kolom dist_code -> filter distributor DIPAKSA server untuk spv/sales.</summary>
@@ -108,6 +109,9 @@ public static class AccessRules
         ["v_penjualan_toko_dist_bulanan"] = "sementrack.v_penjualan_toko_dist_bulanan",
         ["v_toko_baru"] = "sementrack.v_toko_baru",           // toko_sales_baru.sql (Kelola Data, admin)
         ["v_salesman_baru"] = "sementrack.v_salesman_baru",
+        ["v_ongkos_info"] = "sementrack.v_ongkos_info",       // ongkos_kirim.sql
+        ["v_ongkos_trip"] = "sementrack.v_ongkos_trip",
+        ["v_ongkos_do"] = "sementrack.v_ongkos_do",
     };
 
     /// <summary>Fungsi yang versi barunya ada di schema sementrack.</summary>
@@ -168,6 +172,7 @@ public static class AccessRules
         ["outstanding-do"] = new(new[] { "v_outstanding_do", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_sellin_po_bulanan", "v_target_sell_in" }, Array.Empty<string>()),
         ["sell-out-bnn"] = new(new[] { "v_sellout_bnn_monthly", "v_sellout_bnn_peta", "v_sellout_bnn_ta", "v_target_sell_out" }, Array.Empty<string>()),
         ["stock"] = new(new[] { "v_stock_semen", "v_stock_harian", "v_stock_info" }, Array.Empty<string>()),
+        ["ongkos-kirim"] = new(new[] { "v_ongkos_info", "v_ongkos_trip", "v_ongkos_do" }, Array.Empty<string>()),
         ["rekap-harian"] = new(new[] { "v_distributor_summary", "v_monthly_totals", "produk", "v_target_dist" }, new[] { "dashboard_daily_matrix" }),
         ["tim-sales"] = new(new[] { "v_salesman_performance", "distributor_target_salesman" }, Array.Empty<string>()),
         ["peta-toko"] = new(new[] { "v_monthly_totals" }, new[] { "dashboard_toko_monthly_v2" }),

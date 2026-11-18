@@ -123,6 +123,12 @@ export const DataSource = {
   stockHarian: () => getData('stock:harian', () => apiGetAll('v_stock_harian', '?select=*&order=tanggal.asc,region.asc,jenis.asc')),
   stockTanggal: (tanggal: string[]) => getData(`stock:tgl:${tanggal.join(',')}`, () =>
     apiGetAll('v_stock_semen', `?select=*&tanggal=in.(${tanggal.map(enc).join(',')})&order=urutan.asc,daerah.asc,produk.asc`)),
+  /** Ongkos kirim ke toko (ORDB019 + J073): bulan x distributor yang tersedia, perjalanan, dan DO pada filter. */
+  ongkosInfo: () => getData('ongkos:info', () => apiGetAll('v_ongkos_info', '?select=*&order=periode.desc,dist_code.asc')),
+  ongkosTrip: (dists: string[] | null, dari: string, sampai: string) => getData(`ongkos:trip:${dists?.join(',') || '*'}:${dari}:${sampai}`, () =>
+    apiGetAll('v_ongkos_trip', `?select=*&periode=gte.${dari}&periode=lte.${sampai}${dists ? `&dist_code=in.(${dists.map(enc).join(',')})` : ''}&order=dist_code.asc,periode.asc,foad.asc`)),
+  ongkosDo: (dists: string[] | null, dari: string, sampai: string) => getData(`ongkos:do:${dists?.join(',') || '*'}:${dari}:${sampai}`, () =>
+    apiGetAll('v_ongkos_do', `?select=*&periode=gte.${dari}&periode=lte.${sampai}${dists ? `&dist_code=in.(${dists.map(enc).join(',')})` : ''}&order=dist_code.asc,periode.asc,do_no.asc`)),
   /** Daftar order outstanding sesuai filter. limit = null: semua (untuk unduhan). */
   outstandingList: (f: { regions?: string[]; distributor?: string; semen?: string; status: string[] }, limit: number | null) => {
     const q = [`status=in.(${f.status.map(enc).join(',')})`];

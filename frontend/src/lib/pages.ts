@@ -13,6 +13,7 @@ const ICONS = {
   outstanding: '<rect x="3.5" y="5" width="17" height="14" rx="1.2"/><path d="M3.5 9.5h17"/><path d="M12 12.5v3l2 1.2"/>',
   daftar: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01" stroke-width="2.6"/>',
   stock: '<path d="M3.5 9.5 12 5l8.5 4.5V20h-17V9.5Z"/><path d="M7.5 20v-6h9v6M7.5 16.5h9"/>',
+  truk: '<path d="M2.5 6.5h11v9h-11z"/><path d="M13.5 9.5h4l3 3.2v2.8h-7"/><circle cx="6.5" cy="17" r="1.8"/><circle cx="16.5" cy="17" r="1.8"/>',
 };
 
 export const NAV_GROUPS = [
@@ -30,8 +31,9 @@ export const NAV_GROUPS = [
     { id: 'rekap-harian', label: 'Rekap Harian', icon: ICONS.rekap },
     { id: 'tim-sales', label: 'Tim Sales', icon: ICONS.timsales },
   ] },
-  { label: 'Stock', items: [
+  { label: 'Logistik', items: [
     { id: 'stock', label: 'Stock Semen', icon: ICONS.stock },
+    { id: 'ongkos-kirim', label: 'Ongkos Kirim', icon: ICONS.truk },
   ] },
   { label: 'Customer', items: [
     { id: 'daftar-toko', label: 'Daftar Toko', icon: ICONS.daftar },

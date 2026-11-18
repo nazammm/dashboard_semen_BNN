@@ -21,6 +21,7 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 14_penjualan_toko_tanpa_subdist.sql | Penjualan Toko dan Tanya Data tanpa subdist: fungsi *_range menyaring subdist, dua view bulanan baru | query cek di akhir skrip |
 | 15_salesman_tanpa_target.sql | Tim Sales: salesman yang ada di transaksi tapi belum punya target ikut tampil (status Tanpa target) | query cek di akhir skrip |
 | 16_toko_sales_baru.sql | Kelola Data → Toko & sales baru: view toko yang baru order dan salesman baru / tanpa target | query cek di akhir skrip |
+| 17_ongkos_kirim.sql | Ongkos Kirim: J073 dengan kolom pengiriman (semua distributor, retail + proyek), tabel ORDB019, view per perjalanan / DO, hak halaman | `SELECT * FROM sementrack.v_ongkos_info` |
 
 ## Untuk tahap 5 (backend)
 

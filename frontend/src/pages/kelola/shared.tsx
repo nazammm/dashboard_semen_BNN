@@ -188,12 +188,12 @@ export function useImport<R extends ImportResult>(dataset: Dataset) {
 /* ---------------------------------------------------------------------------
    Langkah 1: pilih file atau tempel dari Excel
 --------------------------------------------------------------------------- */
-export function SourcePicker({ reading, onFile, onFiles, onText, onCancel, fileHint, pastePlaceholder, id }: {
+export function SourcePicker({ reading, onFile, onFiles, onText, onCancel, fileHint, pastePlaceholder, id, accept = '.xlsx,.csv,.tsv,.txt' }: {
   reading: { name: string; size: number; progress: number } | null;
   onFile: (f: File | undefined | null) => void; onText: (t: string) => void; onCancel: () => void;
   /** Kalau diisi, boleh memilih / menarik beberapa file sekaligus. */
   onFiles?: (f: File[]) => void;
-  fileHint: string; pastePlaceholder: string; id: string;
+  fileHint: string; pastePlaceholder: string; id: string; accept?: string;
 }) {
   const kirim = (list: FileList | null | undefined) => (onFiles ? onFiles(Array.from(list || [])) : onFile(list?.[0]));
   const [source, setSource] = useState<Source>('file');
@@ -231,7 +231,7 @@ export function SourcePicker({ reading, onFile, onFiles, onText, onCancel, fileH
             <div className="text-[12.5px] text-soft mt-1">atau</div>
             <button type="button" className="btn btn-primary mt-2.5" onClick={() => fileInput.current?.click()}>Pilih file</button>
             <div className="text-[12px] text-faint mt-3 max-w-[460px]">{fileHint} Maks {MAX_FILE_MB} MB.</div>
-            <input ref={fileInput} type="file" accept=".xlsx,.csv,.tsv,.txt" multiple={!!onFiles} className="sr-only" tabIndex={-1} aria-hidden="true"
+            <input ref={fileInput} type="file" accept={accept} multiple={!!onFiles} className="sr-only" tabIndex={-1} aria-hidden="true"
               onChange={e => { kirim(e.target.files); e.target.value = ''; }} />
           </div>
         ) : (

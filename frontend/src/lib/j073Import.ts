@@ -1,6 +1,9 @@
 /* ============================================================================
-   Import J073 (transaksi warehouse INSA & PKB) untuk Sell Out BNN.
-   Yang dipakai hanya Product Category SEMEN / WHITE CEMENT dan Cust Group RETAIL.
+   Import J073 (transaksi warehouse per distributor) untuk Sell Out BNN dan Ongkos Kirim.
+   Yang dipakai hanya Product Category SEMEN / WHITE CEMENT. Cust group selain RETAIL (proyek) ikut
+   disimpan untuk Ongkos Kirim; Sell Out BNN hanya membaca RETAIL.
+   Kolom pengiriman (Delivery Type, Zone Pengiriman, Delivery Price, ...) dipakai halaman Ongkos Kirim
+   dan boleh tidak ada (file lama).
    Pembagian ke baris Sell Out BNN (INSA, INSA-E, INSA - ACEH, PKB, Dumai-PKB, Dumai-Patent)
    dilakukan di database (sementrack.sellout_j073_aturan), bukan di sini.
    Murni (tanpa DOM) supaya bisa jalan di Web Worker dan diuji di Node.
@@ -19,13 +22,24 @@ const COLS = [
   { key: 'order_qty', header: 'Order Qty', required: true },
   { key: 'net_amount', header: 'Net Amount', alias: ['tdNetAmount'], required: true },
   { key: 'warehouse', header: 'Warehouse', required: true },
+  // pengiriman (opsional): harga per unit (zak)
+  { key: 'delivery_type', header: 'Delivery Type', alias: ['tdDeliveryType'] },
+  { key: 'zona_kirim', header: 'Zone Pengiriman', alias: ['Zona Pengiriman', 'tdZonePengiriman'] },
+  { key: 'harga_kirim', header: 'Delivery Price', alias: ['tdDeliveryPrice'] },
+  { key: 'diskon_kirim', header: 'Delivery Discount Price', alias: ['tdDeliveryDiscountPrice'] },
+  { key: 'tambah_kirim', header: 'Delivery Add Price', alias: ['tdDeliveryAddPrice'] },
+  { key: 'handling', header: 'Handling Cost', alias: ['tdHandlingCost'] },
+  { key: 'qty_kirim', header: 'Qty Delivery', alias: ['tdQtyDelivery'] },
+  { key: 'kecamatan', header: 'kecamatan' },
+  { key: 'kabupaten', header: 'kabupaten' },
+  { key: 'cust_group', header: 'Cust Group', required: true },
   // hanya untuk saringan, tidak dikirim
   { key: 'category', header: 'Product Category', required: true },
-  { key: 'cust_group', header: 'Cust Group', required: true },
   { key: 'dist_name', header: 'Distributor Name' },
 ] as const;
 type Key = (typeof COLS)[number]['key'];
-const SENT = 10;   // 10 kolom pertama dikirim ke server
+const KIRIM: Key[] = ['delivery_type', 'zona_kirim', 'harga_kirim', 'diskon_kirim', 'tambah_kirim', 'handling', 'qty_kirim', 'kecamatan', 'kabupaten'];
+const ANGKA_KIRIM = new Set<Key>(['harga_kirim', 'diskon_kirim', 'tambah_kirim', 'handling', 'qty_kirim']);
 
 export const J073_CATEGORIES = ['SEMEN', 'WHITE CEMENT'];
 export type J073Row = (string | number | null)[];
@@ -34,7 +48,8 @@ export interface J073Stats {
   rowsRead: number;
   rowsUsed: number;
   skippedProduk: number;      // bukan semen / white cement
-  skippedRetail: number;      // cust group selain RETAIL
+  proyek: number;             // cust group selain RETAIL: disimpan untuk Ongkos Kirim, tidak masuk Sell Out
+  kolomKirim: boolean;        // file punya kolom pengiriman (Delivery Type / Delivery Price)
   invalid: number;
   issues: { row: number; reason: string }[];
   dateFrom: string | null;
@@ -55,7 +70,7 @@ export const j073Ton = (qty: number, productName: unknown) => qty * kgPerZak(pro
 
 export class J073Collector implements RowCollector<J073ParseResult> {
   rows: J073Row[] = [];
-  stats: J073Stats = { rowsRead: 0, rowsUsed: 0, skippedProduk: 0, skippedRetail: 0, invalid: 0, issues: [], dateFrom: null, dateTo: null, ton: 0, distNames: {}, groups: [], byMonth: {} };
+  stats: J073Stats = { rowsRead: 0, rowsUsed: 0, skippedProduk: 0, proyek: 0, kolomKirim: false, invalid: 0, issues: [], dateFrom: null, dateTo: null, ton: 0, distNames: {}, groups: [], byMonth: {} };
   private cols: number[] = [];
   private missing: string[] = [];
   private ready = false;
@@ -77,6 +92,8 @@ export class J073Collector implements RowCollector<J073ParseResult> {
     this.cols = COLS.map(c => [c.header, ...('alias' in c ? c.alias : [])].map(h => idx.get(normHeader(h))).find(i => i != null) ?? -1);
     this.missing = COLS.filter((c, i) => 'required' in c && c.required && this.cols[i] < 0).map(c => c.header);
     this.ready = this.missing.length === 0;
+    const at = (k: Key) => this.cols[COLS.findIndex(c => c.key === k)];
+    this.stats.kolomKirim = at('delivery_type') >= 0 && at('harga_kirim') >= 0;
     return this.ready;
   }
 
@@ -92,7 +109,7 @@ export class J073Collector implements RowCollector<J073ParseResult> {
     const st = this.stats;
     st.rowsRead++;
     if (!J073_CATEGORIES.includes(up(get('category')))) { st.skippedProduk++; return; }
-    if (up(get('cust_group')) !== 'RETAIL') { st.skippedRetail++; return; }
+    const grup = up(get('cust_group'));
 
     const rawDate = get('do_date');
     this.dates.note(rawDate);
@@ -113,7 +130,13 @@ export class J073Collector implements RowCollector<J073ParseResult> {
     if (isAmbiguousDate(rawDate)) this.recheck.push([this.rows.length, String(rawDate)]);
     const name = String(get('product_name') ?? '').trim();
     const out: J073Row = [dist, tgl, doNo, cust, String(get('customer_name') ?? '').trim() || null, prod, name || null, qty, net, up(get('warehouse')) || null];
-    this.rows.push(out.slice(0, SENT));
+    for (const k of KIRIM) {
+      const v = get(k);
+      out.push(ANGKA_KIRIM.has(k) ? (v == null || ['', '-'].includes(String(v).trim()) ? null : this.angka(v)) : String(v ?? '').trim() || null);
+    }
+    out.push(grup || null);
+    if (grup !== 'RETAIL') st.proyek++;
+    this.rows.push(out);
     this.tons.push(j073Ton(qty!, name));
     st.rowsUsed++;
     if (!(dist in st.distNames) && get('dist_name')) st.distNames[dist] = String(get('dist_name')).trim();
