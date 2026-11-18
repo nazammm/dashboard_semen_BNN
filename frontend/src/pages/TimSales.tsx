@@ -4,7 +4,7 @@ import { DataSource } from '../lib/data';
 import { useAuth } from '../lib/auth';
 import { useAsync, useDebounced, useDocTitle, useSort } from '../lib/hooks';
 import { COLORS, MONTHS_ID, capaianClass, chartSRSummary, fmt, fmtIDRCompact, pct } from '../lib/format';
-import { hariBerjalan } from '../lib/salesman';
+import { hariBerjalan, isSalesCounter } from '../lib/salesman';
 import type { Row } from '../lib/types';
 import { Badge, Capaian, CellLink, ChartBox, Chip, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th } from '../components/ui';
 
@@ -49,7 +49,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
   // bulan masih berjalan: tetap dibandingkan dengan target sebulan penuh, hanya diberi keterangan
   const hari = hariBerjalan(year, month, freshnessData?.max_do_date);
   const list = useMemo<Sales[]>(() => rows.filter(r =>
-    Number(r.month) === month && (dist === 'all' || r.dist_code === dist) && (r.status === 'Sales Real' || r.status === 'Tanpa target')
+    Number(r.month) === month && (dist === 'all' || r.dist_code === dist) && (r.status === 'Sales Real' || r.status === 'Tanpa target') && !isSalesCounter(r)
   ).map(r => {
     const capaian_ta = pct(r.actual_ta, r.target_ta) ?? -1;
     const capaian_tonase = pct(r.actual_tonase, r.target_tonase) ?? -1;

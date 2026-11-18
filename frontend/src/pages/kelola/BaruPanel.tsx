@@ -13,6 +13,7 @@ import { useAsync } from '../../lib/hooks';
 import type { Row } from '../../lib/types';
 import { Badge, CellLink, Chip, ErrorBox, Select, TableWrap } from '../../components/ui';
 import { exportRowsToExcel } from '../../lib/xlsx';
+import { isSalesCounter } from '../../lib/salesman';
 
 const tgl = (v: unknown) => String(v ?? '').slice(0, 10);
 const kosong = (v: unknown) => { const s = String(v ?? '').replace(/[\s-]/g, ''); return !s || s === '0'; };
@@ -48,7 +49,7 @@ export function BaruPanel({ dataSampai }: { dataSampai: string | null }) {
     });
   }, [data, jenis, q]);
   const sales = useMemo(() => {
-    const all = (data?.sales || []).filter(r => tgl(r.first_do) <= to);
+    const all = (data?.sales || []).filter(r => tgl(r.first_do) <= to && !isSalesCounter(r));
     const baru = all.filter(r => tgl(r.first_do) >= from);
     // salesman lama yang masih bertransaksi sejak bulan ini tetapi targetnya belum sampai bulan ini
     const tanpa = all.filter(r => tgl(r.first_do) < from && (r.target_terakhir == null || Number(r.target_terakhir) < ym));

@@ -10,6 +10,9 @@
 ============================================================================ */
 import type { Row } from './types';
 
+/** Akun penjualan counter / retail (bukan salesman lapangan): tidak ditampilkan di Tim Sales. */
+export const isSalesCounter = (r: { salesman_name?: unknown; salesman_code?: unknown }) => /\bCOUNTER\b/i.test(String(r.salesman_name ?? ''));
+
 export type KelompokId = 'capai' | 'sebagian' | 'dekat' | 'tertinggal' | 'tanpa';
 export const KELOMPOK: { id: KelompokId; label: string; variant: 'good' | 'online' | 'warn' | 'bad' | 'neutral'; ket: string }[] = [
   { id: 'capai', label: 'Capai target', variant: 'good', ket: 'Semua targetnya minimal 100%' },

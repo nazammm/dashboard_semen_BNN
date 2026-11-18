@@ -25,13 +25,14 @@ export default function TanyaData() {
   const input = useRef<HTMLInputElement>(null);
 
   const load = useAsync(async () => {
-    const [trx, distM, allM, ta, dists, sellin, stok] = await Promise.all([
+    const [trx, distM, allM, ta, dists, sellin, stok, sales] = await Promise.all([
       DataSource.penjualanTokoBulanan(), DataSource.penjualanTokoDistBulanan(), DataSource.monthlyTotals(), DataSource.tokoAktifBulanan(), DataSource.distributors(),
       pageAllowed('sell-in-bnn') ? opt(DataSource.sellinDaily()) : Promise.resolve(null),
       pageAllowed('stock') ? opt(DataSource.stockHarian()) : Promise.resolve(null),
+      pageAllowed('tim-sales') ? opt(DataSource.salesman()) : Promise.resolve(null),
     ]);
     const ctx: TanyaCtx = {
-      trx, distM, allM, ta, sellin, stok,
+      trx, distM, allM, ta, sellin, stok, sales,
       dists: dists.map((d: Row) => ({ code: String(d.dist_code), name: String(d.dist_name || ''), wilayah: String(d.wilayah || '') })),
       // semua toko satu bulan (tersimpan di cache per bulan), disaring distributor di browser
       tokoBulan: async (y, m, dist) => (await DataSource.tokoMonthly(y, m)).filter((r: Row) => !dist || r.dist_code === dist),
@@ -130,7 +131,7 @@ function Kartu({ it, onPilih }: { it: Item; onPilih: (t: string) => void }) {
           <div className="mt-3">
             <p className="text-[14px] text-soft">{j.teks}</p>
             <div className="flex flex-wrap gap-1.5 mt-3">
-              {CONTOH.flatMap(g => g.items.slice(0, 1)).map(t => (
+              {(j.saran?.length ? j.saran : CONTOH.flatMap(g => g.items.slice(0, 1))).map(t => (
                 <button key={t} type="button" className="text-[12.5px] rounded-full border border-line px-3 py-1 hover:border-accent" onClick={() => onPilih(t)}>{t}</button>
               ))}
             </div>

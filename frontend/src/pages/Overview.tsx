@@ -16,7 +16,7 @@ import {
 
 /* ============================================================================
    Overview: kondisi perusahaan dalam satu layar. Empat angka utama (sell in, sell out, toko aktif,
-   outstanding DO, plus stok semen kalau ada), satu baris per daerah.
+   outstanding DO, ), satu baris per daerah.
    Tanpa grafik: grafik ada di halaman detail masing-masing.
    Angka dihitung dengan aturan yang sama dengan halaman detailnya (lib/ringkasan.ts),
    jadi kartu di sini selalu sama dengan KPI di halaman Sell In BNN / Sell Out BNN.
@@ -143,16 +143,14 @@ function Body({ sellIn, sellOut, outstanding, stock, sources }: {
     const soBy = new Map<string, Bulanan>();
     so?.byRegion.forEach((b, n) => { const d = SO_KE_DAERAH[n] || n; soBy.set(d, b); names.add(d); });
     out?.byRegion.forEach((_, n) => names.add(n));
-    stock?.byDaerah.forEach((_, n) => names.add(n));
     const urut = (n: string) => { const i = REGION_ORDER.indexOf(n); return i < 0 ? 99 : i; };
     return [...names].sort((a, b) => urut(a) - urut(b) || a.localeCompare(b)).map(n => ({
       nama: n,
       si: si && si.byRegion.has(n) ? baris(si.byRegion.get(n)!, perSi, si.lastMonth, si.cutDay, si.Y, si.P) : null,
       so: so && soBy.has(n) ? baris(soBy.get(n)!, perSo, so.lastMonth, so.cutDay, so.Y, so.P) : null,
       os: out?.byRegion.get(n) || null,
-      st: stock?.byDaerah.get(n) || null,
-    })).filter(r => (r.si && (r.si.target || r.si.cur)) || (r.so && (r.so.target || r.so.cur)) || (r.os && r.os.ton > 0) || (r.st && r.st.ton > 0));
-  }, [si, so, out, stock, perSi.kind, perSo.kind]);   // eslint-disable-line react-hooks/exhaustive-deps
+    })).filter(r => (r.si && (r.si.target || r.si.cur)) || (r.so && (r.so.target || r.so.cur)) || (r.os && r.os.ton > 0));
+  }, [si, so, out, perSi.kind, perSo.kind]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // toko aktif bulan terakhir sell out (baris distributor, tanpa subdist)
   const ta = so?.ta ? { m: so.taMonth, day: so.taDay, cur: so.ta.cur[so.taMonth], target: so.ta.target[so.taMonth], prev: so.ta.prevSame[so.taMonth] } : null;
@@ -229,13 +227,11 @@ function Body({ sellIn, sellOut, outstanding, stock, sources }: {
                   <th colSpan={4} className="!text-center otb-sep">Sell in (ton){siLabel ? ` · ${siLabel}` : ''}</th>
                   <th colSpan={4} className="!text-center otb-sep">Sell out (ton){soLabel ? ` · ${soLabel}` : ''}</th>
                   <th colSpan={2} className="!text-center otb-sep">Outstanding DO (ton)</th>
-                  {stock && <th colSpan={2} className="!text-center otb-sep">Stok (ton) · {fmtDate(stock.tgl)}</th>}
                 </tr>
                 <tr>
                   <th className="num otb-sep">Target</th><th className="num">Realisasi</th><th className="num">Capaian</th><th className="num">vs {si?.P ?? so?.P ?? ''}</th>
                   <th className="num otb-sep">Target</th><th className="num">Realisasi</th><th className="num">Capaian</th><th className="num">vs {so?.P ?? si?.P ?? ''}</th>
                   <th className="num otb-sep">Belum terkirim</th><th className="num">Lewat estimasi</th>
-                  {stock && <><th className="num otb-sep">Stok</th><th className="num">{stock.prev ? `vs ${fmtDate(stock.prev)}` : 'Perubahan'}</th></>}
                 </tr>
               </thead>
               <tbody>
@@ -246,7 +242,6 @@ function Body({ sellIn, sellOut, outstanding, stock, sources }: {
                     <SelRingkas r={d.so} />
                     <td className="num font-mono otb-sep">{d.os && d.os.ton > 0 ? fmtTon(d.os.ton) : '–'}</td>
                     <td className={cx('num font-mono', d.os && d.os.lewat > 0 && 'text-red')}>{d.os && d.os.lewat > 0 ? fmtTon(d.os.lewat) : '–'}</td>
-                    {stock && <StokSel ton={d.st ? d.st.ton : null} prev={d.st ? d.st.prev : null} />}
                   </tr>
                 ))}
               </tbody>
@@ -258,7 +253,6 @@ function Body({ sellIn, sellOut, outstanding, stock, sources }: {
                     <SelRingkas r={soTot} />
                     <td className="num font-mono otb-sep">{out ? fmtTon(out.all.ton) : '–'}</td>
                     <td className={cx('num font-mono', out && out.all.lewat > 0 && 'text-red')}>{out && out.all.lewat > 0 ? fmtTon(out.all.lewat) : '–'}</td>
-                    {stock && <StokSel ton={stock.ton} prev={stock.tonPrev} />}
                   </tr>
                 </tfoot>
               )}
@@ -300,15 +294,6 @@ function periodLabel(per: Periode, Y: number, lastMonth: number, cutDay: number)
   return fmtRange({ from: toISO(Y, m0, 1), to: toISO(Y, lastMonth, cutDay) });
 }
 
-function StokSel({ ton, prev }: { ton: number | null; prev: number | null }) {
-  const d = ton != null && prev != null ? ton - prev : null;
-  return (
-    <>
-      <td className="num font-mono otb-sep">{ton ? fmtTon(ton) : '–'}</td>
-      <td className={cx('num font-mono', d != null && d > 0.05 && 'text-green', d != null && d < -0.05 && 'text-red')}>{d != null ? fmtSelisih(d) : '–'}</td>
-    </>
-  );
-}
 
 const IKON: Record<string, string> = {
   sellin: '<rect x="3.5" y="12.5" width="7.5" height="7" rx=".6"/><rect x="13" y="12.5" width="7.5" height="7" rx=".6"/><rect x="8.25" y="4.5" width="7.5" height="7" rx=".6"/>',
