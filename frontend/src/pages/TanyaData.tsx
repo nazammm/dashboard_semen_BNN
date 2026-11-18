@@ -33,6 +33,8 @@ export default function TanyaData() {
     const ctx: TanyaCtx = {
       trx, distM, allM, ta, sellin, stok,
       dists: dists.map((d: Row) => ({ code: String(d.dist_code), name: String(d.dist_name || ''), wilayah: String(d.wilayah || '') })),
+      // semua toko satu bulan (tersimpan di cache per bulan), disaring distributor di browser
+      tokoBulan: async (y, m, dist) => (await DataSource.tokoMonthly(y, m)).filter((r: Row) => !dist || r.dist_code === dist),
       topToko: (dist, from, to, kode, limit) => topCustomersRange(dist, { from, to }, kode, limit),
     };
     return ctx;
@@ -148,7 +150,7 @@ function Kartu({ it, onPilih }: { it: Item; onPilih: (t: string) => void }) {
                   const c = j.chart!, garis = !!c.garis, datar = !garis && c.labels.length > 6;
                   return {
                     type: garis ? 'line' : 'bar',
-                    data: { labels: c.labels, datasets: [{ label: c.satuan, data: c.values, borderColor: COLORS.accent, backgroundColor: garis ? COLORS.accent : COLORS.accent,
+                    data: { labels: c.labels, datasets: [{ label: c.satuan, data: c.values, borderColor: COLORS.accent, backgroundColor: garis ? COLORS.accent : c.values.map(v => (v < 0 ? COLORS.red : COLORS.accent)),
                       borderWidth: garis ? 2.2 : 0, pointRadius: garis ? 3 : 0, tension: 0.25, borderRadius: 3, maxBarThickness: 34 }] },
                     options: {
                       responsive: true, maintainAspectRatio: false, indexAxis: datar ? 'y' : 'x',
