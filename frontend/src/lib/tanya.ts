@@ -6,10 +6,11 @@
    Murni fungsi (tanpa React / fetch) supaya bisa diuji; pengambilan top toko disuntikkan lewat ctx.
 ============================================================================ */
 import type { Row } from './types';
+import { analisis } from './tanyaAnalisis';
 
 export type Metrik = 'omzet' | 'tonase' | 'do' | 'ta' | 'sellin' | 'stok';
 export type Dimensi = 'bulan' | 'dist' | 'jenis' | 'region' | null;
-type Jenis = 'STR' | 'RJW' | 'CWC';
+export type Jenis = 'STR' | 'RJW' | 'CWC';
 
 export interface TanyaCtx {
   trx: Row[];            // v_penjualan_toko_bulanan (tanpa subdist): year, month, dist_code, product_code, total_qty, net_amount, num_do
@@ -19,6 +20,8 @@ export interface TanyaCtx {
   dists: { code: string; name: string; wilayah: string }[];
   sellin: Row[] | null;  // v_sellin_bnn_daily (null = tidak punya akses)
   stok: Row[] | null;    // v_stock_harian (null = tidak punya akses / belum ada)
+  /** Semua toko terdaftar satu bulan (dashboard_toko_monthly_v2): zona, is_active, is_subdist, total_qty, last_transaction. */
+  tokoBulan: (year: number, month: number, dist: string | null) => Promise<Row[]>;
   topToko: (dist: string | null, from: string, to: string, productCodes: string[] | null, limit: number) => Promise<Row[]>;
 }
 
@@ -32,30 +35,30 @@ export interface Jawaban {
   link?: { to: string; label: string };
 }
 
-const BULAN = ['', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-const BLN = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+export const BULAN = ['', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+export const BLN = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const POLA_BULAN: [RegExp, number][] = [
   [/\b(januari|jan)\b/, 1], [/\b(februari|pebruari|feb|peb)\b/, 2], [/\b(maret|mar)\b/, 3], [/\b(april|apr)\b/, 4],
   [/\b(mei|may)\b/, 5], [/\b(juni|jun)\b/, 6], [/\b(juli|jul)\b/, 7], [/\b(agustus|agu|ags|agt|aug)\b/, 8],
   [/\b(september|sept|sep)\b/, 9], [/\b(oktober|okt|oct)\b/, 10], [/\b(november|nopember|nov|nop)\b/, 11], [/\b(desember|des|dec)\b/, 12],
 ];
-const JENIS_LABEL: Record<Jenis, string> = { STR: 'Tiga Roda', RJW: 'Rajawali', CWC: 'Semen putih' };
-const METRIK_LABEL: Record<Metrik, string> = { omzet: 'Omzet', tonase: 'Tonase', do: 'Jumlah DO', ta: 'Toko aktif', sellin: 'Sell in', stok: 'Stok' };
-const jenisProduk = (code: unknown): Jenis => { const c = String(code ?? '').toUpperCase(); return c.startsWith('RJW') ? 'RJW' : c.startsWith('CWC') ? 'CWC' : 'STR'; };
+export const JENIS_LABEL: Record<Jenis, string> = { STR: 'Tiga Roda', RJW: 'Rajawali', CWC: 'Semen putih' };
+export const METRIK_LABEL: Record<Metrik, string> = { omzet: 'Omzet', tonase: 'Tonase', do: 'Jumlah DO', ta: 'Toko aktif', sellin: 'Sell in', stok: 'Stok' };
+export const jenisProduk = (code: unknown): Jenis => { const c = String(code ?? '').toUpperCase(); return c.startsWith('RJW') ? 'RJW' : c.startsWith('CWC') ? 'CWC' : 'STR'; };
 const jenisNama = (nama: unknown): Jenis => { const c = String(nama ?? '').toUpperCase(); return /RAJAWALI|RJW/.test(c) ? 'RJW' : /\bWC\b|WHITE|PUTIH|CWC/.test(c) ? 'CWC' : 'STR'; };
 
-const nf = (n: number, d = 0) => n.toLocaleString('id-ID', { minimumFractionDigits: d, maximumFractionDigits: d });
-function rupiah(n: number) {
+export const nf = (n: number, d = 0) => n.toLocaleString('id-ID', { minimumFractionDigits: d, maximumFractionDigits: d });
+export function rupiah(n: number) {
   const a = Math.abs(n);
   if (a >= 1e12) return `Rp${nf(n / 1e12, 2)} triliun`;
   if (a >= 1e9) return `Rp${nf(n / 1e9, 2)} miliar`;
   if (a >= 1e6) return `Rp${nf(n / 1e6, 1)} juta`;
   return `Rp${nf(n)}`;
 }
-const tulis = (m: Metrik, v: number) =>
+export const tulis = (m: Metrik, v: number) =>
   m === 'omzet' ? rupiah(v) : m === 'tonase' || m === 'sellin' || m === 'stok' ? `${nf(v, v < 100 ? 1 : 0)} ton` : m === 'do' ? `${nf(v)} DO` : `${nf(v)} toko`;
-const persen = (a: number, b: number) => (b ? ((a - b) / Math.abs(b)) * 100 : null);
-const tulisPersen = (p: number | null) => (p == null ? '–' : `${p > 0 ? '+' : ''}${nf(p, 1)}%`);
+export const persen = (a: number, b: number) => (b ? ((a - b) / Math.abs(b)) * 100 : null);
+export const tulisPersen = (p: number | null) => (p == null ? '–' : `${p > 0 ? '+' : ''}${nf(p, 1)}%`);
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -67,11 +70,16 @@ export const CONTOH: { grup: string; items: string[] }[] = [
   { grup: 'Toko & DO', items: [
     'Toko aktif PM per bulan', 'Distributor mana toko aktif terbanyak bulan ini?', '10 toko terbesar PKB bulan ini', 'Jumlah DO INSA September',
   ] },
+  { grup: 'Analisis', items: [
+    'Daerah mana yang bisa dikembangkan PKB untuk menambah toko aktif?', 'Toko mana yang berhenti order di NSA?', 'Kenapa tonase PKB turun?',
+    'Distributor mana yang perlu perhatian?', 'Bagaimana kinerja BMM bulan lalu?',
+  ] },
   { grup: 'Sell in & stok', items: ['Sell in Riau bulan ini', 'Region mana sell in tertinggi tahun ini?', 'Stok semen per region', 'Stok Rajawali Lampung'] },
 ];
 
 /* ---------------- memahami pertanyaan ---------------- */
-interface Paham {
+export interface Paham {
+  q: string;   // pertanyaan yang sudah dinormalkan (huruf kecil, tanpa tanda baca)
   metrik: Metrik; metrikTersirat: boolean;
   dists: string[]; regions: string[]; jenis: Jenis | null;
   tahun: number; bulan: number[]; bulanDisebut: boolean; tahunDisebut: boolean;
@@ -178,7 +186,7 @@ function pahami(tanya: string, ctx: TanyaCtx, akhir: { y: number; m: number }, r
     else if (bulanDisebut && bulan.length === 2 && temu.length === 2) dimensi = 'bulan';      // "september dan oktober"
     else if (urut) dimensi = metrik === 'stok' ? 'region' : metrik === 'sellin' ? (regions.length ? 'bulan' : 'region') : (dists.length === 1 ? 'bulan' : 'dist');
   }
-  return { metrik, metrikTersirat: tersirat, dists: [...new Set(dists)], regions, jenis, tahun, bulan, bulanDisebut, tahunDisebut,
+  return { q, metrik, metrikTersirat: tersirat, dists: [...new Set(dists)], regions, jenis, tahun, bulan, bulanDisebut, tahunDisebut,
     dimensi, urut, tren, yoy: banding && dimensi !== 'dist' && dists.length < 2 || (banding && ada(/tahun lalu|\byoy\b|tahun sebelumnya/)), topToko };
 }
 
@@ -262,6 +270,10 @@ export async function jawab(tanya: string, ctx: TanyaCtx): Promise<Jawaban> {
   const p = pahami(bersih, c2, akhir, regionList);
   const catatan: string[] = [];
   const namaDist = (c: string) => c;
+
+  // pertanyaan analisis (potensi daerah, toko berhenti order, kenapa naik/turun, perlu perhatian, ringkasan kinerja)
+  const a = await analisis(p, c2, akhir);
+  if (a) return a;
 
   // tidak ada satu pun yang dikenali -> jangan mengarang
   const kenal = !p.metrikTersirat || p.dists.length || p.regions.length || p.jenis || p.bulanDisebut || p.tahunDisebut || p.topToko;

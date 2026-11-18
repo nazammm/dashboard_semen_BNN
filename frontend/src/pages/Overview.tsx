@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { DataSource, sellInTargetsFor, sellOutTargetsFor } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
@@ -6,7 +7,6 @@ import { MONTHS_ID, fmt } from '../lib/format';
 import { fmtDate, fmtRange, toISO, daysInMonth } from '../lib/dates';
 import { DataBadge, todayWIB, type DataSourceId } from '../components/DataStatus';
 import { DaerahHero } from '../components/DaerahHero';
-import { KELOMPOK, hariBerjalan, nilaiSalesman, type KelompokId } from '../lib/salesman';
 import type { Row } from '../lib/types';
 import { Badge, Capaian, Card, Chip, ErrorBox, PageHeader, PageSkeleton, TableWrap, cx } from '../components/ui';
 import {
@@ -16,7 +16,7 @@ import {
 
 /* ============================================================================
    Overview: kondisi perusahaan dalam satu layar. Empat angka utama (sell in, sell out, toko aktif,
-   outstanding DO, plus stok semen kalau ada), satu baris per daerah, lalu jumlah salesman per kelompok capaian.
+   outstanding DO, plus stok semen kalau ada), satu baris per daerah.
    Tanpa grafik: grafik ada di halaman detail masing-masing.
    Angka dihitung dengan aturan yang sama dengan halaman detailnya (lib/ringkasan.ts),
    jadi kartu di sini selalu sama dengan KPI di halaman Sell In BNN / Sell Out BNN.
@@ -33,10 +33,10 @@ export default function Overview() {
   useDocTitle('Overview');
   const { pageAllowed } = useAuth();
   const load = useAsync(async () => {
-    const [siRows, siInfo, siTarget, peta, soMonthly, soTarget, status, soTa, outRows, outInfo, salesRows, fresh, stockRows] = await Promise.all([
+    const [siRows, siInfo, siTarget, peta, soMonthly, soTarget, status, soTa, outRows, outInfo, fresh, stockRows] = await Promise.all([
       opt(DataSource.sellinDaily()), opt(DataSource.sellinInfo()), opt(DataSource.targetSellIn()),
       opt(DataSource.selloutPeta()), opt(DataSource.selloutMonthly()), opt(DataSource.targetSellOut()), opt(DataSource.dataStatus()), opt(DataSource.selloutTa()),
-      opt(DataSource.outstandingRingkas()), opt(DataSource.outstandingInfo()), opt(DataSource.salesman()), opt(DataSource.dataFreshness()),
+      opt(DataSource.outstandingRingkas()), opt(DataSource.outstandingInfo()), opt(DataSource.dataFreshness()),
       opt(DataSource.stockHarian()),
     ]);
     const last = String(siInfo?.data_sampai ?? '').slice(0, 10);
@@ -50,7 +50,7 @@ export default function Overview() {
     }
     const outstanding = outRows && outInfo?.posisi ? { recs: outRecs(outRows), posisi: String(outInfo.posisi).slice(0, 10) } : null;
     const stock = stockRows && stockRows.length ? stokRingkas(stockRows) : null;
-    return { sellIn, sellOut, outstanding, stock, sales: salesRows && salesRows.length ? salesRows : null, dataSampai: fresh ? String(fresh.max_do_date ?? '') : '' };
+    return { sellIn, sellOut, outstanding, stock, };
   }, []);
   if (load.error) return <ErrorBox error={load.error} />;
   if (!load.data) return <PageSkeleton />;
@@ -106,8 +106,8 @@ const baris = (b: Bulanan, per: Periode, lastMonth: number, cutDay: number, Y: n
 /** Selisih capaian terhadap laju, dalam poin persen dari target. Negatif = tertinggal. */
 const selisihLaju = (r: Baris) => (r.target > 0 ? (r.cur - r.laju) / r.target * 100 : null);
 
-function Body({ sellIn, sellOut, outstanding, stock, sales, dataSampai, sources }: {
-  sellIn: SellInData | null; sellOut: SellOutData | null; outstanding: { recs: OutRec[]; posisi: string } | null; stock: StokRingkas | null; sales: Row[] | null; dataSampai: string; sources: DataSourceId[];
+function Body({ sellIn, sellOut, outstanding, stock, sources }: {
+  sellIn: SellInData | null; sellOut: SellOutData | null; outstanding: { recs: OutRec[]; posisi: string } | null; stock: StokRingkas | null; sources: DataSourceId[];
 }) {
   const [kind, setKind] = useState<'ytd' | 'bulan'>('bulan');
   const si = sellIn?.s, so = sellOut?.s;
@@ -171,44 +171,42 @@ function Body({ sellIn, sellOut, outstanding, stock, sales, dataSampai, sources 
       {so && <DaerahHero rows={soRegions.map(r => ({ key: r.name, name: r.name, target: r.target, cur: r.cur, prev: r.prev }))} P={so.P} period={soLabel} kind={kind} />}
 
       <div className={cx('grid gap-4 max-[640px]:grid-cols-1', stock ? 'grid-cols-5 max-[1500px]:grid-cols-3 max-[980px]:grid-cols-2' : 'grid-cols-4 max-[1240px]:grid-cols-2')}>
-        <Panel title="Sell in" period={siLabel}>
+        <Panel title="Sell in" period={siLabel} ikon="sellin" warna="#0181D5" ke="sell-in-bnn">
           {siTot ? <Capai r={siTot} P={si!.P} proyeksi={kind === 'bulan' && partial(si) ? siTot.cur / si!.cutDay * daysInMonth(si!.Y, si!.lastMonth) : null} /> : <Kosong />}
         </Panel>
-        <Panel title="Sell out" period={soLabel}>
+        <Panel title="Sell out" period={soLabel} ikon="sellout" warna="#1E3A5C" ke="sell-out-bnn">
           {soTot ? <Capai r={soTot} P={so!.P} proyeksi={kind === 'bulan' && partial(so) ? soTot.cur / so!.cutDay * daysInMonth(so!.Y, so!.lastMonth) : null} /> : <Kosong />}
         </Panel>
-        <Panel title="Toko aktif" period={ta ? `${MONTHS_ID[ta.m]} ${so!.Y}${ta.day < daysInMonth(so!.Y, ta.m) ? `, s.d. tgl ${ta.day}` : ''}` : ''}>
+        <Panel title="Toko aktif" ikon="toko" warna="#C8035F" ke="sell-out-bnn" period={ta ? `${MONTHS_ID[ta.m]} ${so!.Y}${ta.day < daysInMonth(so!.Y, ta.m) ? `, s.d. tgl ${ta.day}` : ''}` : ''}>
           {ta ? (
             <>
-              <div className="ov-sub !mt-0 !pt-0 !border-0"><span className="text-soft">Target</span><span>{ta.target > 0 ? `${fmt(ta.target)} toko` : '–'}</span></div>
-              <div className="ov-k mt-2">Realisasi</div>
               <div className="kpi-value">{fmt(ta.cur)}<span className="unit">toko</span></div>
-              {ta.target > 0 && <div className="mt-1.5"><Capaian actual={ta.cur} target={ta.target} /></div>}
+              <Target actual={ta.cur} target={ta.target} teks={ta.target > 0 ? `dari target ${fmt(ta.target)} toko` : 'Belum ada target'} />
               <div className="ov-sub">
                 <span className="text-soft">vs {so!.P} tanggal sama</span>
-                <span className={cx('font-medium', ta.prev > 0 ? (ta.cur >= ta.prev ? 'text-green' : 'text-red') : '')}>{fmtPct(growthPct(ta.cur, ta.prev))}</span>
+                <Naik g={ta.prev > 0 ? growthPct(ta.cur, ta.prev) : null} />
               </div>
               <div className="ov-sub"><span className="text-soft">{so!.P}, tanggal sama</span><span>{ta.prev > 0 ? `${fmt(ta.prev)} toko` : '–'}</span></div>
             </>
           ) : <Kosong />}
         </Panel>
-        <Panel title="Outstanding DO" period={outstanding ? `Posisi ${fmtDate(outstanding.posisi)}` : ''}>
+        <Panel title="Outstanding DO" ikon="outstanding" warna="#A86300" ke="outstanding-do" period={outstanding ? `Posisi ${fmtDate(outstanding.posisi)}` : ''}>
           {out ? (
             <>
               <div className="ov-k">Belum terkirim</div>
               <div className="kpi-value">{fmtTon(out.all.ton)}<span className="unit">ton</span></div>
               <div className="text-soft text-[12.5px] mt-0.5">{fmt(out.all.orders)} order</div>
-              <dl className="ov-list">
-                <div><dt>FAS Kapal</dt><dd>{fmtTon(out.kapal)} ton</dd></div>
-                <div><dt>FAS Container</dt><dd>{fmtTon(out.container)} ton</dd></div>
-                <div><dt>Terminal & pabrik</dt><dd>{fmtTon(out.darat)} ton</dd></div>
-                <div><dt>Lewat estimasi kirim</dt><dd className={out.all.lewat > 0 ? 'text-red' : undefined}>{fmtTon(out.all.lewat)} ton</dd></div>
-              </dl>
+              <Porsi items={[
+                { label: 'FAS Kapal', nilai: out.kapal, warna: '#A86300' },
+                { label: 'FAS Container', nilai: out.container, warna: '#D9A441' },
+                { label: 'Terminal & pabrik', nilai: out.darat, warna: '#B9C1CC' },
+              ]} />
+              <div className="ov-sub"><span className="text-soft">Lewat estimasi kirim</span><span className={cx('font-medium', out.all.lewat > 0 && 'text-red')}>{fmtTon(out.all.lewat)} ton</span></div>
             </>
           ) : <Kosong />}
         </Panel>
         {stock && (
-          <Panel title="Stock semen" period={`Posisi ${fmtDate(stock.tgl)}`}>
+          <Panel title="Stock semen" ikon="stock" warna="#2E7D4F" ke="stock" period={`Posisi ${fmtDate(stock.tgl)}`}>
             <div className="ov-k">Stok gudang</div>
             <div className="kpi-value">{fmtTon(stock.ton)}<span className="unit">ton</span></div>
             {stock.tonPrev != null && Math.abs(stock.ton - stock.tonPrev) >= 0.05 && (
@@ -216,9 +214,7 @@ function Body({ sellIn, sellOut, outstanding, stock, sales, dataSampai, sources 
                 <span className={cx('font-medium', stock.ton - stock.tonPrev > 0 ? 'text-green' : stock.ton - stock.tonPrev < 0 ? 'text-red' : '')}>{fmtSelisih(stock.ton - stock.tonPrev)} ton</span> vs {fmtDate(stock.prev!)}
               </div>
             )}
-            <dl className="ov-list">
-              {JENIS_STOK.map(([j, l]) => <div key={j}><dt>{l}</dt><dd>{stock.jenis[j] ? `${fmtTon(stock.jenis[j])} ton` : '–'}</dd></div>)}
-            </dl>
+            <Porsi items={JENIS_STOK.map(([j, l], i) => ({ label: l, nilai: stock.jenis[j] || 0, warna: ['#2E7D4F', '#7FB894', '#B9C1CC'][i] }))} />
           </Panel>
         )}
       </div>
@@ -274,81 +270,7 @@ function Body({ sellIn, sellOut, outstanding, stock, sales, dataSampai, sources 
           </p>
         </Card>
       )}
-      {sales && <TimSalesRingkas rows={sales} dataSampai={dataSampai} />}
     </>
-  );
-}
-
-/* ---------- Tim sales: jumlah salesman per kelompok capaian, bulan transaksi terakhir ---------- */
-function TimSalesRingkas({ rows, dataSampai }: { rows: Row[]; dataSampai: string }) {
-  const d = useMemo(() => {
-    // bulan terakhir yang punya transaksi salesman
-    const per = rows.reduce((a, r) => (Number(r.actual_num_do) > 0 ? Math.max(a, Number(r.tahun) * 100 + Number(r.month)) : a), 0);
-    if (!per) return null;
-    const Y = Math.floor(per / 100), m = per % 100;
-    const grup = KELOMPOK.filter(k => k.id !== 'tanpa');
-    const hari = hariBerjalan(Y, m, dataSampai);   // bulan masih berjalan: hanya untuk keterangan
-    const baru = () => ({ n: 0, k: Object.fromEntries(grup.map(g => [g.id, 0])) as Record<KelompokId, number>, tTon: 0, aTon: 0, tTa: 0, aTa: 0 });
-    const total = baru(), by = new Map<string, ReturnType<typeof baru>>();
-    rows.forEach(r => {
-      if (Number(r.tahun) !== Y || Number(r.month) !== m || r.status !== 'Sales Real') return;
-      const v = nilaiSalesman(r);
-      if (v.kelompok === 'tanpa') return;
-      const dist = String(r.dist_code);
-      [total, by.get(dist) || by.set(dist, baru()).get(dist)!].forEach(x => {
-        x.n++; x.k[v.kelompok]++;
-        if (Number(r.target_tonase) > 0) { x.tTon += Number(r.target_tonase); x.aTon += Number(r.actual_tonase || 0); }
-        if (Number(r.target_ta) > 0) { x.tTa += Number(r.target_ta); x.aTa += Number(r.actual_ta || 0); }
-      });
-    });
-    return { Y, m, grup, hari, total, by: [...by.entries()].sort((a, b) => b[1].aTon - a[1].aTon) };
-  }, [rows, dataSampai]);
-  if (!d || !d.total.n) return null;
-  const persen = (a: number, t: number) => (t > 0
-    ? <span className={cx('font-mono text-xs font-semibold', a >= t ? 'text-green' : a >= t * 0.8 ? 'text-amber' : 'text-red')}>{fmt(a / t * 100, 0)}%</span>
-    : <span className="text-faint">–</span>);
-  return (
-    <Card title={`Tim sales · ${MONTHS_ID[d.m]} ${d.Y}${d.hari != null ? `, s.d. tgl ${d.hari}` : ''}`} className="mt-4">
-      <div className="grid grid-cols-4 max-[880px]:grid-cols-2 gap-3 mb-4">
-        {d.grup.map(g => (
-          <div key={g.id} className="rounded-[8px] border border-line px-4 py-3">
-            <Badge variant={g.variant}>{g.label}</Badge>
-            <div className="kpi-value mt-2">{fmt(d.total.k[g.id])}<span className="unit">dari {fmt(d.total.n)} salesman</span></div>
-            <div className="text-faint text-[12px] mt-1">{g.ket}</div>
-          </div>
-        ))}
-      </div>
-      <TableWrap>
-        <table className="tbl-dense">
-          <thead><tr>
-            <th>Distributor</th><th className="num">Salesman</th>
-            {d.grup.map(g => <th key={g.id} className="num">{g.label}</th>)}
-            <th className="num">Capaian tonase tim</th><th className="num">Capaian toko aktif tim</th>
-          </tr></thead>
-          <tbody>
-            {d.by.map(([dist, x]) => (
-              <tr key={dist}>
-                <td><span className="tag-code">{dist}</span></td>
-                <td className="num font-mono">{fmt(x.n)}</td>
-                {d.grup.map(g => <td key={g.id} className={cx('num font-mono', !x.k[g.id] && 'text-faint')}>{x.k[g.id] ? fmt(x.k[g.id]) : '–'}</td>)}
-                <td className="num">{persen(x.aTon, x.tTon)}</td>
-                <td className="num">{persen(x.aTa, x.tTa)}</td>
-              </tr>
-            ))}
-          </tbody>
-          {d.by.length > 1 && (
-            <tfoot><tr className="font-semibold">
-              <td>Total</td><td className="num font-mono">{fmt(d.total.n)}</td>
-              {d.grup.map(g => <td key={g.id} className="num font-mono">{fmt(d.total.k[g.id])}</td>)}
-              <td className="num">{persen(d.total.aTon, d.total.tTon)}</td>
-              <td className="num">{persen(d.total.aTa, d.total.tTa)}</td>
-            </tr></tfoot>
-          )}
-        </table>
-      </TableWrap>
-      <p className="text-faint text-[12px] mt-2">Salesman berstatus Sales Real yang punya target. Sumber: transaksi distributor (tanpa subdist). Daftar nama ada di halaman Tim Sales.
-        {d.hari != null && <> Bulan masih berjalan: capaian dibandingkan dengan target sebulan penuh.</>}</p>
-    </Card>
   );
 }
 
@@ -388,14 +310,74 @@ function StokSel({ ton, prev }: { ton: number | null; prev: number | null }) {
   );
 }
 
-function Panel({ title, period, children }: { title: string; period: string; children: ReactNode }) {
+const IKON: Record<string, string> = {
+  sellin: '<rect x="3.5" y="12.5" width="7.5" height="7" rx=".6"/><rect x="13" y="12.5" width="7.5" height="7" rx=".6"/><rect x="8.25" y="4.5" width="7.5" height="7" rx=".6"/>',
+  sellout: '<path d="M4 20h16"/><path d="M6.5 16.5V11M11 16.5V7.5M15.5 16.5v-4"/><path d="m15 6 3-2.5L21 6M18 3.5V10"/>',
+  toko: '<path d="M4 9.5 5.5 4h13L20 9.5"/><path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0"/><path d="M5.5 12v8h13v-8M10 20v-4.5h4V20"/>',
+  outstanding: '<rect x="3.5" y="5" width="17" height="14" rx="1.2"/><path d="M3.5 9.5h17M8 14h4"/>',
+  stock: '<path d="M3.5 9.5 12 5l8.5 4.5V20h-17V9.5Z"/><path d="M7.5 20v-6h9v6M7.5 16.5h9"/>',
+};
+
+/** Kartu ringkasan: ikon berwarna lembut, isi, dan tautan ke halaman rinciannya (kalau role punya akses). */
+function Panel({ title, period, ikon, warna, ke, children }: { title: string; period: string; ikon: string; warna: string; ke: string; children: ReactNode }) {
+  const { pageAllowed } = useAuth();
   return (
-    <div className="card flex flex-col">
-      <div className="flex items-baseline justify-between gap-2 flex-wrap">
-        <h2 className="text-[15px] font-semibold">{title}</h2>
-        {period && <span className="text-faint text-[12px]">{period}</span>}
+    <div className="card flex flex-col transition-shadow hover:shadow-[0_4px_14px_rgba(16,24,40,.08)]">
+      <div className="flex items-center gap-2.5">
+        <span aria-hidden="true" className="w-8 h-8 rounded-lg grid place-items-center shrink-0" style={{ background: `${warna}14`, color: warna }}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]" dangerouslySetInnerHTML={{ __html: IKON[ikon] }} />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-[15px] font-semibold leading-tight">{title}</h2>
+          {period && <div className="text-faint text-[12px] leading-tight mt-0.5 truncate">{period}</div>}
+        </div>
       </div>
-      <div className="mt-3 flex-1">{children}</div>
+      <div className="mt-3.5 flex-1">{children}</div>
+      {pageAllowed(ke) && <Link to={`/${ke}`} className="mt-3 pt-2.5 border-t border-line text-[12.5px] text-soft no-underline hover:text-accent-ink flex items-center justify-between">Lihat rincian<span aria-hidden="true">→</span></Link>}
+    </div>
+  );
+}
+
+/** Batang capaian terhadap target: persen besar di kanan, keterangan target di bawah. */
+function Target({ actual, target, teks }: { actual: number; target: number; teks: string }) {
+  const p = target > 0 ? (actual / target) * 100 : null;
+  const tone = p == null ? '' : p >= 100 ? 'bg-green' : p >= 80 ? 'bg-amber' : 'bg-red';
+  const teksTone = p == null ? 'text-faint' : p >= 100 ? 'text-green' : p >= 80 ? 'text-amber' : 'text-red';
+  return (
+    <div className="mt-2.5">
+      <div className="flex items-center gap-2.5">
+        <div className="flex-1 h-2 rounded-full bg-surface3 overflow-hidden" role="img" aria-label={p == null ? 'Belum ada target' : `Capaian ${fmt(p, 0)} persen`}>
+          {p != null && <div className={cx('h-full rounded-full', tone)} style={{ width: `${Math.min(100, p)}%` }} />}
+        </div>
+        <span className={cx('text-[15px] font-semibold tabular-nums w-[46px] text-right', teksTone)}>{p == null ? '–' : `${fmt(p, 0)}%`}</span>
+      </div>
+      <div className="text-faint text-[12px] mt-1">{teks}</div>
+    </div>
+  );
+}
+
+/** Pertumbuhan dengan panah naik / turun. */
+function Naik({ g }: { g: number | null }) {
+  if (g == null) return <span className="text-faint">–</span>;
+  return <span className={cx('font-medium inline-flex items-center gap-1', g >= 0 ? 'text-green' : 'text-red')}><span aria-hidden="true" className="text-[10px]">{g >= 0 ? '▲' : '▼'}</span>{fmtPct(g)}</span>;
+}
+
+/** Porsi beberapa bagian: satu batang bertumpuk dan daftar nilainya. */
+function Porsi({ items }: { items: { label: string; nilai: number; warna: string }[] }) {
+  const total = items.reduce((a, b) => a + b.nilai, 0);
+  return (
+    <div className="mt-3">
+      <div className="flex h-2 rounded-full overflow-hidden bg-surface3" aria-hidden="true">
+        {total > 0 && items.map(it => it.nilai > 0 && <div key={it.label} style={{ width: `${(it.nilai / total) * 100}%`, background: it.warna }} />)}
+      </div>
+      <dl className="mt-2 text-[13px]">
+        {items.map(it => (
+          <div key={it.label} className="flex items-baseline justify-between gap-3 py-1">
+            <dt className="text-soft flex items-center gap-2"><i aria-hidden="true" className="inline-block w-2 h-2 rounded-sm" style={{ background: it.warna }} />{it.label}</dt>
+            <dd className="m-0 font-medium tabular-nums">{it.nilai ? `${fmtTon(it.nilai)} ton` : '–'}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }
@@ -407,13 +389,11 @@ function Capai({ r, P, proyeksi }: { r: { target: number; cur: number; prev: num
   const pp = proyeksi != null && r.hasTarget ? proyeksi / r.target * 100 : null;
   return (
     <>
-      <div className="ov-sub !mt-0 !pt-0 !border-0"><span className="text-soft">Target</span><span>{r.hasTarget ? `${fmtTon(r.target)} ton` : '–'}</span></div>
-      <div className="ov-k mt-2">Realisasi</div>
       <div className="kpi-value">{fmtTon(r.cur)}<span className="unit">ton</span></div>
-      {r.hasTarget && <div className="mt-1.5"><Capaian actual={r.cur} target={r.target} /></div>}
+      <Target actual={r.cur} target={r.hasTarget ? r.target : 0} teks={r.hasTarget ? `dari target ${fmtTon(r.target)} ton` : 'Belum ada target'} />
       <div className="ov-sub">
         <span className="text-soft">vs {P} tanggal sama</span>
-        <span className={cx('font-medium', g == null ? '' : g >= 0 ? 'text-green' : 'text-red')}>{fmtPct(g)}</span>
+        <Naik g={g} />
       </div>
       {proyeksi != null && (
         <div className="ov-sub" title="Realisasi sampai tanggal data dibagi jumlah hari berjalan, dikali jumlah hari sebulan">

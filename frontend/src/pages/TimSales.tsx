@@ -3,12 +3,12 @@ import { DataBadge } from '../components/DataStatus';
 import { DataSource } from '../lib/data';
 import { useAuth } from '../lib/auth';
 import { useAsync, useDebounced, useDocTitle, useSort } from '../lib/hooks';
-import { COLORS, MONTHS_ID, capaianClass, chartSRSummary, fmt, pct } from '../lib/format';
-import { KELOMPOK, hariBerjalan, kelompokInfo, nilaiSalesman, type KelompokId } from '../lib/salesman';
+import { COLORS, MONTHS_ID, capaianClass, chartSRSummary, fmt, fmtIDRCompact, pct } from '../lib/format';
+import { hariBerjalan } from '../lib/salesman';
 import type { Row } from '../lib/types';
 import { Badge, Capaian, CellLink, ChartBox, Chip, ErrorBox, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th } from '../components/ui';
 
-type Sales = Row & { capaian_ta: number; capaian_tonase: number; kelompok: KelompokId; urut_kelompok: number; satuTarget: boolean };
+type Sales = Row & { capaian_ta: number; capaian_tonase: number };
 
 export default function TimSales() {
   const { session } = useAuth();
@@ -53,9 +53,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
   ).map(r => {
     const capaian_ta = pct(r.actual_ta, r.target_ta) ?? -1;
     const capaian_tonase = pct(r.actual_tonase, r.target_tonase) ?? -1;
-    const n = nilaiSalesman(r);
-    // urutan bawaan: kelompok, lalu tonase terbesar (bukan persen capaian)
-    return { ...r, capaian_ta, capaian_tonase, kelompok: n.kelompok, satuTarget: n.satuTarget, urut_kelompok: n.urut * 1e9 - Number(r.actual_tonase || 0) };
+    return { ...r, capaian_ta, capaian_tonase };
   }), [rows, month, dist]);
 
   /* ---------- KPI tim: capaian tertimbang (total aktual / total target), bukan rata-rata persen ---------- */
@@ -63,48 +61,19 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
   const withTA = list.filter(r => r.target_ta > 0), withTon = list.filter(r => r.target_tonase > 0);
   const tTA = sum(withTA, 'target_ta'), aTA = sum(withTA, 'actual_ta');
   const tTon = sum(withTon, 'target_tonase'), aTon = sum(withTon, 'actual_tonase');
-  const scored = list.filter(r => r.kelompok !== 'tanpa');
-  const reached = scored.filter(r => r.kelompok === 'capai').length;
   const salesAktif = new Set(list.filter(r => r.status === 'Sales Real').map(r => `${r.dist_code}|${r.salesman_code}`)).size;
-  const tanpaTarget = list.filter(r => r.kelompok === 'tanpa').length;
+  const tanpaTarget = list.filter(r => r.status === 'Tanpa target').length;
+  const omzetTim = sum(list, 'actual_omzet');
   const targetSales = targets ? targets.filter(t => dist === 'all' || t.dist_code === dist).reduce((a, t) => a + Number(t.target_salesman || 0), 0) : 0;
 
-  /* ---------- jumlah salesman per kelompok ---------- */
-  const grup = KELOMPOK.filter(k => k.id !== 'tanpa');
-  const bucketLabels = grup.map(k => k.label);
-  const bucketColors = [COLORS.green, COLORS.accent, COLORS.amber, COLORS.red];
-  const bucketCounts = useMemo(() => grup.map(k => scored.filter(r => r.kelompok === k.id).length),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scored]);
-
-  /* ---------- daftar salesman: dikelompokkan, tanpa nomor peringkat ---------- */
-  const [kel, setKel] = useState<KelompokId | 'all'>('all');
-  const { sorted, toggle, ariaSort } = useSort<Sales>(list, 'urut_kelompok', 'asc', (r, k) => {
+  /* ---------- daftar salesman: urutan bawaan omzet terbesar ---------- */
+  const { sorted, toggle, ariaSort } = useSort<Sales>(list, 'actual_omzet', 'desc', (r, k) => {
     const v = r[k];
     return typeof v === 'string' ? v : (v ?? -1);
   });
-  const ordered = kel === 'all' ? sorted : sorted.filter(r => r.kelompok === kel);
-  const filtered = query ? ordered.filter(r => `${r.salesman_name} ${r.salesman_code} ${r.dist_code}`.toLowerCase().includes(query)) : ordered;
+  const filtered = query ? sorted.filter(r => `${r.salesman_name} ${r.salesman_code} ${r.dist_code}`.toLowerCase().includes(query)) : sorted;
   const shown = query ? filtered : filtered.slice(0, topN);
   const hdr = (k: string, text: ReactNode, num?: boolean, title?: string) => <Th sortable num={num} ariaSort={ariaSort(k)} onSort={() => toggle(k)} title={title}>{text}</Th>;
-
-  const sebaranCard = (
-    <div className="card">
-      <h2 className="card-title">Kelompok Capaian Salesman</h2>
-      <p className="text-faint text-[12px] -mt-1 mb-2">{fmt(scored.length)} salesman bertarget · {MONTHS_ID[month]} {year}</p>
-      <ChartBox className="!h-[300px]" label={chartSRSummary(bucketLabels, bucketCounts, 'salesman')}
-        deps={[bucketCounts]}
-        build={() => ({
-          type: 'bar',
-          data: { labels: bucketLabels, datasets: [{ data: bucketCounts, backgroundColor: bucketColors, borderRadius: 3, maxBarThickness: 44 }] },
-          options: {
-            responsive: true, maintainAspectRatio: false,
-            scales: { y: { beginAtZero: true, grid: { color: COLORS.line }, ticks: { precision: 0 } }, x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 40 } } },
-            plugins: { tooltip: { callbacks: { title: (c: any) => c[0].label, label: (c: any) => ` ${fmt(c.parsed.y)} salesman` } } },
-          },
-        } as any)} />
-    </div>
-  );
 
   return (
     <div>
@@ -126,27 +95,20 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
           delta={tTA > 0 ? `${fmt(aTA)} dari ${fmt(tTA)} toko aktif · tanpa subdist` : 'Belum ada target TA'} />
         <Kpi title="Capaian Tonase Tim" value={tTon > 0 ? (aTon / tTon * 100).toFixed(0) + '%' : '–'}
           delta={tTon > 0 ? `${fmt(aTon, 1)} dari ${fmt(tTon, 1)} ton · tanpa subdist` : 'Belum ada target tonase'} />
-        <Kpi title="Capai Target" value={fmt(reached)} unit={`/ ${fmt(scored.length)}`} delta="Semua targetnya minimal 100%" />
+        <Kpi title="Omzet Tim" value={fmtIDRCompact(omzetTim)} delta={`${fmt(list.length)} salesman${tanpaTarget ? ` · ${fmt(tanpaTarget)} tanpa target` : ''} · tanpa subdist`} />
       </div>
 
-      {targets && targets.length > 0
-        ? <SalesmanVsTarget rows={rows} targets={targets} month={month} year={year} lastMonth={lastMonthOfYear} dist={dist} lead={sebaranCard} />
-        : <div className="grid grid-cols-2 max-lg:grid-cols-1 gap-4 mt-3.5">{sebaranCard}</div>}
+      {targets && targets.length > 0 && <SalesmanVsTarget rows={rows} targets={targets} month={month} year={year} lastMonth={lastMonthOfYear} dist={dist} />}
 
       <div className="flex items-end justify-between flex-wrap gap-x-4 gap-y-2.5 mt-[38px] mb-3.5">
         <div>
           <h2 className="section-title !m-0">Daftar Salesman</h2>
-          <p className="text-faint text-[12px] mt-1 max-w-[640px]">Dikelompokkan menurut tercapai atau belumnya target, tanpa nomor peringkat karena besar target tiap salesman berbeda. Di dalam kelompok, urutan menurut tonase terbesar.
-            {' '}Salesman yang ada di transaksi tetapi belum punya target bulan ini tetap tampil di kelompok <b className="text-ink font-medium">Tanpa target</b>.
-            {hari != null && <> <b className="text-ink font-medium">Bulan masih berjalan</b> (data sampai tanggal {hari}): capaian dibandingkan dengan target sebulan penuh, jadi wajar masih banyak yang belum tercapai.</>}</p>
+          <p className="text-faint text-[12px] mt-1 max-w-[640px]">Urutan bawaan: omzet terbesar. Klik judul kolom untuk mengurutkan dengan cara lain.
+            {' '}Salesman yang ada di transaksi tetapi belum punya target bulan ini tetap tampil dengan tanda <b className="text-ink font-medium">Tanpa target</b>.
+            {hari != null && <> <b className="text-ink font-medium">Bulan masih berjalan</b> (data sampai tanggal {hari}): capaian dibandingkan dengan target sebulan penuh.</>}</p>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
           <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Cari salesman…" aria-label="Cari salesman" className="!w-[200px] !py-[7px]" />
-          <div className="pill-row" role="group" aria-label="Kelompok capaian">
-            <Chip active={kel === 'all'} onClick={() => setKel('all')}>Semua</Chip>
-            {grup.map((k, i) => <Chip key={k.id} active={kel === k.id} onClick={() => setKel(k.id)}>{k.label} ({fmt(bucketCounts[i])})</Chip>)}
-            {tanpaTarget > 0 && <Chip active={kel === 'tanpa'} onClick={() => setKel('tanpa')}>Tanpa target ({fmt(tanpaTarget)})</Chip>}
-          </div>
           {!query && (
             <div className="pill-row" role="group" aria-label="Jumlah baris yang ditampilkan">
               {[10, 25, 50].map(n => <Chip key={n} active={topN === n} onClick={() => setTopN(n)}>{n}</Chip>)}
@@ -156,11 +118,11 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
       </div>
       <TableWrap>
         <table>
-          <caption className="sr-only">Daftar salesman menurut kelompok capaian target</caption>
+          <caption className="sr-only">Daftar salesman, urutan bawaan omzet terbesar</caption>
           <thead><tr>
             {hdr('salesman_name', 'Salesman')}
             {hdr('dist_code', 'Distributor')}
-            {hdr('urut_kelompok', 'Kelompok', false, 'Capai target: semua target minimal 100%. Capai sebagian: satu dari dua. Mendekati: rata-rata minimal 80%. Tertinggal: di bawah 80%.')}
+            {hdr('actual_omzet', 'Omzet', true)}
             {hdr('target_ta', 'Target TA', true)}
             {hdr('actual_ta', 'TA Aktual', true)}
             {hdr('capaian_ta', 'Capaian TA')}
@@ -173,12 +135,9 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
               ? <tr><td colSpan={9} className="!text-center text-faint !p-6">{query ? `Tidak ada salesman dengan kata "${q.trim()}".` : 'Tidak ada data untuk filter ini.'}</td></tr>
               : shown.map((r, i) => (
                 <tr key={`${r.salesman_code}-${r.dist_code}-${i}`}>
-                  <td className="min-w-[200px]"><CellLink to={`/transaksi-detail?salesman=${encodeURIComponent(r.salesman_code)}&year=${year}&month=${month}&name=${encodeURIComponent(r.salesman_name)}`}>{r.salesman_name}</CellLink></td>
+                  <td className="min-w-[200px]"><CellLink to={`/transaksi-detail?salesman=${encodeURIComponent(r.salesman_code)}&year=${year}&month=${month}&name=${encodeURIComponent(r.salesman_name)}`}>{r.salesman_name}</CellLink>{r.status === 'Tanpa target' && <Badge variant="neutral" className="ml-1.5" title="Ada di transaksi, belum punya target bulan ini">Tanpa target</Badge>}</td>
                   <td><span className="tag-code">{r.dist_code}</span></td>
-                  <td className="whitespace-nowrap">
-                    <Badge variant={kelompokInfo(r.kelompok).variant} title={kelompokInfo(r.kelompok).ket}>{kelompokInfo(r.kelompok).label}</Badge>
-                    {r.satuTarget && <span className="text-faint text-[11.5px] ml-1.5" title="Hanya punya satu target bulan ini">1 target</span>}
-                  </td>
+                  <td className="num font-mono whitespace-nowrap">{fmtIDRCompact(r.actual_omzet)}</td>
                   <td className="num font-mono">{r.target_ta ? fmt(r.target_ta) : '–'}</td>
                   <td className="num font-mono">{fmt(r.actual_ta)}</td>
                   <td><Capaian actual={r.actual_ta} target={r.target_ta} /></td>
@@ -203,7 +162,7 @@ function TimSalesBody({ rows: allRows, freshnessData, targets }: { rows: Row[]; 
 ============================================================================ */
 type DistRow = { dist: string; name: string; real: number | null; target: number; selisih: number | null; p: number | null };
 
-function SalesmanVsTarget({ rows, targets, month, year, lastMonth, dist, lead }: { rows: Row[]; targets: Row[]; month: number; year: number; lastMonth: number; dist: string; lead: ReactNode }) {
+function SalesmanVsTarget({ rows, targets, month, year, lastMonth, dist }: { rows: Row[]; targets: Row[]; month: number; year: number; lastMonth: number; dist: string }) {
   const tgt = useMemo(() => new Map(targets.map(t => [String(t.dist_code), { target: Number(t.target_salesman || 0), name: String(t.dist_name || '') }])), [targets]);
   const agg = useMemo(() => {
     const m = new Map<string, Set<string>>();
@@ -243,8 +202,7 @@ function SalesmanVsTarget({ rows, targets, month, year, lastMonth, dist, lead }:
 
   const labels = MONTHS_ID.slice(1);
   return (
-    <section aria-label="Salesman vs Target" className="grid grid-cols-[0.9fr_1fr_1.25fr] max-[1360px]:grid-cols-2 max-lg:grid-cols-1 gap-4 mt-3.5">
-      {lead}
+    <section aria-label="Salesman vs Target" className="grid grid-cols-[1fr_1.25fr] max-lg:grid-cols-1 gap-4 mt-3.5">
       <div className="card">
         <h2 className="card-title">Target vs Salesman per Bulan</h2>
         <ChartBox className="!h-[300px]" label={chartSRSummary(labels, monthly.map(v => v ?? 0), 'salesman per bulan; target ' + targetTotal)}
@@ -268,7 +226,7 @@ function SalesmanVsTarget({ rows, targets, month, year, lastMonth, dist, lead }:
             },
           } as any)} />
       </div>
-      <div className="card max-[1360px]:col-span-2 max-lg:col-span-1">
+      <div className="card">
         <h2 className="card-title">Per Distributor · {MONTHS_ID[month]} {year} · Salesman Target / Aktual</h2>
         <TableWrap className="max-h-[330px] overflow-y-auto">
           <table className="tbl-dense" style={{ minWidth: 0 }}>

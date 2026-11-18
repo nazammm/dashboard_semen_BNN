@@ -21,9 +21,10 @@ import { J073Upload } from './kelola/J073Panel';
 import { TargetPanel } from './kelola/TargetPanel';
 import { TabelPanel } from './kelola/TabelPanel';
 import { StockUpload } from './kelola/StockPanel';
+import { BaruPanel } from './kelola/BaruPanel';
 import { JENIS_LABEL } from '../lib/targetImport';
 
-type Tab = 'transaksi' | 'sellin' | 'sellout' | 'stock' | 'target' | 'tabel' | 'riwayat';
+type Tab = 'transaksi' | 'sellin' | 'sellout' | 'stock' | 'target' | 'tabel' | 'baru' | 'riwayat';
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'transaksi', label: 'Transaksi', icon: 'M4 6.5h16M4 12h16M4 17.5h10' },
   { id: 'sellin', label: 'Sell In BNN', icon: 'M3.5 8 12 3.5 20.5 8v8L12 20.5 3.5 16V8ZM3.5 8 12 12.5 20.5 8M12 12.5v8' },
@@ -31,11 +32,13 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'stock', label: 'Stock', icon: 'M3.5 9.5 12 5l8.5 4.5V20h-17V9.5ZM7.5 20v-6h9v6M7.5 16.5h9' },
   { id: 'target', label: 'Target', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17ZM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 11.2v1.6' },
   { id: 'tabel', label: 'Tabel', icon: 'M3.5 5h17v14h-17zM3.5 10h17M3.5 14.5h17M9 5v14' },
+  { id: 'baru', label: 'Toko & sales baru', icon: 'M12 5v14M5 12h14M4 4h16v16H4z' },
   { id: 'riwayat', label: 'Riwayat', icon: ICON.clock },
 ];
 const MENUS: Record<Exclude<Tab, 'riwayat'>, { id: string; label: string }[]> = {
   target: [],
   tabel: [],
+  baru: [],
   transaksi: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }, { id: 'sinkron', label: 'Waktu pembaruan' }],
   sellin: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'outstanding', label: 'Outstanding DO' }, { id: 'hapus', label: 'Hapus' }],
   sellout: [{ id: 'dofas', label: 'Tempel DO FAS' }, { id: 'erp', label: 'Tempel Sub ERP' }, { id: 'j073', label: 'Upload J073' }],
@@ -70,7 +73,7 @@ export default function KelolaData() {
       </div>
 
       <div id="kd-panel" role="tabpanel" aria-labelledby={`kd-tab-${tab}`}>
-        {tab !== 'riwayat' && tab !== 'target' && tab !== 'tabel' && (
+        {tab !== 'riwayat' && tab !== 'target' && tab !== 'tabel' && tab !== 'baru' && (
           <>
             <StatusStrip row={statusRow} />
             <nav className="kd-menu" aria-label="Menu">
@@ -95,10 +98,11 @@ export default function KelolaData() {
           {tab === 'stock' && <StockUpload onChanged={changed} />}
           {tab === 'target' && <TargetPanel onChanged={changed} />}
           {tab === 'tabel' && <TabelPanel onChanged={changed} />}
+          {tab === 'baru' && status && <BaruPanel dataSampai={(() => { const t = status?.find(r => r.sumber === 'transaksi')?.data_sampai; return t ? String(t).slice(0, 10) : null; })()} />}
           {tab === 'riwayat' && <Riwayat version={version} />}
         </div>
 
-        {tab !== 'riwayat' && (
+        {tab !== 'riwayat' && tab !== 'baru' && (
           <>
             <div className="flex items-baseline justify-between gap-3 mt-[38px] mb-3.5 flex-wrap">
               <h2 className="section-title !m-0">Perubahan terakhir</h2>
