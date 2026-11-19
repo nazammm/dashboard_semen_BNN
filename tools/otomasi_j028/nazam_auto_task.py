@@ -535,6 +535,25 @@ def jalankan_aplikasi() -> None:
             self.lbl_isi_ulang = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=400)
             self.lbl_isi_ulang.grid(row=11, column=0, columnspan=3, sticky="w")
             self.cek_isi_ulang()
+            # rentang pilihan (paling panjang 3 bulan): J073 satu job per distributor + ORDB019 tiap bulannya
+            ra = tk.Frame(f, bg=C["card"])
+            ra.grid(row=12, column=0, columnspan=3, sticky="w", pady=(12, 0))
+            tk.Label(ra, text="Ambil rentang", bg=C["card"], fg=C["muted"]).pack(side="left")
+            a0, b0 = rentang_bawaan()
+            self.v_rg_dari = tk.StringVar(value=self.setelan.get("rentang_dari", f"{a0:%Y-%m-01}"))
+            self.v_rg_sampai = tk.StringVar(value=self.setelan.get("rentang_sampai", f"{b0:%Y-%m-%d}"))
+            ttk.Entry(ra, textvariable=self.v_rg_dari, width=11).pack(side="left", padx=(6, 4))
+            tk.Label(ra, text="s.d.", bg=C["card"], fg=C["muted"]).pack(side="left")
+            ttk.Entry(ra, textvariable=self.v_rg_sampai, width=11).pack(side="left", padx=(4, 0))
+            rb = tk.Frame(f, bg=C["card"])
+            rb.grid(row=13, column=0, columnspan=3, sticky="w", pady=(6, 0))
+            tk.Label(rb, text="Distributor", bg=C["card"], fg=C["muted"]).pack(side="left")
+            self.v_rg_dist = tk.StringVar(value=self.setelan.get("rentang_dist", ""))
+            ttk.Entry(rb, textvariable=self.v_rg_dist, width=16).pack(side="left", padx=6)
+            self.tombol(rb, "Ambil ongkos", self.ambil_rentang, kecil=True).pack(side="left")
+            tk.Label(f, text="Tanggal YYYY-MM-DD, paling panjang 3 bulan (mis. 2025-08-01 s.d. 2025-10-31). Distributor kosong = "
+                             "semua distributor ongkos; bisa diisi beberapa, mis. 9575,4403. J073 satu job per distributor, ORDB019 tiap bulannya.",
+                     bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=400).grid(row=14, column=0, columnspan=3, sticky="w")
 
             f = bagian(kiri, "Lainnya")
             self.v_startup = tk.BooleanVar(value=self.startup_path().exists())
@@ -772,6 +791,30 @@ def jalankan_aplikasi() -> None:
             self.lbl_isi_ulang.config(text=(f"{n} job/laporan isi ulang sudah masuk. Menjalankan lagi hanya mengerjakan yang belum." if n else
                                             "J073 per 3 bulan dan ORDB019 per bulan untuk semua distributor ongkos; bisa berjam-jam. "
                                             "Kalau terhenti, klik lagi: yang sudah masuk dilewati."))
+
+        def ambil_rentang(self):
+            if self.proses:
+                return
+            try:
+                dari = date.fromisoformat(self.v_rg_dari.get().strip())
+                teks = self.v_rg_sampai.get().strip()
+                sampai = date.fromisoformat(teks) if teks else None
+                sampai, dists = mesin.cek_rentang_ongkos(dari, sampai, self.v_rg_dist.get().strip() or self.v_akun["ONGKOS_DIST"].get().strip())
+            except ValueError as e:
+                messagebox.showerror(APP, str(e) if "Ongkos kirim" in str(e) else "Tanggal ditulis YYYY-MM-DD, mis. 2025-08-01.")
+                return
+            if not self.simpan_pengaturan(diam=True):
+                return
+            self.setelan.update(rentang_dari=f"{dari}", rentang_sampai=f"{sampai}", rentang_dist=self.v_rg_dist.get().strip())
+            simpan_setelan(self.setelan)
+            n = len(mesin.kiriman_rentang(dari, sampai, dists))
+            if not messagebox.askyesno(APP, f"Ambil ongkos kirim {tanggal_id(dari)} – {tanggal_id(sampai)} untuk {', '.join(dists)}?\n\n"
+                                            f"{n} job/laporan (J073 + ORDB019). Data distributor dan bulan itu di SEMENTRACK diganti."):
+                return
+            argumen = ["--ongkos-dari", f"{dari}", "--ongkos-sampai", f"{sampai}", "--ongkos-dist", ",".join(dists)]
+            if self.v_pratinjau.get():
+                argumen.append("--tanpa-simpan")
+            self.jalankan(argumen=argumen)
 
         def isi_ulang(self):
             if self.proses:
