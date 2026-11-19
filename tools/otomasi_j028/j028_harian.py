@@ -252,7 +252,10 @@ def baca_antrian(page: Page, pola: str) -> dict[str, tuple[str, str]]:
     for b in baris:
         i = next((k for k, c in enumerate(b) if re.fullmatch(pola, c)), None)
         if i is None:
-            continue
+            i = next((k for k, c in enumerate(b) if re.match(pola + r"\b", c)), None)
+            if i is None:
+                continue
+            b = b[:i] + [re.match(pola, b[i]).group(0)] + b[i + 1:]
         kode = next((c for c in b if POLA_KODE.match(c)), b[i + 1] if i + 1 < len(b) else "")
         status = next((c for c in b if POLA_STATUS.search(c) and not re.fullmatch(pola, c)), b[i - 1] if i else "")
         hasil[b[i]] = (kode.upper(), status.upper())
@@ -269,25 +272,46 @@ def daftar_job(page: Page) -> dict[str, tuple[str, str]]:
     return baca_antrian(page, r"J\d{5,}")
 
 
-VIEW_REPORT: list[str] = []          # alamat halaman View Report setelah pertama kali dibuka lewat menu
+VIEW_REPORT: list[str] = []          # alamat halaman View Report yang terbukti benar (ada tabel Report ID)
+VIEW_REPORT_JEJAK: list[bool] = []
+
+
+def _buka_menu(page: Page, induk: str, teks: str) -> bool:
+    """Menu ERP: arahkan kursor ke induk (#mmlink6) lalu klik submenu bertuliskan `teks`."""
+    try:
+        page.locator(induk).hover(timeout=10_000)
+        page.locator(induk).click(timeout=10_000)
+        page.locator("a").filter(has_text=re.compile(teks, re.I)).first.click(timeout=10_000)
+        page.wait_for_load_state("domcontentloaded", timeout=30_000)
+        return True
+    except PWTimeout:
+        return False
 
 
 def daftar_laporan(page: Page) -> dict[str, tuple[str, str]]:
-    """Isi View Report: {Report ID: (kode laporan, Status)}. Dibuka lewat menu (#mmlink6), bukan refresh (F5)."""
+    """Isi View Report: {Report ID: (kode laporan, Status)}. Dibuka ulang setiap kali (bukan refresh / F5):
+    alamat SYS_View_Report.aspx, kalau tidak ada tabel laporannya lewat menu Report (#mmlink6) → View Report."""
+    def baca() -> dict[str, tuple[str, str]]:
+        try:
+            page.wait_for_load_state("networkidle", timeout=60_000)
+        except PWTimeout:
+            pass
+        return baca_antrian(page, r"R\d{5,}")
+
+    def halaman_view() -> bool:
+        return "view" in page.url.lower() and "report" in page.url.lower()
+
     if VIEW_REPORT:
         page.goto(VIEW_REPORT[0])
-    else:
-        try:
-            page.locator("#mmlink6").click(timeout=15_000)
-            page.wait_for_load_state("domcontentloaded", timeout=30_000)
-        except PWTimeout:
-            page.goto(f"{ERP}/SYS_View_Report.aspx")
-    try:
-        page.wait_for_load_state("networkidle", timeout=60_000)
-    except PWTimeout:
-        pass
-    hasil = baca_antrian(page, r"R\d{5,}")
-    if not VIEW_REPORT and "Report" in page.url:
+        return baca()
+    page.goto(f"{ERP}/SYS_View_Report.aspx")
+    hasil = baca()
+    if not hasil and not halaman_view() and _buka_menu(page, "#mmlink6", r"View\s*Report"):
+        hasil = baca()
+    if not VIEW_REPORT_JEJAK:                       # sekali per jalan: simpan tampilan View Report untuk dicek
+        VIEW_REPORT_JEJAK.append(True)
+        jejak(page, "view_report")
+    if hasil or halaman_view():
         VIEW_REPORT.append(page.url)
     return hasil
 
@@ -869,8 +893,10 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
             antre += [dict(bagian="J028", label="J028", kode="J028", jenis="job", kirim=lambda: kirim_job(page, "J028", dari, sampai)),
                       dict(bagian="J028", label="J028B", kode="J028B", jenis="job", kirim=lambda: kirim_job(page, "J028B", dari, sampai))]
         if "J073" in bagian:
+            # distributor yang juga ada di Ongkos kirim tidak dikirim dua kali: J073 3 bulan ongkos sudah mencakup bulan ini
+            dobel = {k["dist"] for k in ongkos or [] if k["jenis"] == "J073" and k["sampai"] >= sampai and k["dari"] <= dari}
             antre += [dict(bagian="J073", label=f"J073 {d}", kode="J073", jenis="job", kirim=(lambda d=d: kirim_j073(page, d, dari, sampai)))
-                      for d in j073_dist()]
+                      for d in j073_dist() if d.upper() not in dobel]
         for k in ongkos or []:
             if k["jenis"] == "J073":
                 antre.append(dict(bagian="ONGKOS", label=label_kiriman(k), kode="J073", jenis="job", ongkos=k,
@@ -888,7 +914,10 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
         def unduh(a: dict) -> bool:
             try:
                 with page.expect_download(timeout=90_000) as info:
-                    page.get_by_role("link", name=a["job"], exact=True).first.click()
+                    tautan = page.get_by_role("link", name=a["job"], exact=True)
+                    if not tautan.count():
+                        tautan = page.locator("a").filter(has_text=re.compile(rf"\b{a['job']}\b"))
+                    tautan.first.click()
                 d = info.value
                 akhiran = Path(d.suggested_filename or "").suffix or (".XLS" if a["jenis"] == "laporan" else ".TXT")
                 nama = a["label"].replace("Ongkos kirim ", "").replace(" ", "_").replace("..", "-")
@@ -1247,6 +1276,8 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
             h2 = ambil_erp(pw, dari_erp, a.dari, a.sampai, daftar_bulan, tampil=not a.tanpa_layar, ongkos=ongkos)
             h.j028, h.j073, h.subdist, h.ongkos = h2.j028, h2.j073, h2.subdist, h2.ongkos
             h.gagal.update(h2.gagal)
+            if "J073" in bagian and not h.j073 and any(k["jenis"] == "J073" for k in ongkos):
+                h.berhasil["J073"] = "ikut file J073 Ongkos kirim"
         if a.berkas:
             h.j028 = list(a.berkas)
         if h.j028:
