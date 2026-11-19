@@ -86,7 +86,10 @@ JEDA_CEK_PENDEK = int(os.environ.get("JEDA_CEK_PENDEK", "60"))  # tanpa J028 di 
 ONGKOS_DIST_BAWAAN = "4094,9575,6980,6984,4708,6983,9757,1001K,1001P,4403,4403B,6987,6981"   # INSA-E (4094E) kosong: ikut 4094
 ONGKOS_HARI = int(os.environ.get("ONGKOS_HARI", "7"))          # dari jadwal: ongkos kirim diperbarui paling sering sekali seminggu
 ORDB_BULAN = int(os.environ.get("ORDB_BULAN", "2"))            # ORDB019: bulan ini dan bulan lalu (tagihan transporter masuk belakangan)
-KELOMPOK_ISI_ULANG = int(os.environ.get("KELOMPOK_ISI_ULANG", "8"))   # isi ulang: sekian job/laporan per putaran unduh-upload
+KELOMPOK_ISI_ULANG = int(os.environ.get("KELOMPOK_ISI_ULANG", "8"))
+COBA_KIRIM = int(os.environ.get("COBA_KIRIM", "3"))            # submit gagal: dicoba lagi sampai sekian kali, jeda JEDA_COBA_DETIK
+JEDA_COBA_DETIK = int(os.environ.get("JEDA_COBA_DETIK", "60"))
+TUNGGU_MUNCUL_MENIT = int(os.environ.get("TUNGGU_MUNCUL_MENIT", "10"))   # sudah submit tapi belum muncul di View: dicek tiap menit, lalu submit ulang   # isi ulang: sekian job/laporan per putaran unduh-upload
 POLA_STATUS = re.compile(r"FINISH|PROCESS|QUEUE|WAIT|PENDING|RUNNING|ERROR|FAIL|CANCEL|DONE|SUCCESS", re.I)
 POLA_KODE = re.compile(r"^(J028B?|J073|ORDB\d+)$", re.I)
 
@@ -301,17 +304,16 @@ def daftar_laporan(page: Page) -> dict[str, tuple[str, str]]:
     def halaman_view() -> bool:
         return "view" in page.url.lower() and "report" in page.url.lower()
 
-    if VIEW_REPORT:
-        page.goto(VIEW_REPORT[0])
-        return baca()
-    page.goto(f"{ERP}/SYS_View_Report.aspx")
-    hasil = baca()
-    if not hasil and not halaman_view() and _buka_menu(page, "#mmlink6", r"View\s*Report"):
+    # dibuka lewat menu Report (#mmlink6) → View Report setiap kali, seperti klik manual; alamat langsung hanya cadangan
+    if _buka_menu(page, "#mmlink6", r"View\s*Report") and halaman_view():
+        hasil = baca()
+    else:
+        page.goto(VIEW_REPORT[0] if VIEW_REPORT else f"{ERP}/SYS_View_Report.aspx")
         hasil = baca()
     if not VIEW_REPORT_JEJAK:                       # sekali per jalan: simpan tampilan View Report untuk dicek
         VIEW_REPORT_JEJAK.append(True)
         jejak(page, "view_report")
-    if hasil or halaman_view():
+    if (hasil or halaman_view()) and not VIEW_REPORT:
         VIEW_REPORT.append(page.url)
     return hasil
 
@@ -947,12 +949,18 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                     dikenal.add(j)
             for a in [x for x in aktif if x["jenis"] == jenis]:
                 if a["job"] is None:
-                    if time.time() - a["waktu"] > 5 * 60:      # tidak pernah muncul: ditolak ERP
+                    # sudah submit tapi belum muncul: View dicek tiap menit; setelah TUNGGU_MUNCUL_MENIT dianggap tidak
+                    # diterima ERP, lalu submit ulang (paling banyak COBA_KIRIM kali)
+                    if time.time() - a["waktu"] > TUNGGU_MUNCUL_MENIT * 60:
                         tempat = "View Job" if jenis == "job" else "View Report"
-                        h.catat_gagal(a["label"], SystemExit(f"{a['label']} tidak muncul di {tempat} setelah dikirim (antrian ERP penuh "
-                                                             "atau form menolak isian). Lihat screenshot sebelum_submit di folder unduhan."))
                         aktif.remove(a)
                         maju = True
+                        if a.get("coba", 1) < COBA_KIRIM:
+                            print(f"  {a['label']}: belum muncul di {tempat} setelah {TUNGGU_MUNCUL_MENIT} menit, submit ulang")
+                            antre.insert(0, {k: v for k, v in a.items() if k not in ("waktu", "job")} | {"coba": a.get("coba", 1) + 1, "siap": time.time()})
+                        else:
+                            h.catat_gagal(a["label"], SystemExit(f"{a['label']} tidak muncul di {tempat} setelah {COBA_KIRIM} kali submit "
+                                                                 "(antrian ERP penuh atau form menolak isian). Lihat screenshot sebelum_submit di folder unduhan."))
                     continue
                 status = daftar.get(a["job"], ("", ""))[1]
                 if re.search(r"ERROR|FAIL|CANCEL", status):
@@ -971,8 +979,11 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
             kunci_segarkan()
             # 1. isi antrian ERP sampai penuh (job dan laporan berbagi batas yang sama)
             dikirim = False
-            while antre and len(aktif) < MAKS_ANTRIAN:
-                k = antre.pop(0)
+            while len(aktif) < MAKS_ANTRIAN:
+                k = next((x for x in antre if x.get("siap", 0) <= time.time()), None)   # yang sedang menunggu coba ulang dilewati dulu
+                if k is None:
+                    break
+                antre.remove(k)
                 if k["jenis"] == "laporan" and lama_r is None:
                     lama_r = set(daftar_laporan(page))
                 try:
@@ -980,7 +991,12 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                     aktif.append({**k, "waktu": time.time(), "job": None})
                     dikirim = True
                 except (SystemExit, Exception) as e:  # noqa: BLE001
-                    h.catat_gagal(k["label"], e)
+                    coba = k.get("coba", 1)
+                    if coba < COBA_KIRIM:
+                        print(f"  {k['label']}: submit gagal ({pesan(e).splitlines()[0][:120]}), dicoba lagi {JEDA_COBA_DETIK} detik lagi")
+                        antre.insert(0, {**k, "coba": coba + 1, "siap": time.time() + JEDA_COBA_DETIK})
+                    else:
+                        h.catat_gagal(k["label"], e)
             if dikirim:
                 batas = time.time() + TUNGGU_JOB_MENIT * 60
             # 2. Sub ERP selagi job diproses
@@ -1014,9 +1030,13 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                 for k in antre:
                     h.catat_gagal(k["label"], SystemExit(f"{k['label']} belum sempat dikirim karena antrian ERP macet."))
                 break
-            if ada_kemajuan and antre:
+            if ada_kemajuan and any(x.get("siap", 0) <= time.time() for x in antre):
                 continue                                 # ada tempat kosong: langsung kirim berikutnya
             jeda = JEDA_CEK_DETIK if any(a["bagian"] == "J028" for a in aktif) else min(JEDA_CEK_PENDEK, JEDA_CEK_DETIK)
+            if any(a["job"] is None for a in aktif):
+                jeda = min(jeda, 60)                     # belum muncul di View: cek tiap menit
+            if antre and len(aktif) < MAKS_ANTRIAN:      # ada yang menunggu coba ulang
+                jeda = max(1, min(jeda, int(min(x.get("siap", 0) for x in antre) - time.time()) + 1))
             sisa = len(aktif) + len(antre)
             print(f"  {sisa} job/laporan belum selesai, cek lagi " + (f"{jeda // 60} menit" if jeda >= 60 and jeda % 60 == 0 else f"{jeda} detik") + " lagi")
             time.sleep(jeda)
