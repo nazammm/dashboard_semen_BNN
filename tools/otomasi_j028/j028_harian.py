@@ -305,7 +305,6 @@ def daftar_job(page: Page) -> dict[str, tuple[str, str]]:
     return baca_antrian(page, r"J\d{5,}")
 
 
-VIEW_REPORT: list[str] = []          # alamat halaman View Report yang terbukti benar (ada tabel Report ID)
 VIEW_REPORT_JEJAK: list[bool] = []
 
 
@@ -321,9 +320,13 @@ def _buka_menu(page: Page, induk: str, teks: str) -> bool:
         return False
 
 
+VIEW_REPORT_CARA: list[str] = []     # "menu" kalau menu Report → View Report berhasil, selain itu alamat halamannya
+
+
 def daftar_laporan(page: Page) -> dict[str, tuple[str, str]]:
-    """Isi View Report: {Report ID: (kode laporan, Status)}. Dibuka ulang setiap kali (bukan refresh / F5):
-    alamat SYS_View_Report.aspx, kalau tidak ada tabel laporannya lewat menu Report (#mmlink6) → View Report."""
+    """Isi View Report (halaman 1, laporan terbaru di atas): {Report ID: (kode laporan, Status)}.
+    Dibuka ulang setiap kali seperti klik manual (bukan refresh / F5): lewat menu Report → View Report kalau bisa,
+    kalau tidak lewat alamatnya (di ERP: SYS_Report_View.aspx). Halaman dianggap benar kalau ada kolom "Report ID"."""
     def baca() -> dict[str, tuple[str, str]]:
         try:
             page.wait_for_load_state("networkidle", timeout=60_000)
@@ -331,21 +334,41 @@ def daftar_laporan(page: Page) -> dict[str, tuple[str, str]]:
             pass
         return baca_antrian(page, r"R\d{5,}")
 
-    def halaman_view() -> bool:
-        return "view" in page.url.lower() and "report" in page.url.lower()
+    def ada_tabel() -> bool:
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=30_000)
+            return page.locator("th, td").filter(has_text=re.compile(r"Report\s*ID", re.I)).count() > 0
+        except PWError:
+            return False
 
-    # dibuka lewat menu Report (#mmlink6) → View Report setiap kali, seperti klik manual; alamat langsung hanya cadangan
-    if _buka_menu(page, "#mmlink6", r"View\s*Report") and halaman_view():
-        hasil = baca()
+    menu = lambda: _buka_menu(page, "#mmlink6", r"^\s*(View\s*Report|Report\s*View)\s*$") and ada_tabel()
+
+    def alamat(u: str) -> bool:
+        try:
+            page.goto(u)
+        except PWError:
+            return False
+        return ada_tabel()
+
+    if VIEW_REPORT_CARA:
+        cara = VIEW_REPORT_CARA[0]
+        if (menu() if cara == "menu" else alamat(cara)):
+            return baca()
+        VIEW_REPORT_CARA.clear()                    # cara lama gagal: cari lagi
+    if menu():
+        VIEW_REPORT_CARA.append("menu")
     else:
-        page.goto(VIEW_REPORT[0] if VIEW_REPORT else f"{ERP}/SYS_View_Report.aspx")
-        hasil = baca()
+        for u in (f"{ERP}/SYS_Report_View.aspx", f"{ERP}/SYS_View_Report.aspx"):
+            if alamat(u):
+                VIEW_REPORT_CARA.append(page.url)
+                break
     if not VIEW_REPORT_JEJAK:                       # sekali per jalan: simpan tampilan View Report untuk dicek
         VIEW_REPORT_JEJAK.append(True)
         jejak(page, "view_report")
-    if (hasil or halaman_view()) and not VIEW_REPORT:
-        VIEW_REPORT.append(page.url)
-    return hasil
+    if not VIEW_REPORT_CARA:
+        raise SystemExit(f"Halaman View Report tidak ketemu (menu Report → View Report maupun SYS_Report_View.aspx).\nHalaman: {jejak(page, 'view_report_gagal')}")
+    print(f"  View Report dibuka lewat {'menu' if VIEW_REPORT_CARA[0] == 'menu' else VIEW_REPORT_CARA[0]}")
+    return baca()
 
 
 MAKS_HALAMAN_VIEW = int(os.environ.get("MAKS_HALAMAN_VIEW", "10"))   # pindai View Report paling banyak sekian halaman
