@@ -65,7 +65,7 @@ import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from playwright.sync_api import Page, TimeoutError as PWTimeout, sync_playwright
+from playwright.sync_api import Error as PWError, Page, TimeoutError as PWTimeout, sync_playwright
 
 ERP = os.environ.get("ERP_URL", "https://www.bangunsukses.com").rstrip("/")   # ERP_URL hanya untuk uji
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
@@ -248,21 +248,50 @@ def buka_form(page: Page, menu: str, penanda: str) -> None:
         raise SystemExit(f"Halaman {menu} tidak bisa dibuka.\nHalaman: {jejak(page, f'menu_{menu}')}")
 
 
+LAPORAN_META: dict[str, dict] = {}   # Report ID -> {dist, bulan, mulai, status} dari kolom Parameters / Start Run
+
+
+def _meta_laporan(sel: list[str]) -> dict:
+    """Kolom Parameters View Report: DIST="4094" ,TRANSPORTER="0" ,PERIODE="JUN 2025"; Start Run: 19 Nov 2026-13:44:27."""
+    teks = " ".join(sel)
+    meta: dict = {}
+    m = re.search(r'DIST\s*=\s*"?\s*([0-9A-Z]+)', teks, re.I)
+    if m:
+        meta["dist"] = m.group(1).upper()
+    m = re.search(r'PERIODE\s*=\s*"?\s*([A-Za-z]{3})[A-Za-z]*[\s-]*(\d{4})', teks, re.I)
+    if m and m.group(1).capitalize() in BULAN_EN:
+        meta["bulan"] = date(int(m.group(2)), BULAN_EN.index(m.group(1).capitalize()) + 1, 1)
+    m = re.search(r"(\d{1,2}) ([A-Za-z]{3}) (\d{4})[- ](\d{2}):(\d{2})", teks)
+    if m and m.group(2).capitalize() in BULAN_EN:
+        meta["mulai"] = datetime(int(m.group(3)), BULAN_EN.index(m.group(2).capitalize()) + 1, int(m.group(1)), int(m.group(4)), int(m.group(5)))
+    return meta
+
+
 def baca_antrian(page: Page, pola: str) -> dict[str, tuple[str, str]]:
-    """Tabel View Job / View Report: {ID: (kode, status)}. ID = sel yang cocok `pola` (J123.. / R123..);
-    kode = sel J028 / J028B / J073 / ORDBnnn di baris itu (kalau tidak ada: sel sesudah ID); status = sel FINISHED / PROCESSING / ..."""
-    baris = page.evaluate("() => [...document.querySelectorAll('tr')].map(tr => [...tr.children].map(td => td.innerText.trim()))")
+    """Tabel View Job / View Report: {ID: (kode, status)}. Sel bisa dua baris ("R2671055 / BNN241", "ORDB019 / MONTHLY
+    DELIVERY COST", "FINISHED (11.4 SEC) / 19 Nov 2026-13:44:38"): yang dibaca baris pertamanya. ID = cocok `pola`;
+    kode = J028 / J028B / J073 / ORDBnnn; status = FINISHED / PROCESSING / ... . Untuk laporan, distributor dan periode dari
+    kolom Parameters disimpan di LAPORAN_META."""
+    for coba in range(3):                       # halaman yang sedang berpindah (postback) dibaca ulang
+        try:
+            baris = page.evaluate("() => [...document.querySelectorAll('tr')].map(tr => [...tr.children].map(td => td.innerText.trim()))")
+            break
+        except PWError:
+            page.wait_for_load_state("load", timeout=60_000)
+    else:
+        baris = []
     hasil = {}
     for b in baris:
-        i = next((k for k, c in enumerate(b) if re.fullmatch(pola, c)), None)
+        pertama = [(c.split("\n")[0] if c else "").strip() for c in b]
+        i = next((k for k, c in enumerate(pertama) if re.match(pola + r"\b", c)), None)
         if i is None:
-            i = next((k for k, c in enumerate(b) if re.match(pola + r"\b", c)), None)
-            if i is None:
-                continue
-            b = b[:i] + [re.match(pola, b[i]).group(0)] + b[i + 1:]
-        kode = next((c for c in b if POLA_KODE.match(c)), b[i + 1] if i + 1 < len(b) else "")
-        status = next((c for c in b if POLA_STATUS.search(c) and not re.fullmatch(pola, c)), b[i - 1] if i else "")
-        hasil[b[i]] = (kode.upper(), status.upper())
+            continue
+        jid = re.match(pola, pertama[i]).group(0)
+        kode = next((c for c in pertama if POLA_KODE.match(c)), pertama[i + 1] if i + 1 < len(pertama) else "")
+        status = next((c for k, c in enumerate(pertama) if k != i and POLA_STATUS.search(c)), pertama[i - 1] if i else "")
+        hasil[jid] = (kode.upper(), status.upper())
+        if jid.startswith("R"):
+            LAPORAN_META[jid] = {**_meta_laporan(b), "status": status.upper()}
     return hasil
 
 
@@ -317,6 +346,42 @@ def daftar_laporan(page: Page) -> dict[str, tuple[str, str]]:
     if (hasil or halaman_view()) and not VIEW_REPORT:
         VIEW_REPORT.append(page.url)
     return hasil
+
+
+MAKS_HALAMAN_VIEW = int(os.environ.get("MAKS_HALAMAN_VIEW", "10"))   # pindai View Report paling banyak sekian halaman
+
+
+def ke_halaman_view(page: Page, n: int) -> bool:
+    """Pindah ke halaman n tabel View Report (pager "Page [1] of 4"): pilih nomor di dropdown, cadangannya tombol berikutnya."""
+    jumlah = page.evaluate("""() => {
+      const s = [...document.querySelectorAll('select')].find(s => s.options.length > 0 && [...s.options].every(o => /^\\d+$/.test(o.text.trim())));
+      if (!s) return 0; s.setAttribute('data-nat-pager', '1'); return s.options.length; }""")
+    if jumlah and n > jumlah:
+        return False
+    maju = page.locator("a[title*='Next' i], input[title*='Next' i], a:has(img[alt*='Next' i]), input[type=image][src*='next' i], a:has(img[src*='next' i])")
+    if not jumlah and not maju.count():
+        return False
+    try:
+        try:
+            with page.expect_navigation(timeout=20_000):          # pager ASP.NET: postback memuat ulang halaman
+                if jumlah:
+                    page.locator("select[data-nat-pager]").select_option(str(n))
+                else:
+                    maju.first.click()
+        except PWTimeout:
+            pass                                                   # pager tanpa muat ulang (AJAX)
+        page.wait_for_load_state("networkidle", timeout=60_000)
+    except PWTimeout:
+        return False
+    return bool(baca_antrian(page, r"R\d{5,}"))
+
+
+def laporan_boleh_dipakai(meta: dict, hari: date) -> bool:
+    """Laporan lama di View Report boleh dipakai ulang kalau sudah FINISHED dan bulannya sudah tutup (sebelum bulan lalu),
+    atau dibuat hari ini. Bulan ini dan bulan lalu masih berubah (tagihan transporter masuk belakangan), jadi diminta baru."""
+    if "FINISH" not in meta.get("status", "") or "bulan" not in meta:
+        return False
+    return meta["bulan"] < awal_bulan(hari, 1) or (meta.get("mulai") is not None and meta["mulai"].date() == hari)
 
 
 def kirim_selesai(page: Page, menu: str) -> None:
@@ -868,7 +933,9 @@ def kiriman_ongkos(hari: date, dists: list[str], mulai: date | None = None) -> l
             m = awal_bulan(m + timedelta(days=32))
         for m in bulan:
             hasil.append({"jenis": "ORDB", "dist": d, "bulan": m, "kunci": f"ORDB|{d}|{m:%Y-%m}"})
-    return hasil
+    # urut per bulan lalu per distributor: semua distributor maju bersama, bukan satu distributor sampai habis dulu
+    urut = {d: i for i, d in enumerate(dists)}
+    return sorted(hasil, key=lambda k: (k.get("dari") or k["bulan"], k["jenis"] != "J073", urut[k["dist"]]))
 
 
 def cek_rentang_ongkos(dari: date, sampai: date | None, dist: str | None) -> tuple[date, list[str]]:
@@ -963,15 +1030,26 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
             print(f"  terunduh: {tujuan.name}")
             return True
 
+        def cocok_laporan(a: dict, j: str) -> bool:
+            """Laporan ORDB019 dicocokkan dengan distributor + periode di kolom Parameters; tanpa Parameters: urutan kirim."""
+            m = LAPORAN_META.get(j, {})
+            if "dist" in m and "bulan" in m:
+                return m["dist"] == a["ongkos"]["dist"].upper() and m["bulan"] == a["ongkos"]["bulan"]
+            return a["kode"] == daftar_kode.get(j, "") or not daftar_kode.get(j, "").startswith("ORDB")
+
+        daftar_kode: dict[str, str] = {}
+
         def periksa(jenis: str, daftar: dict[str, tuple[str, str]]) -> bool:
-            """Pasangkan ID baru dengan kiriman (urutan kirim = urutan ID), unduh yang sudah selesai."""
+            """Pasangkan ID baru dengan kiriman, unduh yang sudah selesai. Job: kode + urutan kirim; laporan: distributor + periode."""
             maju = False
-            kode_ada = {k for k, _ in daftar.values()}
+            daftar_kode.update({j: k for j, (k, _) in daftar.items()})
             for j, (kode, _) in sorted(daftar.items()):
                 if j in dikenal:
                     continue
-                k = next((a for a in aktif if a["jenis"] == jenis and a["job"] is None
-                          and (a["kode"] == kode or (jenis == "laporan" and not any(x.startswith("ORDB") for x in kode_ada)))), None)
+                if jenis == "laporan":
+                    k = next((a for a in aktif if a["jenis"] == "laporan" and a["job"] is None and cocok_laporan(a, j)), None)
+                else:
+                    k = next((a for a in aktif if a["jenis"] == jenis and a["job"] is None and a["kode"] == kode), None)
                 if k:
                     k["job"] = j
                     dikenal.add(j)
@@ -1002,6 +1080,27 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                     aktif.remove(a)
                     maju = True
             return maju
+
+        # 0. laporan ORDB019 yang sudah ada di View Report (dari jalan sebelumnya) langsung diunduh, tidak diminta lagi
+        if any(k["jenis"] == "laporan" for k in antre):
+            lama_r = set()
+            butuh = {(k["ongkos"]["dist"].upper(), k["ongkos"]["bulan"]): k for k in antre if k["jenis"] == "laporan"}
+            daftar = daftar_laporan(page)
+            hal, dipakai = 1, 0
+            while True:
+                lama_r |= set(daftar)
+                for j in sorted(daftar, reverse=True):          # yang terbaru dulu
+                    m = LAPORAN_META.get(j, {})
+                    k = butuh.get((m.get("dist"), m.get("bulan")))
+                    if k and laporan_boleh_dipakai(m, date.today()) and unduh({**k, "job": j}):
+                        butuh.pop((m["dist"], m["bulan"]))
+                        antre.remove(k)
+                        dipakai += 1
+                if not butuh or hal >= MAKS_HALAMAN_VIEW or not ke_halaman_view(page, hal + 1):
+                    break
+                hal += 1
+                daftar = baca_antrian(page, r"R\d{5,}")
+            print(f"  View Report: {hal} halaman diperiksa, {dipakai} laporan ORDB019 sudah ada dan diunduh, {len(butuh)} diminta baru")
 
         while True:
             kunci_segarkan()
