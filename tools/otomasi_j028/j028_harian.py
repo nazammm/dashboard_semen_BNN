@@ -33,6 +33,7 @@ sebelumnya, satu job per distributor) dan laporan ORDB019 bulan lalu + bulan ini
 Dari jadwal (--jadwal) bagian ini hanya jalan seminggu sekali (ONGKOS_HARI). INSA-E ikut INSA (4094).
     python j028_harian.py --bagian ONGKOS
     python j028_harian.py --bagian ONGKOS --isi-ulang 2025-01   # isi data lama: J073 per 3 bulan + ORDB019 per bulan
+    python j028_harian.py --ongkos-dari 2025-08-01 --ongkos-sampai 2025-10-31 --ongkos-dist 9575   # rentang pilihan, maks 3 bulan
 Isi ulang dikerjakan per kelompok kecil (unduh, lalu langsung upload) dan dicatat di isi_ulang_ongkos.json; kalau
 terhenti, jalankan perintah yang sama lagi dan yang sudah masuk dilewati.
 Antrian ERP paling banyak MAKS_ANTRIAN (2) job + laporan sekaligus, termasuk laporan ORDB019.
@@ -870,6 +871,33 @@ def kiriman_ongkos(hari: date, dists: list[str], mulai: date | None = None) -> l
     return hasil
 
 
+def cek_rentang_ongkos(dari: date, sampai: date | None, dist: str | None) -> tuple[date, list[str]]:
+    """Rentang pilihan Ongkos kirim: paling panjang 3 bulan kalender (batas J073 di ERP), tidak lewat hari ini."""
+    hari = date.today()
+    batas = jendela_3bulan(dari, dari.replace(year=dari.year + 1, day=1))[0][1]   # akhir bulan ketiga dari bulan awal
+    sampai = sampai or min(batas, hari)
+    if sampai < dari:
+        raise ValueError("Ongkos kirim: tanggal akhir sebelum tanggal awal.")
+    if sampai > batas:
+        raise ValueError(f"Ongkos kirim: paling panjang 3 bulan (dari {dari} paling jauh s.d. {batas}).")
+    if dari > hari:
+        raise ValueError("Ongkos kirim: tanggal awal setelah hari ini.")
+    dists = [k.strip().upper() for k in (dist or "").split(",") if k.strip()] or ongkos_dist()
+    return min(sampai, hari), [d for d in dists if d != "4094E"] or ["4094"]
+
+
+def kiriman_rentang(dari: date, sampai: date, dists: list[str]) -> list[dict]:
+    """Rentang pilihan: satu J073 per distributor untuk dari..sampai, ORDB019 tiap bulan di rentang itu."""
+    hasil = []
+    for d in dists:
+        hasil.append({"jenis": "J073", "dist": d, "dari": dari, "sampai": sampai, "kunci": f"J073|{d}|{dari}|{sampai}"})
+        m = dari.replace(day=1)
+        while m <= sampai:
+            hasil.append({"jenis": "ORDB", "dist": d, "bulan": m, "kunci": f"ORDB|{d}|{m:%Y-%m}"})
+            m = awal_bulan(m + timedelta(days=32))
+    return hasil
+
+
 def label_kiriman(k: dict) -> str:
     if k["jenis"] == "J073":
         return f"Ongkos kirim J073 {k['dist']} {k['dari']:%Y-%m}..{k['sampai']:%Y-%m}"
@@ -1196,6 +1224,9 @@ def main() -> None:
     ap.add_argument("--tanpa-layar", action="store_true", help="browser tidak ditampilkan")
     ap.add_argument("--tanpa-jeda", action="store_true", help="exe langsung tertutup setelah selesai (untuk jadwal)")
     ap.add_argument("--jadwal", action="store_true", help="dijalankan jadwal: Ongkos kirim hanya kalau sudah ONGKOS_HARI hari sejak terakhir berhasil")
+    ap.add_argument("--ongkos-dari", type=date.fromisoformat, metavar="YYYY-MM-DD", help="Ongkos kirim rentang pilihan (paling panjang 3 bulan): awal")
+    ap.add_argument("--ongkos-sampai", type=date.fromisoformat, metavar="YYYY-MM-DD", help="Ongkos kirim rentang pilihan: akhir (bawaan: akhir bulan ketiga / hari ini)")
+    ap.add_argument("--ongkos-dist", metavar="KODE,KODE", help="Ongkos kirim rentang pilihan: distributor tertentu saja (bawaan: ONGKOS_DIST)")
     ap.add_argument("--isi-ulang", metavar="YYYY-MM", help="Ongkos kirim: isi data lama sejak bulan ini (J073 per 3 bulan, ORDB019 per bulan); bisa dilanjutkan")
     a = ap.parse_args()
     if a.log:
@@ -1233,6 +1264,13 @@ def main() -> None:
             a.isi_ulang = date.fromisoformat(a.isi_ulang[:7] + "-01")
         except ValueError:
             sys.exit("--isi-ulang ditulis YYYY-MM, mis. 2025-01")
+        bagian = {"ONGKOS"}
+    elif a.ongkos_dari:
+        try:
+            a.ongkos_sampai, a.ongkos_dist = cek_rentang_ongkos(a.ongkos_dari, a.ongkos_sampai, a.ongkos_dist)
+        except ValueError as e:
+            sys.exit(str(e))
+        a.dari, a.sampai = a.ongkos_dari, a.ongkos_sampai
         bagian = {"ONGKOS"}
     elif "ONGKOS" in bagian and a.jadwal:
         t = ongkos_terakhir()
@@ -1291,7 +1329,13 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
             isi_ulang_ongkos(pw, a, h)
             return
         dari_erp = (bagian & {"J028", "J073", "SUBDIST"}) - ({"J028"} if a.berkas else set())
-        ongkos = kiriman_ongkos(a.sampai, ongkos_dist()) if "ONGKOS" in bagian else []
+        if "ONGKOS" not in bagian:
+            ongkos = []
+        elif a.ongkos_dari:
+            ongkos = kiriman_rentang(a.ongkos_dari, a.ongkos_sampai, a.ongkos_dist)
+            print("Ongkos kirim rentang pilihan: " + f"{a.ongkos_dari} s.d. {a.ongkos_sampai}, " + ", ".join(a.ongkos_dist))
+        else:
+            ongkos = kiriman_ongkos(a.sampai, ongkos_dist())
         if dari_erp or ongkos:
             h2 = ambil_erp(pw, dari_erp, a.dari, a.sampai, daftar_bulan, tampil=not a.tanpa_layar, ongkos=ongkos)
             h.j028, h.j073, h.subdist, h.ongkos = h2.j028, h2.j073, h2.subdist, h2.ongkos
@@ -1444,7 +1488,7 @@ def ongkos_terakhir() -> datetime | None:
         return None
     for c in reversed(r):
         b = c.get("bagian", {}).get("Ongkos kirim")
-        if b and b.get("ok") and not c.get("pratinjau"):
+        if b and b.get("ok") and not c.get("pratinjau") and not c.get("ongkos_pilihan"):
             return datetime.fromisoformat(c["mulai"])
     return None
 
@@ -1475,6 +1519,8 @@ def catat_riwayat(mulai: datetime, bagian: set[str], a, h: "Hasil") -> None:
                 v.update(ok=False, pesan=h.gagal["Umum"])
     catatan = {"mulai": mulai.isoformat(timespec="seconds"), "selesai": datetime.now().isoformat(timespec="seconds"),
                "rentang": f"{a.dari} s.d. {a.sampai}", "pratinjau": bool(a.tanpa_simpan or a.hanya_unduh), "bagian": status}
+    if getattr(a, "ongkos_dari", None):
+        catatan["ongkos_pilihan"] = True        # rentang pilihan: tidak menggantikan pembaruan mingguan
     print("@@STATUS " + json.dumps(catatan, ensure_ascii=False))
     try:
         lama = json.loads(RIWAYAT.read_text(encoding="utf-8")) if RIWAYAT.exists() else []

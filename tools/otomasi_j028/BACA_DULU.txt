@@ -28,4 +28,9 @@ Ongkos kirim (halaman Ongkos Kirim di SEMENTRACK)
 - Data lama: Pengaturan -> "Isi data lama sejak" 2025-01 -> Isi ulang ongkos. Dikerjakan per 8 job/laporan
   (unduh lalu langsung upload) dan dicatat di isi_ulang_ongkos.json. Kalau terhenti, klik lagi; yang sudah
   masuk dilewati. Hapus file itu kalau ingin mengulang semuanya dari awal.
+- Rentang tertentu (paling panjang 3 bulan): Pengaturan -> Ambil rentang, mis. 2025-08-01 s.d. 2025-10-31,
+  Distributor kosong = semua, atau isi beberapa kode (9575,4403). Tidak mengubah jadwal mingguan.
+- Submit gagal dicoba lagi tiap 1 menit (3x). Sudah submit tapi belum muncul di View Report / View Job: dicek tiap
+  menit; 10 menit belum muncul, submit ulang (3x).
 - Baris perintah: python j028_harian.py --bagian ONGKOS    atau    --bagian ONGKOS --isi-ulang 2025-01
+  atau    --ongkos-dari 2025-08-01 --ongkos-sampai 2025-10-31 --ongkos-dist 9575
