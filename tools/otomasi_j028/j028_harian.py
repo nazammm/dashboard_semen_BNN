@@ -271,7 +271,7 @@ def _meta_laporan(sel: list[str]) -> dict:
     """Kolom Parameters View Report: DIST="4094" ,TRANSPORTER="0" ,PERIODE="JUN 2025"; Start Run: 19 Nov 2026-13:44:27."""
     teks = " ".join(sel)
     meta: dict = {}
-    m = re.search(r'DIST\s*=\s*"?\s*([0-9A-Z]+)', teks, re.I)
+    m = re.search(r'DIST(?:RIBUTOR)?(?:[ _]?CODE)?\s*[=:]\s*"?\s*([0-9A-Z]+)', teks, re.I)
     if m:
         meta["dist"] = m.group(1).upper()
     m = re.search(r'PERIODE\s*=\s*"?\s*([A-Za-z]{3})[A-Za-z]*[\s-]*(\d{4})', teks, re.I)
@@ -1213,7 +1213,9 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
         FOLDER.mkdir(exist_ok=True)
         batas = time.time() + TUNGGU_JOB_MENIT * 60   # diperpanjang setiap ada kemajuan
 
-        def unduh(a: dict) -> bool:
+        def unduh(a: dict) -> dict | None:
+            """Unduh file ID a["job"]. Mengembalikan kiriman yang selesai (biasanya a sendiri; untuk J073 bisa kiriman
+            distributor lain kalau isi file ternyata miliknya, lalu a kembali menunggu job-nya sendiri). None = belum siap."""
             try:
                 with page.expect_download(timeout=90_000) as info:
                     tautan = page.get_by_role("link", name=a["job"], exact=True)
@@ -1227,7 +1229,18 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                 d.save_as(tujuan)
             except PWTimeout:
                 print(f"  {a['job']} belum siap, dicoba lagi")
-                return False
+                return None
+            if a.get("kode") == "J073" and a.get("dist"):
+                # View Job tidak selalu menyebut distributor: job dipasangkan menurut urutan kirim. Isi file yang menentukan.
+                isi = isi_j073(tujuan)
+                if isi and isi != a["dist"]:
+                    pemilik = next((x for x in aktif if x is not a and x.get("kode") == "J073" and x.get("dist") == isi), None)
+                    if pemilik:
+                        print(f"  {a['job']} ternyata J073 {isi}, dipakai untuk kiriman {isi}; J073 {a['dist']} tetap ditunggu")
+                        a["job"], pemilik["job"] = pemilik["job"], a["job"]
+                        if a["job"] is None:
+                            a["waktu"] = max(a["waktu"], time.time() - 60)
+                        a = pemilik
             if a["bagian"] == "ONGKOS":
                 # salinan bernama baku di folder salinan; isi file diperiksa (distributor / bulan)
                 salinan, k, salah = simpan_lokal(tujuan, a["ongkos"])
@@ -1235,11 +1248,11 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                     h.catat_gagal(a["label"], SystemExit(f"{a['job']}: {salah}. File tetap disimpan dan diupload sesuai isinya."))
                 h.ongkos.append((salinan, k))
                 print(f"  terunduh: {tujuan.name} → {salinan}")
-                return True
+                return a
             else:
                 (h.j073 if a["bagian"] == "J073" else h.j028).append(tujuan)
             print(f"  terunduh: {tujuan.name}")
-            return True
+            return a
 
         def cocok_laporan(a: dict, j: str) -> bool:
             """Laporan ORDB019 dicocokkan dengan distributor + periode di kolom Parameters; tanpa Parameters: urutan kirim."""
@@ -1271,6 +1284,8 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                     k["job"] = j
                     dikenal.add(j)
             for a in [x for x in aktif if x["jenis"] == jenis]:
+                if a not in aktif:                       # sudah selesai lewat pertukaran file J073 di putaran ini
+                    continue
                 if a["job"] is None:
                     # sudah submit tapi belum muncul: View dicek tiap menit; setelah TUNGGU_MUNCUL_MENIT dianggap tidak
                     # diterima ERP, lalu submit ulang (paling banyak COBA_KIRIM kali)
@@ -1301,8 +1316,9 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                     continue
                 if status and "FINISH" not in status and "DONE" not in status and "SUCCESS" not in status:
                     continue
-                if unduh(a):
-                    aktif.remove(a)
+                selesai = unduh(a)
+                if selesai:
+                    aktif.remove(selesai)
                     maju = True
             return maju
 
@@ -1321,7 +1337,7 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                             dikenal.add(j)
                             print(f"  {a['label']}: ketemu di halaman {hal} View Report ({j})")
                         if "FINISH" in m.get("status", "") and unduh(a):
-                            aktif.remove(a)
+                            aktif.remove(a)                     # laporan: dicocokkan dari Parameters, tidak ditukar
                         elif re.search(r"ERROR|FAIL|CANCEL", m.get("status", "")):
                             h.catat_gagal(a["label"], SystemExit(f"{j} berstatus {m['status']} di ERP."))
                             aktif.remove(a)
