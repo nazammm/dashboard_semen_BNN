@@ -82,7 +82,7 @@ def simpan_setelan(s: dict) -> None:
 def simpan_akun(nilai: dict[str, str]) -> None:
     """akun_lokal.txt: password terenkripsi Windows (hanya bisa dibuka akun Windows ini)."""
     baris = ["# Ditulis oleh Nazam Auto Task. Password terenkripsi; ubah lewat Pengaturan di aplikasi."]
-    for k in ("ERP_USER", "SEMENTRACK_URL", "SEMENTRACK_USER", "TIRO_USER", "J073_DIST", "ONGKOS_DIST", "DOFAS_FILE", "STOCK_FILE"):
+    for k in ("ERP_USER", "SEMENTRACK_URL", "SEMENTRACK_USER", "TIRO_USER", "J073_DIST", "ONGKOS_DIST", "ONGKOS_FOLDER", "DOFAS_FILE", "STOCK_FILE"):
         baris.append(f"{k}={nilai.get(k, '').strip()}")
     for k in ("ERP_PASS", "SEMENTRACK_PASS", "TIRO_PASS"):
         v = nilai.get(k, "")
@@ -121,6 +121,214 @@ def jalankan_aplikasi() -> None:
             w.geometry(f"+{x}+{y}")
             w.after(7000, w.destroy)
             w.bind("<Button-1>", lambda e: (w.destroy(), root.deiconify(), root.lift()))
+
+    class PilihDist(tk.Frame):
+        """Centang distributor (kode ERP · nama), dengan tombol Semua / Kosongkan."""
+        def __init__(self, induk, app, terpilih: list[str], kolom: int = 4):
+            super().__init__(induk, bg=C["card"])
+            self.saat_berubah = None
+            terpilih = {x.strip().upper() for x in terpilih if x.strip()}
+            self.v = {}
+            grid = tk.Frame(self, bg=C["card"])
+            grid.pack(anchor="w")
+            for i, (kode, nama) in enumerate(mesin.DAFTAR_DIST):
+                v = tk.BooleanVar(value=kode in terpilih)
+                ttk.Checkbutton(grid, text=f"{nama} · {kode}", variable=v, command=self._ubah).grid(row=i // kolom, column=i % kolom, sticky="w", padx=(0, 12), pady=1)
+                self.v[kode] = v
+            b = tk.Frame(self, bg=C["card"])
+            b.pack(anchor="w", pady=(4, 0))
+            for teks, nilai in (("Semua", True), ("Kosongkan", False)):
+                t = tk.Label(b, text=teks, bg=C["card"], fg=C["pri"], cursor="hand2", font=app.f_kecil)
+                t.pack(side="left", padx=(0, 12))
+                t.bind("<Button-1>", lambda _e, n=nilai: self.semua(n))
+
+        def semua(self, nilai: bool):
+            for v in self.v.values():
+                v.set(nilai)
+            self._ubah()
+
+        def pilihan(self) -> list[str]:
+            return [k for k, _ in mesin.DAFTAR_DIST if self.v[k].get()]
+
+        def _ubah(self):
+            if self.saat_berubah:
+                self.saat_berubah(self.pilihan())
+
+    class Kalender(tk.Toplevel):
+        """Kalender kecil di bawah kolom tanggal: ‹ › ganti bulan, klik tanggal untuk memilih."""
+        HARI = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"]
+        BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+
+        def __init__(self, induk, nilai: date, saat_pilih, batas: date | None = None):
+            super().__init__(induk)
+            self.overrideredirect(True)
+            self.attributes("-topmost", True)
+            self.saat_pilih, self.batas, self.nilai = saat_pilih, batas, nilai
+            self.tampil = nilai.replace(day=1)
+            self.kotak = tk.Frame(self, bg=C["card"], highlightthickness=1, highlightbackground=C["line"], padx=8, pady=8)
+            self.kotak.pack()
+            x, y = induk.winfo_rootx(), induk.winfo_rooty() + induk.winfo_height() + 2
+            self.geometry(f"+{x}+{y}")
+            self.gambar()
+            self.bind("<Escape>", lambda _e: self.destroy())
+            self.bind("<FocusOut>", lambda _e: self.after(150, self._tutup_kalau_lepas))
+            self.focus_force()
+
+        def _tutup_kalau_lepas(self):
+            try:
+                if self.focus_get() is None:
+                    self.destroy()
+            except (KeyError, tk.TclError):
+                self.destroy()
+
+        def geser(self, n: int):
+            k = self.tampil.year * 12 + self.tampil.month - 1 + n
+            self.tampil = date(k // 12, k % 12 + 1, 1)
+            self.gambar()
+
+        def gambar(self):
+            import calendar
+            for w in self.kotak.winfo_children():
+                w.destroy()
+            atas = tk.Frame(self.kotak, bg=C["card"])
+            atas.grid(row=0, column=0, columnspan=7, sticky="ew", pady=(0, 6))
+            for teks, n, sisi in (("«", -12, "left"), ("‹", -1, "left"), ("»", 12, "right"), ("›", 1, "right")):
+                t = tk.Label(atas, text=teks, bg=C["card"], fg=C["pri"], cursor="hand2", font=("Segoe UI", 12, "bold"), padx=4)
+                t.pack(side=sisi)
+                t.bind("<Button-1>", lambda _e, n=n: self.geser(n))
+            tk.Label(atas, text=f"{self.BULAN[self.tampil.month - 1]} {self.tampil.year}", bg=C["card"], fg=C["txt"],
+                     font=("Segoe UI", 10, "bold")).pack(side="left", expand=True)
+            for i, h in enumerate(self.HARI):
+                tk.Label(self.kotak, text=h, bg=C["card"], fg=C["muted"], width=4, font=("Segoe UI", 8)).grid(row=1, column=i)
+            for r, minggu in enumerate(calendar.Calendar(firstweekday=0).monthdatescalendar(self.tampil.year, self.tampil.month)):
+                for c, d in enumerate(minggu):
+                    lain = d.month != self.tampil.month
+                    mati = self.batas is not None and d > self.batas
+                    pilih = d == self.nilai
+                    t = tk.Label(self.kotak, text=str(d.day), width=4, pady=3, cursor="" if mati else "hand2",
+                                 bg=C["pri"] if pilih else C["card"], fg="#ffffff" if pilih else (C["line"] if mati else (C["muted"] if lain else C["txt"])))
+                    t.grid(row=r + 2, column=c, padx=1, pady=1)
+                    if not mati:
+                        t.bind("<Button-1>", lambda _e, d=d: (self.saat_pilih(d), self.destroy()))
+
+    class KolomTanggal(tk.Frame):
+        """Kolom tanggal yang dipilih lewat kalender (tidak diketik)."""
+        def __init__(self, induk, nilai: date, saat_ubah=None, bulan_saja: bool = False, batas: date | None = None):
+            super().__init__(induk, bg=C["card"], highlightthickness=1, highlightbackground=C["line"], cursor="hand2")
+            self.nilai, self.saat_ubah, self.bulan_saja, self.batas = nilai, saat_ubah, bulan_saja, batas
+            self.lbl = tk.Label(self, bg=C["card"], fg=C["txt"], padx=8, pady=4, width=13 if not bulan_saja else 15, anchor="w")
+            self.lbl.pack(side="left")
+            tombol = tk.Label(self, text="📅", bg=C["card"], fg=C["pri"], padx=6)
+            tombol.pack(side="left")
+            for w in (self, self.lbl, tombol):
+                w.bind("<Button-1>", lambda _e: Kalender(self, self.nilai, self.set, self.batas))
+            self.tulis()
+
+        def tulis(self):
+            self.lbl.config(text=f"{Kalender.BULAN[self.nilai.month - 1]} {self.nilai.year}" if self.bulan_saja else tanggal_id(self.nilai))
+
+        def set(self, d: date):
+            self.nilai = d.replace(day=1) if self.bulan_saja else d
+            self.tulis()
+            if self.saat_ubah:
+                self.saat_ubah()
+
+    class DialogOngkos(tk.Toplevel):
+        """Ambil ongkos kirim: pilih distributor (centang), lalu rentang tanggal (maks 3 bulan) atau isi data lama sejak bulan tertentu."""
+        def __init__(self, app):
+            super().__init__(app)
+            self.app = app
+            self.title("Ambil ongkos kirim")
+            self.configure(bg=C["bg"])
+            self.resizable(False, False)
+            self.transient(app)
+            hari = date.today()
+            st = app.setelan
+            f = tk.Frame(self, bg=C["card"], padx=20, pady=16, highlightthickness=1, highlightbackground=C["line"])
+            f.pack(padx=14, pady=14, fill="both")
+            tk.Label(f, text="Ambil ongkos kirim (J073 + ORDB019)", bg=C["card"], fg=C["txt"], font=app.f_bold).grid(row=0, column=0, columnspan=4, sticky="w")
+
+            tk.Label(f, text="Distributor", bg=C["card"], fg=C["muted"]).grid(row=1, column=0, sticky="nw", pady=(12, 0))
+            awal = st.get("dialog_dist") or app.v_akun["ONGKOS_DIST"].get().split(",")
+            self.dist = PilihDist(f, app, awal, kolom=4)
+            self.dist.grid(row=1, column=1, columnspan=3, sticky="w", pady=(12, 0))
+            self.dist.saat_berubah = lambda _p: self.hitung()
+
+            self.mode = tk.StringVar(value=st.get("dialog_mode", "rentang"))
+            tk.Label(f, text="Waktu", bg=C["card"], fg=C["muted"]).grid(row=2, column=0, sticky="nw", pady=(14, 0))
+            w = tk.Frame(f, bg=C["card"])
+            w.grid(row=2, column=1, columnspan=3, sticky="w", pady=(14, 0))
+            ttk.Radiobutton(w, text="Rentang tanggal (paling panjang 3 bulan)", value="rentang", variable=self.mode, command=self.hitung).grid(row=0, column=0, columnspan=4, sticky="w")
+            r = tk.Frame(w, bg=C["card"])
+            r.grid(row=1, column=0, columnspan=4, sticky="w", padx=(24, 0), pady=(4, 8))
+            def tgl(kunci, bawaan):
+                try:
+                    return date.fromisoformat(st.get(kunci, ""))
+                except ValueError:
+                    return bawaan
+            self.dari = KolomTanggal(r, tgl("rentang_dari", hari.replace(day=1)), self.hitung, batas=hari)
+            self.dari.pack(side="left")
+            tk.Label(r, text="s.d.", bg=C["card"], fg=C["muted"], padx=8).pack(side="left")
+            self.sampai = KolomTanggal(r, tgl("rentang_sampai", hari), self.hitung, batas=hari)
+            self.sampai.pack(side="left")
+            ttk.Radiobutton(w, text="Isi data lama sejak bulan ini sampai hari ini (per 3 bulan, bisa dilanjutkan)", value="isi_ulang",
+                            variable=self.mode, command=self.hitung).grid(row=2, column=0, columnspan=4, sticky="w")
+            r2 = tk.Frame(w, bg=C["card"])
+            r2.grid(row=3, column=0, columnspan=4, sticky="w", padx=(24, 0), pady=(4, 0))
+            self.mulai = KolomTanggal(r2, tgl("isi_ulang_dari", date(2025, 1, 1)), self.hitung, bulan_saja=True, batas=hari)
+            self.mulai.pack(side="left")
+
+            self.info = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=app.f_kecil, justify="left", wraplength=560)
+            self.info.grid(row=3, column=0, columnspan=4, sticky="w", pady=(14, 0))
+            b = tk.Frame(f, bg=C["card"])
+            b.grid(row=4, column=0, columnspan=4, sticky="e", pady=(14, 0))
+            app.tombol(b, "Batal", self.destroy).pack(side="right")
+            self.b_jalan = app.tombol(b, "▶  Jalankan", self.jalan, utama=True)
+            self.b_jalan.pack(side="right", padx=(0, 8))
+            self.hitung()
+            self.grab_set()
+
+        def hitung(self):
+            dists = self.dist.pilihan()
+            self.galat = None
+            if not dists:
+                self.galat = "Centang minimal satu distributor."
+            elif self.mode.get() == "rentang":
+                try:
+                    sampai, _ = mesin.cek_rentang_ongkos(self.dari.nilai, self.sampai.nilai, ",".join(dists))
+                    k = mesin.kiriman_rentang(self.dari.nilai, sampai, dists)
+                    bln = len({x["bulan"] for x in k if x["jenis"] == "ORDB"})
+                    teks = (f"{len(dists)} distributor × (1 J073 + {bln} ORDB019) = {len(k)} job/laporan, "
+                            f"{tanggal_id(self.dari.nilai)} – {tanggal_id(sampai)}.")
+                except ValueError as e:
+                    self.galat = str(e).replace("Ongkos kirim: ", "")
+            else:
+                k = mesin.kiriman_ongkos(date.today(), dists, self.mulai.nilai)
+                sisa = [x for x in k if x["kunci"] not in mesin.baca_isi_ulang()]
+                teks = (f"{len(dists)} distributor, sejak {Kalender.BULAN[self.mulai.nilai.month - 1]} {self.mulai.nilai.year}: "
+                        f"{len(k)} job/laporan (J073 per 3 bulan, ORDB019 per bulan), {len(k) - len(sisa)} sudah masuk, {len(sisa)} dikerjakan.")
+            if self.galat:
+                self.info.config(text=self.galat, fg=C["bad"])
+            else:
+                self.info.config(fg=C["muted"], text=teks + "\nYang sudah ada di folder salinan atau di View Report tidak diunduh lagi. "
+                                 "Antrian ERP paling banyak 2 sekaligus; laporan yang belum muncul ditunggu sampai 30 menit sebelum diminta ulang.")
+            self.app.aktif(self.b_jalan, not self.galat)
+
+        def jalan(self):
+            self.hitung()
+            if self.galat:
+                return
+            dists = self.dist.pilihan()
+            self.app.setelan.update(dialog_dist=dists, dialog_mode=self.mode.get(), rentang_dari=f"{self.dari.nilai}",
+                                    rentang_sampai=f"{self.sampai.nilai}", isi_ulang_dari=f"{self.mulai.nilai}")
+            simpan_setelan(self.app.setelan)
+            if self.mode.get() == "rentang":
+                sampai, _ = mesin.cek_rentang_ongkos(self.dari.nilai, self.sampai.nilai, ",".join(dists))
+                argumen = ["--ongkos-dari", f"{self.dari.nilai}", "--ongkos-sampai", f"{sampai}", "--ongkos-dist", ",".join(dists)]
+            else:
+                argumen = ["--isi-ulang", f"{self.mulai.nilai:%Y-%m}", "--ongkos-dist", ",".join(dists)]
+            self.destroy()
+            self.app.jalankan_ongkos(argumen)
 
     class Kartu(tk.Frame):
         def __init__(self, induk, judul: str, sub: str):
@@ -307,9 +515,10 @@ def jalankan_aplikasi() -> None:
             pilih = tk.Frame(kiri, bg=C["card"])
             pilih.pack(anchor="w", pady=(6, 0))
             self.v_bagian = {}
-            for kode, judul, _ in BAGIAN:
+            for i, (kode, judul, _) in enumerate(BAGIAN):
                 v = tk.BooleanVar(value=kode in self.setelan["bagian"])
-                ttk.Checkbutton(pilih, text=judul.replace("Outstanding DO", "OS DO"), variable=v, command=self.simpan_pilihan).pack(side="left", padx=(0, 14))
+                ttk.Checkbutton(pilih, text=judul.replace("Outstanding DO", "OS DO"), variable=v, command=self.simpan_pilihan).grid(
+                    row=i // 4, column=i % 4, sticky="w", padx=(0, 14), pady=1)
                 self.v_bagian[kode] = v
             opsi = tk.Frame(kiri, bg=C["card"])
             opsi.pack(anchor="w", pady=(4, 0))
@@ -317,9 +526,12 @@ def jalankan_aplikasi() -> None:
             ttk.Checkbutton(opsi, text="Hanya pratinjau (tidak disimpan)", variable=self.v_pratinjau).pack(side="left", padx=(0, 16))
             self.v_browser = tk.BooleanVar(value=self.setelan["tampilkan_browser"])
             ttk.Checkbutton(opsi, text="Tampilkan browser", variable=self.v_browser, command=self.simpan_pilihan).pack(side="left")
+            ambil = tk.Label(kiri, text="Ambil ongkos kirim: pilih distributor dan tanggal…", bg=C["card"], fg=C["pri"], cursor="hand2")
+            ambil.pack(anchor="w", pady=(6, 0))
+            ambil.bind("<Button-1>", lambda _e: self.dialog_ongkos())
 
             tombol = tk.Frame(jalan, bg=C["card"])
-            tombol.pack(side="right")
+            tombol.pack(side="right", before=kiri)
             self.b_jalan = self.tombol(tombol, "▶  Jalankan", lambda: self.jalankan(), utama=True)
             self.b_jalan.pack(side="left")
             self.b_henti = self.tombol(tombol, "Hentikan", self.hentikan)
@@ -503,8 +715,12 @@ def jalankan_aplikasi() -> None:
             self.lbl_tugas.grid(row=3, column=0, columnspan=3, sticky="w")
 
             f = bagian(kanan, "Data")
-            isian(f, 1, "Distributor J073", "J073_DIST", nilai=akun.get("J073_DIST", ",".join(mesin.J073_DIST)))
-            tk.Label(f, text="Dipisah koma: 4094 = INSA, 9575 = PKB.", bg=C["card"], fg=C["muted"],
+            tk.Label(f, text="Distributor J073", bg=C["card"], fg=C["muted"]).grid(row=1, column=0, sticky="nw", padx=(0, 12), pady=4)
+            self.v_akun["J073_DIST"] = tk.StringVar(value=akun.get("J073_DIST", ",".join(mesin.J073_DIST)) or ",".join(mesin.J073_DIST))
+            kotak_j = PilihDist(f, self, self.v_akun["J073_DIST"].get().split(","), kolom=2)
+            kotak_j.grid(row=1, column=1, columnspan=2, sticky="w", pady=4)
+            kotak_j.saat_berubah = lambda pilihan: self.v_akun["J073_DIST"].set(",".join(pilihan))
+            tk.Label(f, text="J073 harian untuk Sell Out BNN (bawaan INSA dan PKB).", bg=C["card"], fg=C["muted"],
                      font=self.f_kecil, wraplength=240, justify="left").grid(row=2, column=1, columnspan=2, sticky="w")
             isian(f, 4, "File DO FAS", "DOFAS_FILE", nilai=akun.get("DOFAS_FILE", mesin.DOFAS_FILE_BAWAAN))
             pilih = tk.Label(f, text="Pilih…", bg=C["card"], fg=C["pri"], cursor="hand2")
@@ -522,38 +738,22 @@ def jalankan_aplikasi() -> None:
             self.lbl_stok.grid(row=7, column=1, columnspan=2, sticky="w")
             self.v_akun["STOCK_FILE"].trace_add("write", lambda *_: self.cek_stok())
             self.cek_stok()
-            isian(f, 8, "Distributor ongkos", "ONGKOS_DIST", nilai=akun.get("ONGKOS_DIST", mesin.ONGKOS_DIST_BAWAAN))
-            tk.Label(f, text="Kode ERP, dipisah koma. INSA-E tidak perlu (ikut 4094). Tiap distributor: J073 3 bulan terakhir "
-                             "dan ORDB019 bulan lalu + bulan ini, seminggu sekali dari jadwal.",
+            # distributor ongkos kirim (jadwal mingguan): dicentang, bukan diketik
+            tk.Label(f, text="Distributor ongkos", bg=C["card"], fg=C["muted"]).grid(row=8, column=0, sticky="nw", padx=(0, 12), pady=(8, 0))
+            self.v_akun["ONGKOS_DIST"] = tk.StringVar(value=akun.get("ONGKOS_DIST", mesin.ONGKOS_DIST_BAWAAN) or mesin.ONGKOS_DIST_BAWAAN)
+            kotak = PilihDist(f, self, self.v_akun["ONGKOS_DIST"].get().split(","), kolom=2)
+            kotak.grid(row=8, column=1, columnspan=2, sticky="w", pady=(8, 0))
+            kotak.saat_berubah = lambda pilihan: self.v_akun["ONGKOS_DIST"].set(",".join(pilihan))
+            tk.Label(f, text="Dipakai jadwal mingguan: J073 3 bulan terakhir dan ORDB019 bulan lalu + bulan ini. "
+                             "INSA-E tidak perlu (datanya ikut INSA 4094).",
                      bg=C["card"], fg=C["muted"], font=self.f_kecil, wraplength=240, justify="left").grid(row=9, column=1, columnspan=2, sticky="w")
-            iu = tk.Frame(f, bg=C["card"])
-            iu.grid(row=10, column=0, columnspan=3, sticky="w", pady=(8, 0))
-            tk.Label(iu, text="Isi data lama sejak", bg=C["card"], fg=C["muted"]).pack(side="left")
-            self.v_isi_ulang = tk.StringVar(value=self.setelan.get("isi_ulang_mulai", "2025-01"))
-            ttk.Entry(iu, textvariable=self.v_isi_ulang, width=8).pack(side="left", padx=6)
-            self.tombol(iu, "Isi ulang ongkos", self.isi_ulang, kecil=True).pack(side="left")
-            self.lbl_isi_ulang = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=400)
-            self.lbl_isi_ulang.grid(row=11, column=0, columnspan=3, sticky="w")
-            self.cek_isi_ulang()
-            # rentang pilihan (paling panjang 3 bulan): J073 satu job per distributor + ORDB019 tiap bulannya
-            ra = tk.Frame(f, bg=C["card"])
-            ra.grid(row=12, column=0, columnspan=3, sticky="w", pady=(12, 0))
-            tk.Label(ra, text="Ambil rentang", bg=C["card"], fg=C["muted"]).pack(side="left")
-            a0, b0 = rentang_bawaan()
-            self.v_rg_dari = tk.StringVar(value=self.setelan.get("rentang_dari", f"{a0:%Y-%m-01}"))
-            self.v_rg_sampai = tk.StringVar(value=self.setelan.get("rentang_sampai", f"{b0:%Y-%m-%d}"))
-            ttk.Entry(ra, textvariable=self.v_rg_dari, width=11).pack(side="left", padx=(6, 4))
-            tk.Label(ra, text="s.d.", bg=C["card"], fg=C["muted"]).pack(side="left")
-            ttk.Entry(ra, textvariable=self.v_rg_sampai, width=11).pack(side="left", padx=(4, 0))
-            rb = tk.Frame(f, bg=C["card"])
-            rb.grid(row=13, column=0, columnspan=3, sticky="w", pady=(6, 0))
-            tk.Label(rb, text="Distributor", bg=C["card"], fg=C["muted"]).pack(side="left")
-            self.v_rg_dist = tk.StringVar(value=self.setelan.get("rentang_dist", ""))
-            ttk.Entry(rb, textvariable=self.v_rg_dist, width=16).pack(side="left", padx=6)
-            self.tombol(rb, "Ambil ongkos", self.ambil_rentang, kecil=True).pack(side="left")
-            tk.Label(f, text="Tanggal YYYY-MM-DD, paling panjang 3 bulan (mis. 2025-08-01 s.d. 2025-10-31). Distributor kosong = "
-                             "semua distributor ongkos; bisa diisi beberapa, mis. 9575,4403. J073 satu job per distributor, ORDB019 tiap bulannya.",
-                     bg=C["card"], fg=C["muted"], font=self.f_kecil, justify="left", wraplength=400).grid(row=14, column=0, columnspan=3, sticky="w")
+            isian(f, 10, "Folder salinan", "ONGKOS_FOLDER", nilai=akun.get("ONGKOS_FOLDER", mesin.FOLDER_FILE_BAWAAN) or mesin.FOLDER_FILE_BAWAAN)
+            pilih = tk.Label(f, text="Pilih…", bg=C["card"], fg=C["pri"], cursor="hand2")
+            pilih.grid(row=10, column=2, padx=(8, 0))
+            pilih.bind("<Button-1>", lambda _e: self.pilih_folder())
+            tk.Label(f, text="J073 dan ORDB019 yang sudah diunduh disimpan di sini; yang sudah ada tidak diunduh lagi.",
+                     bg=C["card"], fg=C["muted"], font=self.f_kecil, wraplength=240, justify="left").grid(row=11, column=1, columnspan=2, sticky="w")
+            self.tombol(f, "Ambil ongkos kirim…", self.dialog_ongkos, kecil=True).grid(row=12, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
             f = bagian(kiri, "Lainnya")
             self.v_startup = tk.BooleanVar(value=self.startup_path().exists())
@@ -786,53 +986,25 @@ def jalankan_aplikasi() -> None:
             self.v_akun["STOCK_FILE"].set(alamat.replace(t, "{tahun}"))
             self.lbl_simpan.config(text="Klik Simpan untuk menyimpan alamat file.", fg=C["warn"])
 
-        def cek_isi_ulang(self):
-            n = len(mesin.baca_isi_ulang())
-            self.lbl_isi_ulang.config(text=(f"{n} job/laporan isi ulang sudah masuk. Menjalankan lagi hanya mengerjakan yang belum." if n else
-                                            "J073 per 3 bulan dan ORDB019 per bulan untuk semua distributor ongkos; bisa berjam-jam. "
-                                            "Kalau terhenti, klik lagi: yang sudah masuk dilewati."))
+        def pilih_folder(self):
+            awal = self.v_akun["ONGKOS_FOLDER"].get().strip()
+            from tkinter import filedialog
+            d = filedialog.askdirectory(title="Folder salinan J073 / ORDB019", initialdir=awal if awal and Path(awal).exists() else None)
+            if d:
+                self.v_akun["ONGKOS_FOLDER"].set(str(Path(d)))
 
-        def ambil_rentang(self):
+        def dialog_ongkos(self):
             if self.proses:
+                messagebox.showinfo(APP, "Masih ada proses yang berjalan. Tunggu selesai atau Hentikan dulu.")
                 return
-            try:
-                dari = date.fromisoformat(self.v_rg_dari.get().strip())
-                teks = self.v_rg_sampai.get().strip()
-                sampai = date.fromisoformat(teks) if teks else None
-                sampai, dists = mesin.cek_rentang_ongkos(dari, sampai, self.v_rg_dist.get().strip() or self.v_akun["ONGKOS_DIST"].get().strip())
-            except ValueError as e:
-                messagebox.showerror(APP, str(e) if "Ongkos kirim" in str(e) else "Tanggal ditulis YYYY-MM-DD, mis. 2025-08-01.")
-                return
+            DialogOngkos(self)
+
+        def jalankan_ongkos(self, argumen: list[str]):
             if not self.simpan_pengaturan(diam=True):
                 return
-            self.setelan.update(rentang_dari=f"{dari}", rentang_sampai=f"{sampai}", rentang_dist=self.v_rg_dist.get().strip())
-            simpan_setelan(self.setelan)
-            n = len(mesin.kiriman_rentang(dari, sampai, dists))
-            if not messagebox.askyesno(APP, f"Ambil ongkos kirim {tanggal_id(dari)} – {tanggal_id(sampai)} untuk {', '.join(dists)}?\n\n"
-                                            f"{n} job/laporan (J073 + ORDB019). Data distributor dan bulan itu di SEMENTRACK diganti."):
-                return
-            argumen = ["--ongkos-dari", f"{dari}", "--ongkos-sampai", f"{sampai}", "--ongkos-dist", ",".join(dists)]
             if self.v_pratinjau.get():
-                argumen.append("--tanpa-simpan")
+                argumen = argumen + ["--tanpa-simpan"]
             self.jalankan(argumen=argumen)
-
-        def isi_ulang(self):
-            if self.proses:
-                return
-            teks = self.v_isi_ulang.get().strip()
-            try:
-                mulai = date.fromisoformat(teks[:7] + "-01")
-            except ValueError:
-                messagebox.showerror(APP, "Tulis bulan mulai sebagai YYYY-MM, mis. 2025-01.")
-                return
-            if not self.simpan_pengaturan(diam=True):
-                return
-            self.setelan["isi_ulang_mulai"] = f"{mulai:%Y-%m}"
-            simpan_setelan(self.setelan)
-            if not messagebox.askyesno(APP, f"Unduh dan upload J073 + ORDB019 semua distributor ongkos sejak {tanggal_id(mulai)[2:]}?\n\n"
-                                            "Prosesnya panjang (antrian ERP hanya 2 sekaligus). Jadwal lain menunggu sampai selesai."):
-                return
-            self.jalankan(argumen=["--isi-ulang", f"{mulai:%Y-%m}"])
 
         def uji_login(self):
             if self.proses:
@@ -901,8 +1073,7 @@ def jalankan_aplikasi() -> None:
             self.segarkan_jadwal()
             self.cek_tugas()
             self.status_sesi()
-            if hasattr(self, "lbl_isi_ulang"):
-                self.cek_isi_ulang()
+
 
         # ---------- Windows ----------
         def perintah_tugas(self) -> str:

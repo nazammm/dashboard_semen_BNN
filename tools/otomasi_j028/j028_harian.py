@@ -28,15 +28,25 @@ ke Kelola Data → Stock. Tanggal yang ada di file diganti; sheet setelah hari i
 baru: file bulan lalu ikut diunggah supaya revisi hari terakhir bulan lalu terbawa.
     python j028_harian.py --bagian STOCK
 
-Ongkos kirim (halaman Ongkos Kirim): per distributor di ONGKOS_DIST, J073 tiga bulan terakhir (bulan ini dan dua bulan
-sebelumnya, satu job per distributor) dan laporan ORDB019 bulan lalu + bulan ini (satu laporan per distributor per bulan).
-Dari jadwal (--jadwal) bagian ini hanya jalan seminggu sekali (ONGKOS_HARI). INSA-E ikut INSA (4094).
+Ongkos kirim (halaman Ongkos Kirim): per distributor di ONGKOS_DIST (13 distributor; INSA-E ikut INSA 4094):
+- jadwal mingguan (--jadwal, ONGKOS_HARI): J073 bulan ini + 2 bulan sebelumnya (satu job), ORDB019 bulan ini dan bulan lalu,
+  plus dua bulan lalu sekali lagi setelah bulan itu tutup.
+- rentang pilihan (paling panjang 3 bulan): --ongkos-dari / --ongkos-sampai / --ongkos-dist.
+- isi data lama: --isi-ulang 2025-01 [--ongkos-dist ...], per bulan untuk semua distributor bersamaan, dicatat di
+  isi_ulang_ongkos.json; kalau terhenti jalankan lagi, yang sudah masuk dilewati.
+Supaya tidak mengunduh berulang:
+1. Salinan lokal (ONGKOS_FOLDER, bawaan D:\\Nazam\\Template\\Auto Task File\\J073|ORDB019\\<kode>\\...) yang masih segar
+   dipakai langsung tanpa membuka ERP. Segar = diunduh hari ini, atau diunduh setelah bulannya tutup (mulai tanggal 1 dua
+   bulan sesudahnya). Isi file diperiksa (distributor / periode) sebelum disimpan.
+2. Sebelum meminta ORDB019, View Report (SYS_Report_View.aspx, sampai MAKS_HALAMAN_VIEW halaman) diperiksa: laporan dengan
+   DIST + PERIODE yang sama, FINISHED, dan segar langsung diunduh.
+3. Yang sudah disubmit tapi belum muncul ditunggu (cek tiap 1 menit lewat View Report) sampai TUNGGU_MUNCUL_MENIT (30);
+   lalu semua halaman diperiksa sekali lagi, baru submit ulang sekali (COBA_MUNCUL). Submit yang gagal / ditolak ERP
+   dicoba lagi 1 menit kemudian (COBA_KIRIM 3 kali).
+Antrian ERP paling banyak MAKS_ANTRIAN (2) job + laporan sekaligus, termasuk yang belum muncul di View.
     python j028_harian.py --bagian ONGKOS
-    python j028_harian.py --bagian ONGKOS --isi-ulang 2025-01   # isi data lama: J073 per 3 bulan + ORDB019 per bulan
-    python j028_harian.py --ongkos-dari 2025-08-01 --ongkos-sampai 2025-10-31 --ongkos-dist 9575   # rentang pilihan, maks 3 bulan
-Isi ulang dikerjakan per kelompok kecil (unduh, lalu langsung upload) dan dicatat di isi_ulang_ongkos.json; kalau
-terhenti, jalankan perintah yang sama lagi dan yang sudah masuk dilewati.
-Antrian ERP paling banyak MAKS_ANTRIAN (2) job + laporan sekaligus, termasuk laporan ORDB019.
+    python j028_harian.py --isi-ulang 2025-01
+    python j028_harian.py --ongkos-dari 2025-08-01 --ongkos-sampai 2025-10-31 --ongkos-dist 9575,4403
 
 Satu bagian gagal tidak menghentikan bagian lain; semua kegagalan dilaporkan di akhir.
 Sub ERP: hanya bulan yang diambil yang diganti; tidak disimpan kalau ada angka yang turun (kecuali --paksa).
@@ -84,13 +94,19 @@ MAKS_ANTRIAN = int(os.environ.get("MAKS_ANTRIAN", "2"))   # ERP menerima paling 
 JEDA_CEK_DETIK = int(os.environ.get("JEDA_CEK_DETIK", "180"))   # View Job dicek ulang tiap 3 menit
 # J073: distributor yang diunduh (kode ERP). INSA = 4094, PKB = 9575. Bisa diubah lewat J073_DIST=4094,9575
 JEDA_CEK_PENDEK = int(os.environ.get("JEDA_CEK_PENDEK", "60"))  # tanpa J028 di antrian: J073 / ORDB019 cepat selesai
-ONGKOS_DIST_BAWAAN = "4094,9575,6980,6984,4708,6983,9757,1001K,1001P,4403,4403B,6987,6981"   # INSA-E (4094E) kosong: ikut 4094
+# distributor ongkos kirim: kode ERP dan nama di dashboard. INSA-E (4094E) di ERP kosong: datanya ikut INSA (4094)
+DAFTAR_DIST = [("4094", "INSA"), ("9575", "PKB"), ("6980", "BKP"), ("6984", "BMM"), ("4708", "CBS"), ("6983", "GMD"), ("9757", "JMB"),
+               ("1001K", "KTP"), ("1001P", "PTK"), ("4403", "NC"), ("4403B", "NCB"), ("6987", "NSA"), ("6981", "PM")]
+ONGKOS_DIST_BAWAAN = ",".join(k for k, _ in DAFTAR_DIST)
+FOLDER_FILE_BAWAAN = r"D:\Nazam\Template\Auto Task File"     # salinan J073 / ORDB019 yang sudah diunduh (ONGKOS_FOLDER)
 ONGKOS_HARI = int(os.environ.get("ONGKOS_HARI", "7"))          # dari jadwal: ongkos kirim diperbarui paling sering sekali seminggu
-ORDB_BULAN = int(os.environ.get("ORDB_BULAN", "2"))            # ORDB019: bulan ini dan bulan lalu (tagihan transporter masuk belakangan)
 KELOMPOK_ISI_ULANG = int(os.environ.get("KELOMPOK_ISI_ULANG", "8"))
-COBA_KIRIM = int(os.environ.get("COBA_KIRIM", "3"))            # submit gagal: dicoba lagi sampai sekian kali, jeda JEDA_COBA_DETIK
+COBA_KIRIM = int(os.environ.get("COBA_KIRIM", "3"))            # submit gagal / ditolak ERP: dicoba lagi sampai sekian kali, jeda JEDA_COBA_DETIK
 JEDA_COBA_DETIK = int(os.environ.get("JEDA_COBA_DETIK", "60"))
-TUNGGU_MUNCUL_MENIT = int(os.environ.get("TUNGGU_MUNCUL_MENIT", "10"))   # sudah submit tapi belum muncul di View: dicek tiap menit, lalu submit ulang   # isi ulang: sekian job/laporan per putaran unduh-upload
+# sudah submit tapi belum muncul di View: dicek tiap menit (bisa sampai ±10 menit; ERP menulis waktu tunggu 0-30 menit).
+# Setelah TUNGGU_MUNCUL_MENIT semua halaman View Report diperiksa dulu; baru kalau tetap tidak ada, submit ulang SEKALI.
+TUNGGU_MUNCUL_MENIT = int(os.environ.get("TUNGGU_MUNCUL_MENIT", "30"))
+COBA_MUNCUL = int(os.environ.get("COBA_MUNCUL", "2"))          # paling banyak 2 kali submit untuk yang tidak pernah muncul   # isi ulang: sekian job/laporan per putaran unduh-upload
 POLA_STATUS = re.compile(r"FINISH|PROCESS|QUEUE|WAIT|PENDING|RUNNING|ERROR|FAIL|CANCEL|DONE|SUCCESS", re.I)
 POLA_KODE = re.compile(r"^(J028B?|J073|ORDB\d+)$", re.I)
 
@@ -290,8 +306,7 @@ def baca_antrian(page: Page, pola: str) -> dict[str, tuple[str, str]]:
         kode = next((c for c in pertama if POLA_KODE.match(c)), pertama[i + 1] if i + 1 < len(pertama) else "")
         status = next((c for k, c in enumerate(pertama) if k != i and POLA_STATUS.search(c)), pertama[i - 1] if i else "")
         hasil[jid] = (kode.upper(), status.upper())
-        if jid.startswith("R"):
-            LAPORAN_META[jid] = {**_meta_laporan(b), "status": status.upper()}
+        LAPORAN_META[jid] = {**_meta_laporan(b), "status": status.upper()}      # job dan laporan: DIST, PERIODE, Start Run
     return hasil
 
 
@@ -371,7 +386,7 @@ def daftar_laporan(page: Page) -> dict[str, tuple[str, str]]:
     return baca()
 
 
-MAKS_HALAMAN_VIEW = int(os.environ.get("MAKS_HALAMAN_VIEW", "10"))   # pindai View Report paling banyak sekian halaman
+MAKS_HALAMAN_VIEW = int(os.environ.get("MAKS_HALAMAN_VIEW", "20"))   # pindai View Report paling banyak sekian halaman
 
 
 def ke_halaman_view(page: Page, n: int) -> bool:
@@ -399,12 +414,25 @@ def ke_halaman_view(page: Page, n: int) -> bool:
     return bool(baca_antrian(page, r"R\d{5,}"))
 
 
+def bulan_tambah(d: date, n: int) -> date:
+    k = d.year * 12 + d.month - 1 + n
+    return date(k // 12, k % 12 + 1, 1)
+
+
+def segar(bulan_akhir: date, waktu: datetime | None, hari: date) -> bool:
+    """Data bulan `bulan_akhir` yang diambil pada `waktu` masih boleh dipakai: diambil hari ini, atau diambil setelah bulan itu
+    tutup (mulai tanggal 1 dua bulan sesudahnya, saat tagihan transporter bulan itu sudah masuk). Contoh: Sep 2026 final kalau
+    diambil mulai 1 Nov 2026; Okt dan Nov 2026 pada 19 Nov 2026 hanya kalau diambil hari ini."""
+    if waktu is None:
+        return False
+    return waktu.date() == hari or waktu >= datetime.combine(bulan_tambah(bulan_akhir, 2), datetime.min.time())
+
+
 def laporan_boleh_dipakai(meta: dict, hari: date) -> bool:
-    """Laporan lama di View Report boleh dipakai ulang kalau sudah FINISHED dan bulannya sudah tutup (sebelum bulan lalu),
-    atau dibuat hari ini. Bulan ini dan bulan lalu masih berubah (tagihan transporter masuk belakangan), jadi diminta baru."""
+    """Laporan yang sudah ada di View Report dipakai (tidak diminta lagi) kalau FINISHED dan masih segar (lihat segar())."""
     if "FINISH" not in meta.get("status", "") or "bulan" not in meta:
         return False
-    return meta["bulan"] < awal_bulan(hari, 1) or (meta.get("mulai") is not None and meta["mulai"].date() == hari)
+    return segar(meta["bulan"], meta.get("mulai"), hari)
 
 
 def kirim_selesai(page: Page, menu: str) -> None:
@@ -418,7 +446,12 @@ def kirim_selesai(page: Page, menu: str) -> None:
         print(f"  {menu}: tidak ada tombol OK setelah Submit, lanjut. Halaman: {jejak(page, f'setelah_submit_{menu}')}")
     if PESAN_ERP:
         jejak(page, f"setelah_submit_{menu}")
-    print(f"  {menu}: job dikirim" + (f" (pesan ERP: {' | '.join(PESAN_ERP)})" if PESAN_ERP else ""))
+    pesan_erp = " | ".join(PESAN_ERP)
+    # pesan pop-up yang jelas menolak (antrian penuh, gagal, ...): dianggap submit gagal → dicoba lagi 1 menit kemudian
+    if pesan_erp and not re.search(r"berhasil|sukses|success|submitted|telah di", pesan_erp, re.I) and \
+            re.search(r"penuh|full|maks|max|limit|gagal|fail|error|tidak dapat|tidak bisa|cannot|invalid|wajib|harus", pesan_erp, re.I):
+        raise SystemExit(f"ERP menolak: {pesan_erp}")
+    print(f"  {menu}: job dikirim" + (f" (pesan ERP: {pesan_erp})" if pesan_erp else ""))
 
 
 def kirim_job(page: Page, menu: str, dari: date, sampai: date) -> None:
@@ -950,10 +983,16 @@ def kiriman_ongkos(hari: date, dists: list[str], mulai: date | None = None) -> l
         for a, b in jendela:
             hasil.append({"jenis": "J073", "dist": d, "dari": a, "sampai": b, "kunci": f"J073|{d}|{a}|{b if mulai is None or b < awal_bulan(hari) else 'kini'}"})
         bulan = []
-        m = mulai.replace(day=1) if mulai else awal_bulan(hari, ORDB_BULAN - 1)
-        while m <= hari:
-            bulan.append(m)
-            m = awal_bulan(m + timedelta(days=32))
+        if mulai:
+            m = mulai.replace(day=1)
+            while m <= hari:
+                bulan.append(m)
+                m = awal_bulan(m + timedelta(days=32))
+        else:
+            # bulan ini dan bulan lalu (masih berubah) + dua bulan lalu sekali lagi setelah tutup, kalau salinan finalnya belum ada
+            bulan = [awal_bulan(hari, 1), awal_bulan(hari)]
+            if not file_ordb_lokal(d, awal_bulan(hari, 2), hari):
+                bulan.insert(0, awal_bulan(hari, 2))
         for m in bulan:
             hasil.append({"jenis": "ORDB", "dist": d, "bulan": m, "kunci": f"ORDB|{d}|{m:%Y-%m}"})
     # urut per bulan lalu per distributor: semua distributor maju bersama, bukan satu distributor sampai habis dulu
@@ -988,6 +1027,136 @@ def kiriman_rentang(dari: date, sampai: date, dists: list[str]) -> list[dict]:
     return hasil
 
 
+# ---------- salinan lokal J073 / ORDB019 (ONGKOS_FOLDER) ----------
+def folder_file() -> Path:
+    """Folder salinan J073 / ORDB019 (bawaan FOLDER_FILE_BAWAAN). Kalau tidak bisa dibuat (mis. tidak ada drive
+    D:), dipakai folder unduhan\\Auto Task File."""
+    p = Path(os.environ.get("ONGKOS_FOLDER") or FOLDER_FILE_BAWAAN)
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    except OSError:
+        q = FOLDER / "Auto Task File"
+        q.mkdir(parents=True, exist_ok=True)
+        if not getattr(folder_file, "_diberitahu", False):
+            print(f"  Folder {p} tidak bisa dibuat; salinan file disimpan di {q}")
+            folder_file._diberitahu = True
+        return q
+
+
+def path_ordb(dist: str, bulan: date) -> Path:
+    return folder_file() / "ORDB019" / dist / f"ORDB019_{dist}_{bulan:%Y-%m}.XLS"
+
+
+def path_j073(dist: str, a: date, b: date) -> Path:
+    return folder_file() / "J073" / dist / f"J073_{dist}_{a:%Y%m%d}_{b:%Y%m%d}.TXT"
+
+
+def waktu_file(p: Path) -> datetime:
+    return datetime.fromtimestamp(p.stat().st_mtime)
+
+
+def isi_ordb(p: Path) -> tuple[str, date] | None:
+    """Distributor dan periode dari isi file ORDB019 (judul "DISTRIBUTOR : ... - 4094" dan "Periode : OCT2026")."""
+    try:
+        b = p.read_bytes()
+    except OSError:
+        return None
+    for teks in (b, b.replace(b"\x00", b"")):          # teks biasa (BIFF8 ringkas) atau UTF-16
+        d = re.search(rb"DISTRIBUTOR\s*:[^\r\n\x00-\x08]{0,120}-\s*([0-9A-Z]{3,8})(?![0-9A-Za-z])", teks)
+        m = re.search(rb"Periode\s*:\s*([A-Za-z]{3})[A-Za-z]*\s*-?\s*(\d{4})", teks)
+        if d and m and m.group(1).decode().capitalize() in BULAN_EN:
+            return d.group(1).decode().upper(), date(int(m.group(2)), BULAN_EN.index(m.group(1).decode().capitalize()) + 1, 1)
+    return None
+
+
+def isi_j073(p: Path) -> str | None:
+    """Kode distributor dari baris data pertama file J073 (.TXT, dipisah |). None kalau kosong / tidak terbaca."""
+    try:
+        with open(p, encoding="utf-8", errors="replace") as f:
+            judul = f.readline().rstrip("\r\n").split("|")
+            data = f.readline().rstrip("\r\n").split("|")
+    except OSError:
+        return None
+    if "Distributor Code" not in judul or len(data) < len(judul) // 2:
+        return None
+    return data[judul.index("Distributor Code")].strip().upper() or None
+
+
+def file_ordb_lokal(dist: str, bulan: date, hari: date) -> Path | None:
+    p = path_ordb(dist, bulan)
+    return p if p.exists() and segar(bulan, waktu_file(p), hari) else None
+
+
+def file_j073_lokal(dist: str, a: date, b: date, hari: date) -> Path | None:
+    """Salinan J073 yang mencakup a..b dan masih segar (bulan terakhirnya sudah tutup saat diunduh, atau diunduh hari ini)."""
+    pilihan = []
+    for p in (folder_file() / "J073" / dist).glob(f"J073_{dist}_*_*.TXT"):
+        m = re.fullmatch(rf"J073_{re.escape(dist)}_(\d{{8}})_(\d{{8}})\.TXT", p.name, re.I)
+        if not m:
+            continue
+        fa, fb = (datetime.strptime(x, "%Y%m%d").date() for x in m.groups())
+        if fa <= a and fb >= b and segar(fb.replace(day=1), waktu_file(p), hari):
+            pilihan.append(((fb - fa).days, p))
+    return min(pilihan)[1] if pilihan else None
+
+
+def cari_lokal(k: dict, hari: date) -> Path | None:
+    return file_ordb_lokal(k["dist"], k["bulan"], hari) if k["jenis"] == "ORDB" else file_j073_lokal(k["dist"], k["dari"], k["sampai"], hari)
+
+
+def simpan_lokal(f: Path, k: dict) -> tuple[Path, dict, str | None]:
+    """Salin unduhan ke folder salinan dengan nama baku. Isi file diperiksa: kalau ternyata distributor / bulan lain,
+    disimpan sesuai isinya dan dikembalikan sebagai kiriman itu, plus pesan."""
+    import shutil
+    pesan_salah = None
+    if k["jenis"] == "ORDB":
+        isi = isi_ordb(f)
+        if isi and isi != (k["dist"].upper(), k["bulan"]):
+            pesan_salah = f"isi laporan ternyata {isi[0]} {isi[1]:%Y-%m}, bukan {k['dist']} {k['bulan']:%Y-%m}"
+            k = {**k, "dist": isi[0], "bulan": isi[1], "kunci": f"ORDB|{isi[0]}|{isi[1]:%Y-%m}"}
+        tujuan = path_ordb(k["dist"], k["bulan"])
+    else:
+        isi = isi_j073(f)
+        if isi and isi != k["dist"].upper():
+            pesan_salah = f"isi J073 ternyata distributor {isi}, bukan {k['dist']}"
+            k = {**k, "dist": isi, "kunci": f"J073|{isi}|{k['dari']}|{k['sampai']}"}
+        tujuan = path_j073(k["dist"], k["dari"], k["sampai"])
+    tujuan.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(f, tujuan)                  # waktu file = waktu unduh
+    return tujuan, k, pesan_salah
+
+
+def migrasi_unduhan() -> int:
+    """Unduhan lama di folder unduhan (R…-ORDB019_4094_2025-06.XLS, J…-J073_4094_2025-01-2025-03.txt) disalin ke folder
+    salinan supaya tidak diunduh lagi. ORDB019 dikenali dari isinya; waktu file aslinya dipertahankan."""
+    import shutil
+    n = 0
+    if not FOLDER.exists():
+        return 0
+    for f in FOLDER.glob("R*-ORDB019_*.XLS"):
+        isi = isi_ordb(f)
+        if not isi:
+            continue
+        t = path_ordb(*isi)
+        if not t.exists() or t.stat().st_mtime < f.stat().st_mtime:
+            t.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, t)
+            n += 1
+    for f in FOLDER.glob("J*-J073_*.txt"):
+        m = re.fullmatch(r"J\d+-J073_([0-9A-Z]+)_(\d{4})-(\d{2})-(\d{4})-(\d{2})\.txt", f.name, re.I)
+        if not m or isi_j073(f) not in (None, m.group(1).upper()):
+            continue
+        a = date(int(m.group(2)), int(m.group(3)), 1)
+        b = min(bulan_tambah(date(int(m.group(4)), int(m.group(5)), 1), 1) - timedelta(days=1), waktu_file(f).date())
+        t = path_j073(m.group(1).upper(), a, b)
+        if not t.exists():
+            t.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, t)
+            n += 1
+    return n
+
+
 def label_kiriman(k: dict) -> str:
     if k["jenis"] == "J073":
         return f"Ongkos kirim J073 {k['dist']} {k['dari']:%Y-%m}..{k['sampai']:%Y-%m}"
@@ -1000,6 +1169,19 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
     banyak MAKS_ANTRIAN sekaligus: J028 + J028B dulu, lalu J073 per distributor, lalu kiriman Ongkos Kirim, begitu ada tempat
     kosong. Sub ERP dibaca sambil menunggu."""
     h = Hasil()
+    semua_ongkos = list(ongkos or [])
+    # salinan lokal yang masih segar dipakai langsung: tidak diminta ke ERP, tidak diunduh lagi
+    ongkos = []
+    for k in semua_ongkos:
+        p = cari_lokal(k, date.today())
+        if p:
+            h.ongkos.append((p, k))
+        else:
+            ongkos.append(k)
+    if len(ongkos) < len(semua_ongkos):
+        print(f"  Salinan lokal dipakai, tidak diunduh lagi: {len(semua_ongkos) - len(ongkos)} file ({folder_file()})")
+    if not (bagian & {"J028", "J073", "SUBDIST"}) and not ongkos:
+        return h
     user = rahasia("ERP_USER", "User ERP")
     pwd = rahasia("ERP_PASS", "Password ERP (tidak tampil)", tersembunyi=True)
     browser, ctx, page = buka_browser(pw, tampil)
@@ -1014,12 +1196,12 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                       dict(bagian="J028", label="J028B", kode="J028B", jenis="job", kirim=lambda: kirim_job(page, "J028B", dari, sampai))]
         if "J073" in bagian:
             # distributor yang juga ada di Ongkos kirim tidak dikirim dua kali: J073 3 bulan ongkos sudah mencakup bulan ini
-            dobel = {k["dist"] for k in ongkos or [] if k["jenis"] == "J073" and k["sampai"] >= sampai and k["dari"] <= dari}
-            antre += [dict(bagian="J073", label=f"J073 {d}", kode="J073", jenis="job", kirim=(lambda d=d: kirim_j073(page, d, dari, sampai)))
+            dobel = {k["dist"].upper() for k in semua_ongkos if k["jenis"] == "J073" and k["sampai"] >= sampai and k["dari"] <= dari}
+            antre += [dict(bagian="J073", label=f"J073 {d}", kode="J073", jenis="job", dist=d.upper(), kirim=(lambda d=d: kirim_j073(page, d, dari, sampai)))
                       for d in j073_dist() if d.upper() not in dobel]
-        for k in ongkos or []:
+        for k in ongkos:
             if k["jenis"] == "J073":
-                antre.append(dict(bagian="ONGKOS", label=label_kiriman(k), kode="J073", jenis="job", ongkos=k,
+                antre.append(dict(bagian="ONGKOS", label=label_kiriman(k), kode="J073", jenis="job", ongkos=k, dist=k["dist"].upper(),
                                   kirim=(lambda k=k: kirim_j073(page, k["dist"], k["dari"], k["sampai"]))))
             else:
                 antre.append(dict(bagian="ONGKOS", label=label_kiriman(k), kode="ORDB019", jenis="laporan", ongkos=k,
@@ -1047,7 +1229,13 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                 print(f"  {a['job']} belum siap, dicoba lagi")
                 return False
             if a["bagian"] == "ONGKOS":
-                h.ongkos.append((tujuan, a["ongkos"]))
+                # salinan bernama baku di folder salinan; isi file diperiksa (distributor / bulan)
+                salinan, k, salah = simpan_lokal(tujuan, a["ongkos"])
+                if salah:
+                    h.catat_gagal(a["label"], SystemExit(f"{a['job']}: {salah}. File tetap disimpan dan diupload sesuai isinya."))
+                h.ongkos.append((salinan, k))
+                print(f"  terunduh: {tujuan.name} → {salinan}")
+                return True
             else:
                 (h.j073 if a["bagian"] == "J073" else h.j028).append(tujuan)
             print(f"  terunduh: {tujuan.name}")
@@ -1072,7 +1260,13 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                 if jenis == "laporan":
                     k = next((a for a in aktif if a["jenis"] == "laporan" and a["job"] is None and cocok_laporan(a, j)), None)
                 else:
-                    k = next((a for a in aktif if a["jenis"] == jenis and a["job"] is None and a["kode"] == kode), None)
+                    m = LAPORAN_META.get(j, {})
+                    calon = [a for a in aktif if a["jenis"] == jenis and a["job"] is None and a["kode"] == kode]
+                    dikenal_dist = {d for d, _ in DAFTAR_DIST} | {d.upper() for d in j073_dist()}
+                    if m.get("dist") and any(a.get("dist") for a in calon):
+                        if m["dist"] in dikenal_dist:              # job distributor lain (mis. dikirim manual): bukan milik kiriman ini
+                            calon = [a for a in calon if a.get("dist") == m["dist"]]
+                    k = calon[0] if calon else None
                 if k:
                     k["job"] = j
                     dikenal.add(j)
@@ -1082,14 +1276,22 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                     # diterima ERP, lalu submit ulang (paling banyak COBA_KIRIM kali)
                     if time.time() - a["waktu"] > TUNGGU_MUNCUL_MENIT * 60:
                         tempat = "View Job" if jenis == "job" else "View Report"
+                        if jenis == "laporan" and cari_semua_halaman(a):
+                            maju = True                          # ketemu di halaman lain (dan sudah diunduh kalau selesai)
+                            continue
                         aktif.remove(a)
                         maju = True
-                        if a.get("coba", 1) < COBA_KIRIM:
-                            print(f"  {a['label']}: belum muncul di {tempat} setelah {TUNGGU_MUNCUL_MENIT} menit, submit ulang")
-                            antre.insert(0, {k: v for k, v in a.items() if k not in ("waktu", "job")} | {"coba": a.get("coba", 1) + 1, "siap": time.time()})
+                        if a.get("muncul", 1) < COBA_MUNCUL:
+                            print(f"  {a['label']}: {TUNGGU_MUNCUL_MENIT} menit belum muncul di {tempat} (semua halaman sudah diperiksa), submit ulang sekali")
+                            antre.insert(0, {k: v for k, v in a.items() if k not in ("waktu", "job")} | {"muncul": a.get("muncul", 1) + 1, "coba": 1, "siap": time.time()})
                         else:
-                            h.catat_gagal(a["label"], SystemExit(f"{a['label']} tidak muncul di {tempat} setelah {COBA_KIRIM} kali submit "
-                                                                 "(antrian ERP penuh atau form menolak isian). Lihat screenshot sebelum_submit di folder unduhan."))
+                            h.catat_gagal(a["label"], SystemExit(f"{a['label']} tidak muncul di {tempat} setelah {COBA_MUNCUL} kali submit dan "
+                                                                 f"{TUNGGU_MUNCUL_MENIT} menit menunggu. Lihat screenshot sebelum_submit di folder unduhan."))
+                    continue
+                if jenis == "laporan" and a["job"] not in daftar:
+                    # sudah tergeser ke halaman berikutnya View Report: cari di sana
+                    if cari_semua_halaman(a, a["job"]) and a not in aktif:
+                        maju = True
                     continue
                 status = daftar.get(a["job"], ("", ""))[1]
                 if re.search(r"ERROR|FAIL|CANCEL", status):
@@ -1103,6 +1305,31 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                     aktif.remove(a)
                     maju = True
             return maju
+
+        def cari_semua_halaman(a: dict, jid: str | None = None) -> bool:
+            """Cari di semua halaman View Report: laporan dengan ID `jid`, atau (kalau jid kosong) laporan baru dengan
+            distributor + periode kiriman `a`. Kalau ketemu dan sudah FINISHED, langsung diunduh di halaman itu."""
+            kunci_cari = (a["ongkos"]["dist"].upper(), a["ongkos"]["bulan"])
+            daftar, hal = daftar_laporan(page), 1
+            while True:
+                for j in sorted(daftar, reverse=True):
+                    m = LAPORAN_META.get(j, {})
+                    cocok = j == jid if jid else (j not in dikenal and j not in (lama_r or set()) and (m.get("dist"), m.get("bulan")) == kunci_cari)
+                    if cocok:
+                        if not jid:
+                            a["job"] = j
+                            dikenal.add(j)
+                            print(f"  {a['label']}: ketemu di halaman {hal} View Report ({j})")
+                        if "FINISH" in m.get("status", "") and unduh(a):
+                            aktif.remove(a)
+                        elif re.search(r"ERROR|FAIL|CANCEL", m.get("status", "")):
+                            h.catat_gagal(a["label"], SystemExit(f"{j} berstatus {m['status']} di ERP."))
+                            aktif.remove(a)
+                        return True
+                if hal >= MAKS_HALAMAN_VIEW or not ke_halaman_view(page, hal + 1):
+                    return False
+                hal += 1
+                daftar = baca_antrian(page, r"R\d{5,}")
 
         # 0. laporan ORDB019 yang sudah ada di View Report (dari jalan sebelumnya) langsung diunduh, tidak diminta lagi
         if any(k["jenis"] == "laporan" for k in antre):
@@ -1386,6 +1613,7 @@ def main() -> None:
             a.isi_ulang = date.fromisoformat(a.isi_ulang[:7] + "-01")
         except ValueError:
             sys.exit("--isi-ulang ditulis YYYY-MM, mis. 2025-01")
+        a.ongkos_dist = [d for d in (k.strip().upper() for k in (a.ongkos_dist or "").split(",")) if d and d != "4094E"] or ongkos_dist()
         bagian = {"ONGKOS"}
     elif a.ongkos_dari:
         try:
@@ -1447,6 +1675,10 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
                 h.stock = berkas_stok(a.sampai)
             except (SystemExit, Exception) as e:  # noqa: BLE001
                 h.catat_gagal("Stock", e)
+        if "ONGKOS" in bagian:
+            n = migrasi_unduhan()
+            if n:
+                print(f"Ongkos kirim: {n} unduhan lama disalin ke {folder_file()}")
         if a.isi_ulang:
             isi_ulang_ongkos(pw, a, h)
             return
@@ -1531,15 +1763,19 @@ def unggah_ongkos(page: Page, url: str, h: Hasil, simpan: bool, tandai: bool = F
 
 def isi_ulang_ongkos(pw, a, h: Hasil) -> None:
     """Isi data Ongkos kirim lama sejak a.isi_ulang: per kelompok kecil unduh lalu upload, dicatat di isi_ulang_ongkos.json."""
-    semua = kiriman_ongkos(a.sampai, ongkos_dist(), a.isi_ulang)
+    semua = kiriman_ongkos(a.sampai, a.ongkos_dist, a.isi_ulang)
     sudah = baca_isi_ulang()
     sisa = [k for k in semua if k["kunci"] not in sudah]
-    print(f"Isi ulang ongkos kirim sejak {a.isi_ulang:%Y-%m}: {len(semua)} job/laporan, {len(semua) - len(sisa)} sudah masuk, {len(sisa)} dikerjakan")
+    # yang sudah ada salinan lokalnya diupload sekaligus dulu, sisanya diminta ke ERP per kelompok kecil
+    lokal = [k for k in sisa if cari_lokal(k, date.today())]
+    erp = [k for k in sisa if k not in lokal]
+    kelompok_semua = ([lokal] if lokal else []) + [erp[i:i + KELOMPOK_ISI_ULANG] for i in range(0, len(erp), KELOMPOK_ISI_ULANG)]
+    print(f"Isi ulang ongkos kirim sejak {a.isi_ulang:%Y-%m} ({len(a.ongkos_dist)} distributor): {len(semua)} job/laporan, "
+          f"{len(semua) - len(sisa)} sudah masuk, {len(lokal)} dari salinan lokal, {len(erp)} diminta ke ERP")
     total = {"J073": 0, "ORDB": 0, "kosong": 0}
-    for i in range(0, len(sisa), KELOMPOK_ISI_ULANG):
-        kelompok = sisa[i:i + KELOMPOK_ISI_ULANG]
-        print(f"Kelompok {i // KELOMPOK_ISI_ULANG + 1} dari {(len(sisa) + KELOMPOK_ISI_ULANG - 1) // KELOMPOK_ISI_ULANG}: "
-              + ", ".join(label_kiriman(k).replace("Ongkos kirim ", "") for k in kelompok))
+    for i, kelompok in enumerate(kelompok_semua):
+        print(f"Kelompok {i + 1} dari {len(kelompok_semua)}"
+              + (" (salinan lokal)" if lokal and i == 0 else ": " + ", ".join(label_kiriman(k).replace("Ongkos kirim ", "") for k in kelompok)))
         try:
             h2 = ambil_erp(pw, set(), a.dari, a.sampai, [], tampil=not a.tanpa_layar, ongkos=kelompok)
         except (SystemExit, Exception) as e:  # noqa: BLE001
@@ -1641,7 +1877,7 @@ def catat_riwayat(mulai: datetime, bagian: set[str], a, h: "Hasil") -> None:
                 v.update(ok=False, pesan=h.gagal["Umum"])
     catatan = {"mulai": mulai.isoformat(timespec="seconds"), "selesai": datetime.now().isoformat(timespec="seconds"),
                "rentang": f"{a.dari} s.d. {a.sampai}", "pratinjau": bool(a.tanpa_simpan or a.hanya_unduh), "bagian": status}
-    if getattr(a, "ongkos_dari", None):
+    if getattr(a, "ongkos_dari", None) or getattr(a, "isi_ulang", None):
         catatan["ongkos_pilihan"] = True        # rentang pilihan: tidak menggantikan pembaruan mingguan
     print("@@STATUS " + json.dumps(catatan, ensure_ascii=False))
     try:
