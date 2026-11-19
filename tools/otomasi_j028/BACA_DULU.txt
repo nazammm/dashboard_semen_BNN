@@ -30,6 +30,9 @@ Ongkos kirim (halaman Ongkos Kirim di SEMENTRACK)
   masuk dilewati. Hapus file itu kalau ingin mengulang semuanya dari awal.
 - Rentang tertentu (paling panjang 3 bulan): Pengaturan -> Ambil rentang, mis. 2025-08-01 s.d. 2025-10-31,
   Distributor kosong = semua, atau isi beberapa kode (9575,4403). Tidak mengubah jadwal mingguan.
+- Sebelum meminta ORDB019, View Report diperiksa dulu (sampai 10 halaman): laporan distributor + periode yang sudah ada
+  dan FINISHED langsung diunduh. Bulan ini dan bulan lalu hanya dipakai kalau laporannya dibuat hari ini.
+- Isi ulang dikerjakan per bulan untuk ke-13 distributor bersamaan (bukan satu distributor sampai habis dulu).
 - Submit gagal dicoba lagi tiap 1 menit (3x). Sudah submit tapi belum muncul di View Report / View Job: dicek tiap
   menit; 10 menit belum muncul, submit ulang (3x).
 - Baris perintah: python j028_harian.py --bagian ONGKOS    atau    --bagian ONGKOS --isi-ulang 2025-01
