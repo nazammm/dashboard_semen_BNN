@@ -40,8 +40,10 @@ Supaya tidak mengunduh berulang:
    bulan sesudahnya). Isi file diperiksa (distributor / periode) sebelum disimpan.
 2. Sebelum meminta ORDB019, View Report (SYS_Report_View.aspx, sampai MAKS_HALAMAN_VIEW halaman) diperiksa: laporan dengan
    DIST + PERIODE yang sama, FINISHED, dan segar langsung diunduh.
-3. Yang sudah disubmit tapi belum muncul ditunggu (cek tiap 1 menit) sampai TUNGGU_MUNCUL_MENIT (30, laporan) atau
-   TUNGGU_MUNCUL_JOB_MENIT (10, job J073 / J028: Job ID langsung tercatat saat submit);
+3. Job (J073 / J028): setelah submit, View Job dicek sampai Job ID barunya muncul (KONFIRMASI_JOB_DETIK, 3 menit) sebelum
+   job berikutnya dikirim, jadi Job ID langsung dipasangkan. Kalau tidak muncul: dicoba lagi 1 menit kemudian, tapi sebelum
+   submit ulang View Job dicek sekali lagi; Job ID baru yang belum dimiliki siapa pun dipakai (cuma telat), tidak submit ulang.
+   Laporan (ORDB019): yang belum muncul ditunggu (cek tiap 1 menit) sampai TUNGGU_MUNCUL_MENIT (30);
    lalu semua halaman diperiksa sekali lagi, baru submit ulang sekali (COBA_MUNCUL). Submit yang gagal / ditolak ERP
    dicoba lagi 1 menit kemudian (COBA_KIRIM 3 kali).
 Antrian ERP paling banyak MAKS_ANTRIAN (2) job + laporan sekaligus, termasuk yang belum muncul di View.
@@ -109,6 +111,9 @@ JEDA_COBA_DETIK = int(os.environ.get("JEDA_COBA_DETIK", "60"))
 TUNGGU_MUNCUL_MENIT = int(os.environ.get("TUNGGU_MUNCUL_MENIT", "30"))
 # Job (View Job) langsung tercatat begitu disubmit dan mulai dalam hitungan detik; 10 menit tanpa Job ID = tidak dibuat ERP.
 TUNGGU_MUNCUL_JOB_MENIT = int(os.environ.get("TUNGGU_MUNCUL_JOB_MENIT", "10"))
+# Konfirmasi job: setelah submit, View Job dicek (tiap 15 detik, paling lama KONFIRMASI_JOB_DETIK) sampai Job ID barunya
+# muncul, baru job berikutnya dikirim. Jadi tiap Job ID langsung dipasangkan ke kirimannya (tidak menebak urutan).
+KONFIRMASI_JOB_DETIK = int(os.environ.get("KONFIRMASI_JOB_DETIK", "180"))
 COBA_MUNCUL = int(os.environ.get("COBA_MUNCUL", "2"))          # paling banyak 2 kali submit untuk yang tidak pernah muncul   # isi ulang: sekian job/laporan per putaran unduh-upload
 POLA_STATUS = re.compile(r"FINISH|PROCESS|QUEUE|WAIT|PENDING|RUNNING|ERROR|FAIL|CANCEL|DONE|SUCCESS", re.I)
 POLA_KODE = re.compile(r"^(J028B?|J073|ORDB\d+)$", re.I)
@@ -1326,6 +1331,24 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                     maju = True
             return maju
 
+        def job_baru(kode: str) -> str | None:
+            """Job ID baru (bukan job lama sebelum mulai, belum dipasangkan) dengan kode ini; yang terkecil dulu."""
+            daftar = daftar_job(page)
+            baru = sorted(j for j, (kd, _) in daftar.items() if j not in lama and j not in dikenal and kd == kode)
+            return baru[0] if baru else None
+
+        def konfirmasi_job(kode: str) -> str | None:
+            """Tunggu Job ID baru untuk job yang barusan disubmit muncul di View Job (tiap 15 detik)."""
+            batas_k = time.time() + KONFIRMASI_JOB_DETIK
+            while True:
+                jid = job_baru(kode)
+                if jid:
+                    print(f"  tercatat di View Job: {jid}")
+                    return jid
+                if time.time() >= batas_k:
+                    return None
+                time.sleep(15)
+
         def cari_semua_halaman(a: dict, jid: str | None = None) -> bool:
             """Cari di semua halaman View Report: laporan dengan ID `jid`, atau (kalau jid kosong) laporan baru dengan
             distributor + periode kiriman `a`. Kalau ketemu dan sudah FINISHED, langsung diunduh di halaman itu."""
@@ -1384,8 +1407,24 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                 if k["jenis"] == "laporan" and lama_r is None:
                     lama_r = set(daftar_laporan(page))
                 try:
+                    if k["jenis"] == "job" and k.get("coba", 1) > 1:
+                        # sebelum submit ulang: mungkin job percobaan sebelumnya cuma telat tercatat
+                        telat = job_baru(k["kode"])
+                        if telat:
+                            print(f"  {k['label']}: job percobaan sebelumnya ternyata tercatat ({telat}), tidak submit ulang")
+                            dikenal.add(telat)
+                            aktif.append({**k, "waktu": time.time(), "job": telat})
+                            dikirim = True
+                            continue
                     k["kirim"]()
-                    aktif.append({**k, "waktu": time.time(), "job": None})
+                    if k["jenis"] == "job":
+                        jid = konfirmasi_job(k["kode"])
+                        if not jid:
+                            raise SystemExit(f"job tidak tercatat di View Job {KONFIRMASI_JOB_DETIK} detik setelah submit")
+                        dikenal.add(jid)
+                        aktif.append({**k, "waktu": time.time(), "job": jid})
+                    else:
+                        aktif.append({**k, "waktu": time.time(), "job": None})
                     dikirim = True
                 except (SystemExit, Exception) as e:  # noqa: BLE001
                     coba = k.get("coba", 1)
