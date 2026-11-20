@@ -311,7 +311,7 @@ def jalankan_aplikasi() -> None:
                 self.info.config(text=self.galat, fg=C["bad"])
             else:
                 self.info.config(fg=C["muted"], text=teks + "\nYang sudah ada di folder salinan atau di View Report tidak diunduh lagi. "
-                                 "Antrian ERP paling banyak 2 sekaligus; laporan yang belum muncul ditunggu sampai 30 menit sebelum diminta ulang.")
+                                 "Antrian ERP paling banyak 2 sekaligus; tiap submit ditunggu sampai tercatat (maks 3 menit), dicek ulang dulu sebelum submit ulang.")
             self.app.aktif(self.b_jalan, not self.galat)
 
         def jalan(self):

@@ -40,12 +40,11 @@ Supaya tidak mengunduh berulang:
    bulan sesudahnya). Isi file diperiksa (distributor / periode) sebelum disimpan.
 2. Sebelum meminta ORDB019, View Report (SYS_Report_View.aspx, sampai MAKS_HALAMAN_VIEW halaman) diperiksa: laporan dengan
    DIST + PERIODE yang sama, FINISHED, dan segar langsung diunduh.
-3. Job (J073 / J028): setelah submit, View Job dicek sampai Job ID barunya muncul (KONFIRMASI_JOB_DETIK, 3 menit) sebelum
-   job berikutnya dikirim, jadi Job ID langsung dipasangkan. Kalau tidak muncul: dicoba lagi 1 menit kemudian, tapi sebelum
-   submit ulang View Job dicek sekali lagi; Job ID baru yang belum dimiliki siapa pun dipakai (cuma telat), tidak submit ulang.
-   Laporan (ORDB019): yang belum muncul ditunggu (cek tiap 1 menit) sampai TUNGGU_MUNCUL_MENIT (30);
-   lalu semua halaman diperiksa sekali lagi, baru submit ulang sekali (COBA_MUNCUL). Submit yang gagal / ditolak ERP
-   dicoba lagi 1 menit kemudian (COBA_KIRIM 3 kali).
+3. Setiap submit (J073, J028, ORDB019) dikonfirmasi: View Job / View Report dicek tiap 15 detik sampai ID barunya muncul
+   (paling lama KONFIRMASI_JOB_DETIK = 3 menit), baru kiriman berikutnya dikirim; ID langsung dipasangkan (laporan lewat
+   DIST + PERIODE). Tidak muncul dalam 3 menit: 1 menit kemudian dicek sekali lagi (laporan: semua halaman); kalau ternyata
+   cuma telat, ID itu dipakai dan tidak submit ulang. Baru kalau tetap tidak ada, submit ulang (COBA_KIRIM, 3 kali).
+   Submit yang ditolak ERP (pop-up antrian penuh / gagal) juga dicoba lagi 1 menit kemudian.
 Antrian ERP paling banyak MAKS_ANTRIAN (2) job + laporan sekaligus, termasuk yang belum muncul di View.
     python j028_harian.py --bagian ONGKOS
     python j028_harian.py --isi-ulang 2025-01
@@ -106,13 +105,12 @@ ONGKOS_HARI = int(os.environ.get("ONGKOS_HARI", "7"))          # dari jadwal: on
 KELOMPOK_ISI_ULANG = int(os.environ.get("KELOMPOK_ISI_ULANG", "8"))
 COBA_KIRIM = int(os.environ.get("COBA_KIRIM", "3"))            # submit gagal / ditolak ERP: dicoba lagi sampai sekian kali, jeda JEDA_COBA_DETIK
 JEDA_COBA_DETIK = int(os.environ.get("JEDA_COBA_DETIK", "60"))
-# sudah submit tapi belum muncul di View: dicek tiap menit (bisa sampai ±10 menit; ERP menulis waktu tunggu 0-30 menit).
-# Setelah TUNGGU_MUNCUL_MENIT semua halaman View Report diperiksa dulu; baru kalau tetap tidak ada, submit ulang SEKALI.
-TUNGGU_MUNCUL_MENIT = int(os.environ.get("TUNGGU_MUNCUL_MENIT", "30"))
-# Job (View Job) langsung tercatat begitu disubmit dan mulai dalam hitungan detik; 10 menit tanpa Job ID = tidak dibuat ERP.
-TUNGGU_MUNCUL_JOB_MENIT = int(os.environ.get("TUNGGU_MUNCUL_JOB_MENIT", "10"))
-# Konfirmasi job: setelah submit, View Job dicek (tiap 15 detik, paling lama KONFIRMASI_JOB_DETIK) sampai Job ID barunya
-# muncul, baru job berikutnya dikirim. Jadi tiap Job ID langsung dipasangkan ke kirimannya (tidak menebak urutan).
+# cadangan kalau kiriman aktif kehilangan ID-nya: dicek tiap menit, setelah TUNGGU_MUNCUL_MENIT diperiksa ulang / submit ulang.
+TUNGGU_MUNCUL_MENIT = int(os.environ.get("TUNGGU_MUNCUL_MENIT", "3"))
+TUNGGU_MUNCUL_JOB_MENIT = int(os.environ.get("TUNGGU_MUNCUL_JOB_MENIT", "3"))
+# Konfirmasi: setelah submit, View Job / View Report dicek (tiap 15 detik, paling lama KONFIRMASI_JOB_DETIK = 3 menit) sampai
+# ID barunya muncul, baru kiriman berikutnya dikirim. Jadi tiap ID langsung dipasangkan ke kirimannya (laporan: DIST + PERIODE).
+# Tidak muncul: dicoba lagi 1 menit kemudian, tapi sebelum submit ulang dicek dulu apakah ternyata cuma telat tercatat.
 KONFIRMASI_JOB_DETIK = int(os.environ.get("KONFIRMASI_JOB_DETIK", "180"))
 COBA_MUNCUL = int(os.environ.get("COBA_MUNCUL", "2"))          # paling banyak 2 kali submit untuk yang tidak pernah muncul   # isi ulang: sekian job/laporan per putaran unduh-upload
 POLA_STATUS = re.compile(r"FINISH|PROCESS|QUEUE|WAIT|PENDING|RUNNING|ERROR|FAIL|CANCEL|DONE|SUCCESS", re.I)
@@ -1337,13 +1335,27 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
             baru = sorted(j for j, (kd, _) in daftar.items() if j not in lama and j not in dikenal and kd == kode)
             return baru[0] if baru else None
 
-        def konfirmasi_job(kode: str) -> str | None:
-            """Tunggu Job ID baru untuk job yang barusan disubmit muncul di View Job (tiap 15 detik)."""
+        def laporan_baru(k: dict, semua_halaman: bool = False) -> str | None:
+            """Report ID baru (bukan laporan lama, belum dipasangkan) dengan DIST + PERIODE kiriman k; terlama dulu."""
+            kunci_k = (k["ongkos"]["dist"].upper(), k["ongkos"]["bulan"])
+            daftar, hal = daftar_laporan(page), 1
+            while True:
+                baru = sorted(j for j in daftar if j not in (lama_r or set()) and j not in dikenal
+                              and (LAPORAN_META.get(j, {}).get("dist"), LAPORAN_META.get(j, {}).get("bulan")) == kunci_k)
+                if baru:
+                    return baru[0]
+                if not semua_halaman or hal >= MAKS_HALAMAN_VIEW or not ke_halaman_view(page, hal + 1):
+                    return None
+                hal += 1
+                daftar = baca_antrian(page, r"R\d{5,}")
+
+        def konfirmasi(k: dict) -> str | None:
+            """Tunggu ID baru untuk kiriman yang barusan disubmit muncul di View Job / View Report (tiap 15 detik)."""
             batas_k = time.time() + KONFIRMASI_JOB_DETIK
             while True:
-                jid = job_baru(kode)
+                jid = job_baru(k["kode"]) if k["jenis"] == "job" else laporan_baru(k)
                 if jid:
-                    print(f"  tercatat di View Job: {jid}")
+                    print(f"  tercatat di {'View Job' if k['jenis'] == 'job' else 'View Report'}: {jid}")
                     return jid
                 if time.time() >= batas_k:
                     return None
@@ -1407,24 +1419,22 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                 if k["jenis"] == "laporan" and lama_r is None:
                     lama_r = set(daftar_laporan(page))
                 try:
-                    if k["jenis"] == "job" and k.get("coba", 1) > 1:
-                        # sebelum submit ulang: mungkin job percobaan sebelumnya cuma telat tercatat
-                        telat = job_baru(k["kode"])
+                    if k.get("coba", 1) > 1 or k.get("muncul", 1) > 1:
+                        # sebelum submit ulang: mungkin kiriman sebelumnya cuma telat tercatat (laporan: semua halaman dicari)
+                        telat = job_baru(k["kode"]) if k["jenis"] == "job" else laporan_baru(k, semua_halaman=True)
                         if telat:
-                            print(f"  {k['label']}: job percobaan sebelumnya ternyata tercatat ({telat}), tidak submit ulang")
+                            print(f"  {k['label']}: kiriman sebelumnya ternyata tercatat ({telat}), tidak submit ulang")
                             dikenal.add(telat)
                             aktif.append({**k, "waktu": time.time(), "job": telat})
                             dikirim = True
                             continue
                     k["kirim"]()
-                    if k["jenis"] == "job":
-                        jid = konfirmasi_job(k["kode"])
-                        if not jid:
-                            raise SystemExit(f"job tidak tercatat di View Job {KONFIRMASI_JOB_DETIK} detik setelah submit")
-                        dikenal.add(jid)
-                        aktif.append({**k, "waktu": time.time(), "job": jid})
-                    else:
-                        aktif.append({**k, "waktu": time.time(), "job": None})
+                    tempat = "View Job" if k["jenis"] == "job" else "View Report"
+                    jid = konfirmasi(k)
+                    if not jid:
+                        raise SystemExit(f"tidak tercatat di {tempat} " + (f"{KONFIRMASI_JOB_DETIK // 60} menit" if KONFIRMASI_JOB_DETIK >= 120 else f"{KONFIRMASI_JOB_DETIK} detik") + " setelah submit")
+                    dikenal.add(jid)
+                    aktif.append({**k, "waktu": time.time(), "job": jid})
                     dikirim = True
                 except (SystemExit, Exception) as e:  # noqa: BLE001
                     coba = k.get("coba", 1)
