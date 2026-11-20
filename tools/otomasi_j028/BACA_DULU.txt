@@ -26,6 +26,7 @@ Tanpa aplikasi (baris perintah) tetap bisa: python j028_harian.py --semua (lihat
 
 Ongkos kirim (halaman Ongkos Kirim di SEMENTRACK)
 - Centang "Ongkos kirim" di Beranda (dan ikut jadwal). Dari jadwal bagian ini hanya jalan seminggu sekali.
+- Ongkos kirim dilacak mulai Januari 2026. Tanggal sebelum itu tidak bisa dipilih dan tidak diunduh.
 - Distributor dipilih dengan centang di Pengaturan -> Distributor ongkos (bawaan 13 distributor). INSA-E tidak perlu:
   datanya ada di INSA (4094).
 - Ambil untuk distributor dan tanggal tertentu: Beranda -> "Ambil ongkos kirim: pilih distributor dan tanggal…"
@@ -42,8 +43,8 @@ Ongkos kirim (halaman Ongkos Kirim di SEMENTRACK)
 - Tidak muncul dalam 3 menit: 1 menit kemudian dicek lagi dulu (View Report: semua halaman). Kalau ternyata cuma telat,
   ID itu dipakai, tidak submit ulang. Baru kalau tetap tidak ada, submit ulang (maks 3 kali). Isi file tetap dicek.
 - Antrian ERP paling banyak 2 job/laporan sekaligus. Submit yang ditolak ERP (antrian penuh dll.) dicoba lagi 1 menit kemudian.
-- Baris perintah: python j028_harian.py --bagian ONGKOS   |   --isi-ulang 2025-01 [--ongkos-dist 9575,4403]
-  |   --ongkos-dari 2025-08-01 --ongkos-sampai 2025-10-31 --ongkos-dist 9575
+- Baris perintah: python j028_harian.py --bagian ONGKOS   |   --isi-ulang 2026-01 [--ongkos-dist 9575,4403]
+  |   --ongkos-dari 2026-08-01 --ongkos-sampai 2026-10-31 --ongkos-dist 9575
 
 Harga Loco (perkiraan nilai di halaman Outstanding DO)
 - Centang "Harga Loco" di Beranda (dan ikut jadwal). Dari jadwal bagian ini hanya jalan seminggu sekali.

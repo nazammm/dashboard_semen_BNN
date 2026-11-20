@@ -160,11 +160,11 @@ def jalankan_aplikasi() -> None:
         HARI = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"]
         BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
 
-        def __init__(self, induk, nilai: date, saat_pilih, batas: date | None = None):
+        def __init__(self, induk, nilai: date, saat_pilih, batas: date | None = None, awal: date | None = None):
             super().__init__(induk)
             self.overrideredirect(True)
             self.attributes("-topmost", True)
-            self.saat_pilih, self.batas, self.nilai = saat_pilih, batas, nilai
+            self.saat_pilih, self.batas, self.awal, self.nilai = saat_pilih, batas, awal, nilai
             self.tampil = nilai.replace(day=1)
             self.kotak = tk.Frame(self, bg=C["card"], highlightthickness=1, highlightbackground=C["line"], padx=8, pady=8)
             self.kotak.pack()
@@ -204,7 +204,7 @@ def jalankan_aplikasi() -> None:
             for r, minggu in enumerate(calendar.Calendar(firstweekday=0).monthdatescalendar(self.tampil.year, self.tampil.month)):
                 for c, d in enumerate(minggu):
                     lain = d.month != self.tampil.month
-                    mati = self.batas is not None and d > self.batas
+                    mati = (self.batas is not None and d > self.batas) or (self.awal is not None and d < self.awal)
                     pilih = d == self.nilai
                     t = tk.Label(self.kotak, text=str(d.day), width=4, pady=3, cursor="" if mati else "hand2",
                                  bg=C["pri"] if pilih else C["card"], fg="#ffffff" if pilih else (C["line"] if mati else (C["muted"] if lain else C["txt"])))
@@ -214,15 +214,17 @@ def jalankan_aplikasi() -> None:
 
     class KolomTanggal(tk.Frame):
         """Kolom tanggal yang dipilih lewat kalender (tidak diketik)."""
-        def __init__(self, induk, nilai: date, saat_ubah=None, bulan_saja: bool = False, batas: date | None = None):
+        def __init__(self, induk, nilai: date, saat_ubah=None, bulan_saja: bool = False, batas: date | None = None, awal: date | None = None):
             super().__init__(induk, bg=C["card"], highlightthickness=1, highlightbackground=C["line"], cursor="hand2")
-            self.nilai, self.saat_ubah, self.bulan_saja, self.batas = nilai, saat_ubah, bulan_saja, batas
+            self.nilai, self.saat_ubah, self.bulan_saja, self.batas, self.awal = nilai, saat_ubah, bulan_saja, batas, awal
+            if awal and self.nilai < awal:
+                self.nilai = awal
             self.lbl = tk.Label(self, bg=C["card"], fg=C["txt"], padx=8, pady=4, width=13 if not bulan_saja else 15, anchor="w")
             self.lbl.pack(side="left")
             tombol = tk.Label(self, text="📅", bg=C["card"], fg=C["pri"], padx=6)
             tombol.pack(side="left")
             for w in (self, self.lbl, tombol):
-                w.bind("<Button-1>", lambda _e: Kalender(self, self.nilai, self.set, self.batas))
+                w.bind("<Button-1>", lambda _e: Kalender(self, self.nilai, self.set, self.batas, self.awal))
             self.tulis()
 
         def tulis(self):
@@ -267,16 +269,16 @@ def jalankan_aplikasi() -> None:
                     return date.fromisoformat(st.get(kunci, ""))
                 except ValueError:
                     return bawaan
-            self.dari = KolomTanggal(r, tgl("rentang_dari", hari.replace(day=1)), self.hitung, batas=hari)
+            self.dari = KolomTanggal(r, tgl("rentang_dari", hari.replace(day=1)), self.hitung, batas=hari, awal=mesin.ONGKOS_MULAI)
             self.dari.pack(side="left")
             tk.Label(r, text="s.d.", bg=C["card"], fg=C["muted"], padx=8).pack(side="left")
-            self.sampai = KolomTanggal(r, tgl("rentang_sampai", hari), self.hitung, batas=hari)
+            self.sampai = KolomTanggal(r, tgl("rentang_sampai", hari), self.hitung, batas=hari, awal=mesin.ONGKOS_MULAI)
             self.sampai.pack(side="left")
             ttk.Radiobutton(w, text="Isi data lama sejak bulan ini sampai hari ini (per 3 bulan, bisa dilanjutkan)", value="isi_ulang",
                             variable=self.mode, command=self.hitung).grid(row=2, column=0, columnspan=4, sticky="w")
             r2 = tk.Frame(w, bg=C["card"])
             r2.grid(row=3, column=0, columnspan=4, sticky="w", padx=(24, 0), pady=(4, 0))
-            self.mulai = KolomTanggal(r2, tgl("isi_ulang_dari", date(2025, 1, 1)), self.hitung, bulan_saja=True, batas=hari)
+            self.mulai = KolomTanggal(r2, tgl("isi_ulang_dari", mesin.ONGKOS_MULAI), self.hitung, bulan_saja=True, batas=hari, awal=mesin.ONGKOS_MULAI)
             self.mulai.pack(side="left")
 
             self.info = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=app.f_kecil, justify="left", wraplength=560)
