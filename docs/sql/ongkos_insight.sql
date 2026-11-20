@@ -43,7 +43,7 @@ select k.dist_code, k.periode, k.do_no, k.biaya, k.ton_kirim, k.trip, k.trip_tan
        case when j.ton_do > 0 then j.net * k.ton_kirim / j.ton_do end as omzet,
        case when j.ton_do > 0 and j.delivery_type is not null then
          (case when j.ada_rincian then j.tagih_rincian when split_part(j.delivery_type, ' ', 1) = 'LG' then 0
-               when j.tagih_harga is not null then j.tagih_harga else 0 end) * k.ton_kirim / j.ton_do end as tagih,
+               when j.tagih_harga is not null then j.tagih_harga end) * k.ton_kirim / j.ton_do end as tagih,   -- kosong = belum bisa dihitung (null), bukan 0
        case when j.delivery_type is null then null when j.ada_rincian then 'rincian' when split_part(j.delivery_type, ' ', 1) = 'LG' then 'lg'
             when j.tagih_harga is not null then 'harga' else 'kosong' end as tagih_sumber,
        case when j.ton_do > 0 and j.delivery_type is not null then j.handling * k.ton_kirim / j.ton_do end as handling,

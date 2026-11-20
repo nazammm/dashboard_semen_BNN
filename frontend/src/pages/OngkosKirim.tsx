@@ -218,6 +218,7 @@ function Body({ info }: { info: Row[] }) {
       {v && (
         <div className={cx(load.loading && 'opacity-60 transition-opacity')}>
           <Kelengkapan v={v} periodeLabel={periodeLabel} namaDist={c => dists.find(x => x.code === c)?.kode || c} />
+          <BelumHitung v={v} />
           <SatuZak v={v} S={S} />
 
           <div className="grid-kpi mt-4">
@@ -426,13 +427,17 @@ function hitung(tripsSemua: Trip[], dosAll: DoRow[], tipe: string, trans: string
 
   // DO kirim yang tokonya tidak membayar ongkir (rincian 0, atau harga DO tidak di atas Loco); "kosong" = belum bisa dicek
   const tk = new Map<string, { cust: string; toko: string; zonaTon: Map<string, number>; jumlahDo: number; ton: number; biaya: number; dicek: number; belumDicek: number }>();
-  dos.filter(d => d.tipe !== 'LG' && d.tipe !== '?' && d.tagih === 0 && (d.sumber === 'rincian' || d.sumber === 'harga' || d.sumber === 'kosong')).forEach(d => {
+  dos.filter(d => d.tipe !== 'LG' && d.tipe !== '?' && d.tagih === 0 && (d.sumber === 'rincian' || d.sumber === 'harga')).forEach(d => {
     const k = d.cust || `DO ${d.doNo}`;
     const x = tk.get(k) || { cust: d.cust, toko: d.toko, zonaTon: new Map(), jumlahDo: 0, ton: 0, biaya: 0, dicek: 0, belumDicek: 0 };
     x.jumlahDo++; x.ton += d.ton; x.biaya += d.biaya; x.zonaTon.set(d.zona, (x.zonaTon.get(d.zona) || 0) + d.ton);
     if (d.sumber === 'kosong') x.belumDicek += d.ton; else x.dicek += d.ton;
     tk.set(k, x);
   });
+  // DO kirim yang ongkir tokonya belum bisa dihitung (Delivery kosong, Product Price / Loco belum ada): tidak ikut margin
+  const bz = new Map<string, { ton: number; biaya: number }>();
+  dos.filter(d => d.sumber === 'kosong' && d.tipe !== '?').forEach(d => { const x = bz.get(d.zona) || { ton: 0, biaya: 0 }; x.ton += d.ton; x.biaya += d.biaya; bz.set(d.zona, x); });
+  const belumHitung = { ton: [...bz.values()].reduce((a, x) => a + x.ton, 0), zona: [...bz.entries()].map(([nama, x]) => ({ nama, ...x })).sort((a, b) => b.ton - a.ton) };
   const tanpaOngkir = [...tk.values()].map(x => ({ ...x, zona: [...x.zonaTon.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '' })).sort((a, b) => b.biaya - a.biaya || b.ton - a.ton);
 
   // per tipe truk
@@ -551,7 +556,7 @@ function hitung(tripsSemua: Trip[], dosAll: DoRow[], tipe: string, trans: string
     tertutup: realTagih ? tagih / realTagih : null,
     tanggung: tagih - realTagih, tanggungTon: perTon(tagih - realTagih, tonTagih), doTagih: ditagih.length,
     belum: [...belum.entries()].map(([nama, x]) => ({ nama, ...x })).sort((a, b) => b.ton - a.ton),
-    luar: [...luar.entries()].map(([nama, x]) => ({ nama, ...x })).sort((a, b) => b.ton - a.ton), tonLuar, gudang, tanpaOngkir,
+    luar: [...luar.entries()].map(([nama, x]) => ({ nama, ...x })).sort((a, b) => b.ton - a.ton), tonLuar, gudang, tanpaOngkir, belumHitung,
     sumberTon, satuZak: {
       loco: perTon(sum(denganLoco, d => d.locoTon! * d.ton), sum(denganLoco, d => d.ton)),
       ongkir: perTon(tagih, tonTagih), truk: perTon(realTagih, tonTagih), ton: tonTagih,
@@ -593,6 +598,25 @@ function Kelengkapan({ v, periodeLabel, namaDist }: { v: Hasil; periodeLabel: st
         {luarTeks}
         {v.kosong.length > 0 && <> ORDB019 tanpa biaya sama sekali (Harga Ritase dan Total 0 di ERP): {ringkasKosong}, {fmtTon(v.tonKosong)} ton.</>}
         {' '}Angka per ton, omzet, dan margin di bawah hanya memakai DO yang biayanya sudah lengkap.
+      </div>
+    </div>
+  );
+}
+
+/** DO kirim yang ongkir tokonya belum bisa dihitung: tidak ikut margin (bukan dianggap 0). */
+function BelumHitung({ v }: { v: Hasil }) {
+  const b = v.belumHitung;
+  if (b.ton < 0.5) return null;
+  const pct = b.ton / Math.max(v.ton, 1e-9);
+  return (
+    <div className={cx('upl-note mt-3', pct > 0.2 ? 'is-warn' : 'is-info')} role="note">
+      <svg viewBox="0 0 24 24" className="w-[18px] h-[18px] shrink-0 mt-px" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5M12 8v.1" /></svg>
+      <div className="text-[13px] leading-relaxed">
+        <b>Ongkir dari toko belum bisa dihitung untuk {fmtTon(b.ton)} ton ({fmtPct(pct, 0)})</b>
+        {b.zona.length > 0 && <>, terutama {b.zona.slice(0, 4).map(z => `${z.nama} ${fmtTon(z.ton)} t`).join(', ')}</>}.
+        {' '}Kolom Delivery di J073 kosong, padahal ongkirnya biasanya sudah ada di harga DO; untuk menghitungnya perlu Product Price J073 dan harga Loco.
+        DO ini <b>tidak ikut</b> margin (tidak dianggap ongkir 0). Supaya terhitung: jalankan "Upload ulang salinan J073" di Nazam Auto Task,
+        dan pastikan Harga Loco distributornya sudah ada.
       </div>
     </div>
   );
@@ -693,7 +717,7 @@ function TanpaOngkir({ v }: { v: Hasil }) {
       </div>
       <p className="text-soft text-[12.5px] -mt-2 mb-3 max-w-[900px]">
         DO kirim yang tokonya tidak membayar ongkir: kolom Delivery di J073 bernilai 0 atau habis oleh potongan, atau harga DO tidak di atas harga Loco.
-        "Belum bisa dicek" = kolom Delivery kosong dan Product Price / harga Loco belum ada, jadi mungkin ongkirnya ada di harga.
+        DO yang ongkirnya belum bisa dihitung tidak masuk daftar ini (lihat catatan di atas).
       </p>
       <TableWrap>
         <table>
