@@ -15,8 +15,10 @@ import { exportRowsToExcel } from '../lib/xlsx';
 /* ============================================================================
    Ongkos Kirim: ongkos kirim dari gudang distributor ke toko.
    - Ongkos real  : yang dibayar ke transporter, dari laporan ORDB019 (per perjalanan / No Foad, per DO).
-   - Ongkir dibayar toko (ditagih): dari J073. Kolom Delivery diisi -> (Delivery Price − Delivery Discount + Delivery Add) × qty;
-     kosong pada DO kirim -> (Product Price − harga Loco Net) × qty, karena Product Price DO kirim sudah termasuk ongkir.
+   - Ongkir dibayar toko (ditagih): bagian harga DO di atas harga ambil sendiri. J073: Product Price = harga Loco + Delivery Price
+     − Delivery Discount + Delivery Add + Handling Cost. Kolom Delivery diisi -> (DP − DDP + DAP + Handling) × qty;
+     kosong pada DO kirim -> (Product Price − harga Loco kolom Price, gudang sama) × qty. Diskon / promo / cash back = potongan
+     harga semen per toko, tidak dihitung sebagai potongan ongkir.
    - Margin       : ongkir dibayar toko − bayar truk, dari DO yang sama. Plus = untung (hijau), minus = rugi / ditanggung distributor.
    Angkutan ke gudang (baris ORDB019 tanpa No DO) dipisah dan tidak masuk hitungan ke toko.
    Status transporter (20_ongkos_insight.sql): armada sendiri = biaya di luar ERP, truk toko = memang tanpa biaya.
@@ -179,7 +181,7 @@ function Body({ info }: { info: Row[] }) {
         { name: 'Per toko', header: ['Kode toko', 'Toko', 'Zona', 'DO', 'Ton', 'Bayar truk (Rp)', 'Bayar truk per ton', 'Ongkir dibayar toko (Rp)', 'Margin (Rp; + untung, − rugi)', 'Ongkos % omzet'],
           rows: v.toko.map(t => [t.cust, t.toko, t.zona, t.jumlahDo, t.ton, t.biaya, perTon(t.biaya, t.ton), t.tagih, t.tanggung, t.omzet ? t.biayaOmzet / t.omzet : null]),
           widths: [11, 34, 20, 6, 9, 16, 13, 14, 20, 14] },
-        { name: 'Per DO', header: ['Distributor', 'Bulan kirim', 'No DO', 'Kode toko', 'Toko', 'Tipe kirim', 'Zona', 'Truk', 'Transporter', 'Ton', 'Bayar truk (Rp)', 'Ongkir dibayar toko (Rp)', 'Sumber ongkir', 'Loco Net per ton', 'Harga DO per ton', 'Omzet (Rp)', 'Biaya lengkap'],
+        { name: 'Per DO', header: ['Distributor', 'Bulan kirim', 'No DO', 'Kode toko', 'Toko', 'Tipe kirim', 'Zona', 'Truk', 'Transporter', 'Ton', 'Bayar truk (Rp)', 'Ongkir dibayar toko (Rp)', 'Sumber ongkir', 'Harga Loco per ton', 'Harga DO (Product Price) per ton', 'Omzet (Rp)', 'Biaya lengkap'],
           rows: v.dos.map(d => [d.dist, d.periode.slice(0, 7), d.doNo, d.cust, d.toko, d.tipe === '?' ? '' : d.tipe, d.zona, namaTruk(d.truk), d.transporter, d.ton, d.biaya, d.tagih,
             d.sumber ? SUMBER[d.sumber] || d.sumber : '', d.locoTon, d.hargaTon, d.omzet, d.lengkap ? 'ya' : d.luarErp ? 'armada sendiri' : 'belum']),
           widths: [10, 10, 11, 10, 30, 8, 18, 22, 26, 8, 15, 15, 20, 13, 13, 15, 13] },
@@ -356,8 +358,9 @@ function Body({ info }: { info: Row[] }) {
           <TanpaOngkir v={v} />
 
           <p className="text-faint text-[12px] mt-4 leading-relaxed max-w-[900px]">
-            Bayar truk dari ORDB019, dibagi ke DO sesuai baris laporan (bulan = bulan kirim); baris tanpa No DO (angkutan ke gudang) dipisah. Ongkir dibayar toko = (Delivery Price − Delivery Discount Price + Delivery Add Price) × qty dari J073;
-            kalau kolom Delivery kosong pada DO kirim, dihitung dari harga: (Product Price − harga Loco Net pada tanggal DO) × qty, minimal 0. Per ton / per zak, omzet, dan margin hanya memakai DO yang semua perjalanannya sudah ada biayanya.
+            Bayar truk dari ORDB019, dibagi ke DO sesuai baris laporan (bulan = bulan kirim); baris tanpa No DO (angkutan ke gudang) dipisah. Ongkir dibayar toko = (Delivery Price − Delivery Discount Price + Delivery Add Price + Handling Cost) × qty dari J073;
+            kalau kolom Delivery kosong pada DO kirim, dihitung dari harga: (Product Price − harga Loco kolom Price, gudang yang sama, pada tanggal DO) × qty, minimal 0.
+            Diskon / promo / cash back tidak dihitung, karena itu potongan harga semen per toko (toko yang ambil sendiri juga dapat), bukan potongan ongkir. Per ton / per zak, omzet, dan margin hanya memakai DO yang semua perjalanannya sudah ada biayanya.
             Truk toko (Eks. Toko) memang tanpa biaya; armada sendiri (mis. LAM) biayanya di luar ERP dan tidak dihitung.
             Margin = ongkir dibayar toko − bayar truk, dari DO yang sama: plus (hijau) = untung, minus (merah) = rugi / ditanggung distributor. Per zak = per ton x berat zak (50 kg = 1/20 ton, 40 kg = 1/25 ton).
           </p>
@@ -420,7 +423,7 @@ function hitung(tripsSemua: Trip[], dosAll: DoRow[], tipe: string, trans: string
     tujuan: [...gm.entries()].map(([nama, x]) => ({ nama, ...x })).sort((a, b) => b.ton - a.ton),
   };
 
-  // hitungan per zak: harga ambil sendiri (Loco Net), ongkir dibayar toko, bayar ke truk
+  // hitungan per zak: harga ambil sendiri (Loco), ongkir dibayar toko, bayar ke truk
   const sumberTon = new Map<string, number>();
   dos.filter(d => d.sumber).forEach(d => sumberTon.set(d.sumber!, (sumberTon.get(d.sumber!) || 0) + d.ton));
   const denganLoco = ditagih.filter(d => d.locoTon != null);
@@ -614,7 +617,7 @@ function BelumHitung({ v }: { v: Hasil }) {
       <div className="text-[13px] leading-relaxed">
         <b>Ongkir dari toko belum bisa dihitung untuk {fmtTon(b.ton)} ton ({fmtPct(pct, 0)})</b>
         {b.zona.length > 0 && <>, terutama {b.zona.slice(0, 4).map(z => `${z.nama} ${fmtTon(z.ton)} t`).join(', ')}</>}.
-        {' '}Kolom Delivery di J073 kosong, padahal ongkirnya biasanya sudah ada di harga DO; untuk menghitungnya perlu Product Price J073 dan harga Loco.
+        {' '}Kolom Delivery di J073 kosong, padahal ongkirnya biasanya sudah ada di harga DO; untuk menghitungnya perlu Product Price J073 dan harga Loco di gudang yang sama.
         DO ini <b>tidak ikut</b> margin (tidak dianggap ongkir 0). Supaya terhitung: jalankan "Upload ulang salinan J073" di Nazam Auto Task,
         dan pastikan Harga Loco distributornya sudah ada.
       </div>
@@ -633,8 +636,9 @@ function CaraBaca() {
         <p>Contoh satu zak semen 50 kg di bulan yang sama:</p>
         <ul className="mt-1.5 ml-4 list-disc">
           <li>Toko yang <b>ambil sendiri</b> di gudang bayar <b>69.950</b>. Ini harga semen saja (Loco).</li>
-          <li>Toko yang <b>dikirim</b> bayar <b>71.350</b>. Selisih <b>1.400</b> itu <b>ongkir yang dibayar toko</b>, sudah termasuk di harga DO.
-            Di J073 kadang ditulis rinciannya (Delivery Price 1.950 − Delivery Discount 550), kadang kosong; kalau kosong, halaman ini menghitungnya dari harga DO − harga Loco.</li>
+          <li>Toko yang <b>dikirim</b> bayar <b>71.350</b> (Product Price J073). Selisih <b>1.400</b> itu <b>ongkir yang dibayar toko</b>, sudah termasuk di harga DO.
+            Di J073 kadang ditulis rinciannya (Delivery Price 1.950 − Delivery Discount 550 + Handling Cost bongkar), kadang kosong; kalau kosong, halaman ini menghitungnya dari harga DO − harga Loco gudang yang sama.</li>
+          <li>Diskon / promo / cash back toko <b>tidak</b> mengurangi ongkir: itu potongan harga semen, toko yang ambil sendiri juga dapat.</li>
           <li>Distributor membayar truk (ORDB019), misalnya <b>2.960</b> per zak.</li>
           <li><b>Margin</b> = ongkir dibayar toko − bayar truk = 1.400 − 2.960 = <b className="text-red">−1.560</b> per zak: rugi, selisihnya ditanggung distributor.
             Kalau toko membayar ongkir 3.400 dan truk 2.974, margin <b className="text-green">+426</b>: untung.</li>
@@ -663,7 +667,7 @@ function SatuZak({ v, S }: { v: Hasil; S: Satuan }) {
     <section className="card mt-4 grid gap-6 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-[880px]:grid-cols-1">
       <div>
         <div className="card-title">Hitungan rata-rata {S.kata}</div>
-        {z.loco != null && baris('Harga ambil sendiri (Loco Net)', z.loco)}
+        {z.loco != null && baris('Harga ambil sendiri (Loco, sebelum diskon)', z.loco)}
         {baris('Ongkir dibayar toko', z.ongkir, { tanda: z.loco != null ? '+ ' : '', sub: 'sudah termasuk di harga DO' })}
         {z.loco != null && baris('Harga sampai toko', z.loco + z.ongkir, { tebal: true })}
         <div className="h-3" />

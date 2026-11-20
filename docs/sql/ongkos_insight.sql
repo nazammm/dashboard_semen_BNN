@@ -47,6 +47,7 @@ select k.dist_code, k.periode, k.do_no, k.biaya, k.ton_kirim, k.trip, k.trip_tan
        case when j.delivery_type is null then null when j.ada_rincian then 'rincian' when split_part(j.delivery_type, ' ', 1) = 'LG' then 'lg'
             when j.tagih_harga is not null then 'harga' else 'kosong' end as tagih_sumber,
        case when j.ton_do > 0 and j.delivery_type is not null then j.handling * k.ton_kirim / j.ton_do end as handling,
+       case when j.ton_do > 0 and j.delivery_type is not null then j.tagih_harga * k.ton_kirim / j.ton_do end as tagih_dari_harga,
        case when j.ton_loco > 0 then j.nilai_loco / j.ton_loco end as loco_per_ton,
        case when j.ton_harga > 0 then j.nilai_harga / j.ton_harga end as harga_per_ton
 from (
@@ -65,17 +66,24 @@ left join lateral (
          max(s.delivery_type) as delivery_type, max(s.zona_kirim) as zona_kirim, max(s.kecamatan) as kecamatan, max(s.kabupaten) as kabupaten,
          sum(sementrack.j073_ton(s.product_code, s.product_name, s.order_qty)) as ton_do, sum(s.net_amount) as net,
          bool_or(coalesce(s.harga_kirim, 0) <> 0 or coalesce(s.diskon_kirim, 0) <> 0 or coalesce(s.tambah_kirim, 0) <> 0) as ada_rincian,
-         sum((coalesce(s.harga_kirim, 0) - coalesce(s.diskon_kirim, 0) + coalesce(s.tambah_kirim, 0)) * s.order_qty) as tagih_rincian,
-         sum(greatest(s.harga_produk - hl.net_price, 0) * s.order_qty) filter (where s.harga_produk is not null and hl.net_price is not null) as tagih_harga,
+         sum((coalesce(s.harga_kirim, 0) - coalesce(s.diskon_kirim, 0) + coalesce(s.tambah_kirim, 0) + coalesce(s.handling, 0)) * s.order_qty) as tagih_rincian,   -- ongkir + bongkar
+         sum(greatest(s.harga_produk - hl.loco, 0) * s.order_qty) filter (where s.harga_produk is not null and hl.loco is not null) as tagih_harga,
          sum(coalesce(s.handling, 0) * s.order_qty) as handling,
-         sum(hl.net_price * s.order_qty) filter (where hl.net_price is not null) as nilai_loco,
-         sum(sementrack.j073_ton(s.product_code, s.product_name, s.order_qty)) filter (where hl.net_price is not null) as ton_loco,
+         sum(hl.loco * s.order_qty) filter (where hl.loco is not null) as nilai_loco,
+         sum(sementrack.j073_ton(s.product_code, s.product_name, s.order_qty)) filter (where hl.loco is not null) as ton_loco,
          sum(s.harga_produk * s.order_qty) filter (where s.harga_produk is not null) as nilai_harga,
          sum(sementrack.j073_ton(s.product_code, s.product_name, s.order_qty)) filter (where s.harga_produk is not null) as ton_harga
   from sementrack.sellout_j073 s
-  left join lateral (select h.net_price from sementrack.harga_loco h
+  -- Loco pembanding: Price (sebelum promo); gudang harus sama kecuali distributor cuma punya satu gudang harga
+  left join lateral (select coalesce(h.price, h.net_price) as loco from sementrack.harga_loco h
                      where h.dist_code = s.dist_code and h.product_code = s.product_code
                        and s.do_date >= h.berlaku_dari and (h.berlaku_sampai is null or s.do_date <= h.berlaku_sampai)
+                       and (h.warehouse = coalesce(s.warehouse, '')
+                            or (h.warehouse <> '' and coalesce(s.warehouse, '') like '%' || h.warehouse || '%')
+                            or (coalesce(s.warehouse, '') <> '' and h.warehouse like '%' || s.warehouse || '%')
+                            or not exists (select 1 from sementrack.harga_loco h2
+                                           where h2.dist_code = h.dist_code and h2.product_code = h.product_code and h2.warehouse <> h.warehouse
+                                             and s.do_date >= h2.berlaku_dari and (h2.berlaku_sampai is null or s.do_date <= h2.berlaku_sampai)))
                      order by (h.warehouse = coalesce(s.warehouse, '')) desc, h.berlaku_dari desc limit 1) hl on true
   where s.dist_code = k.dist_code and s.do_no = k.do_no
 ) j on true;
