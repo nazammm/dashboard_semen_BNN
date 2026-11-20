@@ -1,5 +1,8 @@
 /// <reference lib="webworker" />
 // Membaca file impor (Sell In BNN / Outstanding DO / Transaksi / J073 / Target) di thread terpisah supaya halaman tetap responsif.
+// xlsx diimpor statis: import() dinamis di dalam Web Worker tidak didukung Firefox versi tertentu
+// ("Dynamic module import is disabled or not supported in this context").
+import * as XLSX from 'xlsx';
 import { SellinCollector, parseTextWith, parseXlsxWith, type DateOrder, type RowCollector, type SellinParseResult } from './sellin';
 import { TransaksiCollector, type TrxParseResult } from './transaksiImport';
 import { J073Collector, type J073ParseResult } from './j073Import';
@@ -36,7 +39,6 @@ const hariIniWib = () => new Date(Date.now() + 7 * 3600e3).toISOString().slice(0
 
 /** File Stock Semen: semua sheet dibaca (satu sheet per tanggal), termasuk tanda baris tersembunyi. */
 async function bacaStock(file: File): Promise<StockParseResult> {
-  const XLSX = await import('xlsx');
   const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellStyles: true });
   const sheets: StockSheetIn[] = wb.SheetNames.map(name => {
     const ws = wb.Sheets[name];
@@ -52,7 +54,6 @@ async function bacaStock(file: File): Promise<StockParseResult> {
 
 /** Laporan ORDB019 (.XLS dari ERP, atau .xlsx): sheet pertama. */
 async function bacaOrdb(file: File): Promise<OrdbParseResult> {
-  const XLSX = await import('xlsx');
   const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const aoa = ws ? XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: null, blankrows: true }) : [];
