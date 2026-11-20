@@ -28,13 +28,16 @@ GO
 IF COL_LENGTH(N'sementrack.sellout_j073', N'cust_group') IS NULL
   ALTER TABLE sementrack.sellout_j073 ADD cust_group nvarchar(100) NULL;   -- NULL = RETAIL (upload lama hanya berisi RETAIL)
 GO
+IF COL_LENGTH(N'sementrack.sellout_j073', N'harga_produk') IS NULL
+  ALTER TABLE sementrack.sellout_j073 ADD harga_produk decimal(20,6) NULL; -- Product Price per zak (DO kirim: sudah termasuk ongkir)
+GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'sellout_j073_dist_do_idx' AND object_id = OBJECT_ID(N'sementrack.sellout_j073'))
   CREATE INDEX sellout_j073_dist_do_idx ON sementrack.sellout_j073 (dist_code, do_no);
 GO
 
 /* ---------- 2. upload J073 ----------
    Baris: [dist_code, do_date, do_no, customer_code, customer_name, product_code, product_name, order_qty, net_amount, warehouse,
-           delivery_type, zona_kirim, harga_kirim, diskon_kirim, tambah_kirim, handling, qty_kirim, kecamatan, kabupaten, cust_group]
+           delivery_type, zona_kirim, harga_kirim, diskon_kirim, tambah_kirim, handling, qty_kirim, kecamatan, kabupaten, cust_group, harga_produk]
    (10 kolom pertama wajib, sisanya boleh tidak ada). Cust group selain RETAIL (proyek) disimpan untuk Ongkos Kirim, tidak masuk Sell Out. Per distributor, data di rentang tanggal file diganti. */
 CREATE OR ALTER PROCEDURE sementrack.sellout_j073_simpan @p_rows nvarchar(max), @p_user nvarchar(200), @p_file nvarchar(4000) = NULL
 AS
@@ -54,7 +57,7 @@ BEGIN
          JSON_VALUE(r.[value], '$[12]') AS harga_txt, JSON_VALUE(r.[value], '$[13]') AS diskon_txt, JSON_VALUE(r.[value], '$[14]') AS tambah_txt,
          JSON_VALUE(r.[value], '$[15]') AS handling_txt, JSON_VALUE(r.[value], '$[16]') AS qtykirim_txt,
          NULLIF(UPPER(TRIM(JSON_VALUE(r.[value], '$[17]'))), N'') AS kecamatan, NULLIF(UPPER(TRIM(JSON_VALUE(r.[value], '$[18]'))), N'') AS kabupaten,
-         NULLIF(UPPER(TRIM(JSON_VALUE(r.[value], '$[19]'))), N'') AS cust_group
+         NULLIF(UPPER(TRIM(JSON_VALUE(r.[value], '$[19]'))), N'') AS cust_group, JSON_VALUE(r.[value], '$[20]') AS hargaproduk_txt
   INTO #raw FROM OPENJSON(@p_rows) r;
 
   SELECT @b = MIN(baris) FROM #raw
@@ -66,7 +69,7 @@ BEGIN
          sementrack.angka(qty_txt) AS order_qty, ISNULL(sementrack.angka(net_txt), 0) AS net_amount, warehouse,
          delivery_type, zona_kirim, sementrack.angka(harga_txt) AS harga_kirim, sementrack.angka(diskon_txt) AS diskon_kirim,
          sementrack.angka(tambah_txt) AS tambah_kirim, sementrack.angka(handling_txt) AS handling, sementrack.angka(qtykirim_txt) AS qty_kirim,
-         kecamatan, kabupaten, cust_group
+         kecamatan, kabupaten, cust_group, sementrack.angka(hargaproduk_txt) AS harga_produk
   INTO #j FROM #raw;
 
   SELECT @b = MIN(baris) FROM #j
@@ -93,10 +96,10 @@ BEGIN
   SET @old = @@ROWCOUNT;
 
   INSERT INTO sementrack.sellout_j073 (dist_code, do_date, do_no, customer_code, customer_name, product_code, product_name, order_qty, net_amount, warehouse,
-                                       delivery_type, zona_kirim, harga_kirim, diskon_kirim, tambah_kirim, handling, qty_kirim, kecamatan, kabupaten, cust_group)
+                                       delivery_type, zona_kirim, harga_kirim, diskon_kirim, tambah_kirim, handling, qty_kirim, kecamatan, kabupaten, cust_group, harga_produk)
   SELECT dist_code, do_date, do_no, customer_code, customer_name, product_code, product_name, order_qty, net_amount, warehouse,
          delivery_type, zona_kirim, harga_kirim, diskon_kirim, tambah_kirim, handling, qty_kirim, kecamatan, kabupaten,
-         CASE WHEN cust_group = N'RETAIL' THEN NULL ELSE cust_group END FROM #j;
+         CASE WHEN cust_group = N'RETAIL' THEN NULL ELSE cust_group END, harga_produk FROM #j;
 
   SELECT @new = COUNT(*), @ton = ISNULL(SUM(sementrack.j073_ton(product_code, product_name, order_qty)), 0),
          @from = MIN(do_date), @to = MAX(do_date)

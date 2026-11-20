@@ -280,6 +280,8 @@ def jalankan_aplikasi() -> None:
             r2.grid(row=3, column=0, columnspan=4, sticky="w", padx=(24, 0), pady=(4, 0))
             self.mulai = KolomTanggal(r2, tgl("isi_ulang_dari", mesin.ONGKOS_MULAI), self.hitung, bulan_saja=True, batas=hari, awal=mesin.ONGKOS_MULAI)
             self.mulai.pack(side="left")
+            ttk.Radiobutton(w, text="Upload ulang salinan J073 di folder (2026 ke atas), tanpa membuka ERP", value="unggah_j073",
+                            variable=self.mode, command=self.hitung).grid(row=4, column=0, columnspan=4, sticky="w", pady=(8, 0))
 
             self.info = tk.Label(f, text="", bg=C["card"], fg=C["muted"], font=app.f_kecil, justify="left", wraplength=560)
             self.info.grid(row=3, column=0, columnspan=4, sticky="w", pady=(14, 0))
@@ -305,6 +307,13 @@ def jalankan_aplikasi() -> None:
                             f"{tanggal_id(self.dari.nilai)} – {tanggal_id(sampai)}.")
                 except ValueError as e:
                     self.galat = str(e).replace("Ongkos kirim: ", "")
+            elif self.mode.get() == "unggah_j073":
+                k = mesin.j073_lokal_semua(dists)
+                if not k:
+                    self.galat = f"Tidak ada salinan J073 2026 untuk distributor ini di {mesin.folder_file() / 'J073'}."
+                else:
+                    teks = (f"{len(k)} file J073 ({len({x['dist'] for _, x in k})} distributor) diupload ulang ke SEMENTRACK, "
+                            "supaya kolom Product Price ikut tersimpan (ongkir dibayar toko yang kolom Delivery-nya kosong dihitung dari harga).")
             else:
                 k = mesin.kiriman_ongkos(date.today(), dists, self.mulai.nilai)
                 sisa = [x for x in k if x["kunci"] not in mesin.baca_isi_ulang()]
@@ -313,7 +322,7 @@ def jalankan_aplikasi() -> None:
             if self.galat:
                 self.info.config(text=self.galat, fg=C["bad"])
             else:
-                self.info.config(fg=C["muted"], text=teks + "\nYang sudah ada di folder salinan atau di View Report tidak diunduh lagi. "
+                self.info.config(fg=C["muted"], text=teks if self.mode.get() == "unggah_j073" else teks + "\nYang sudah ada di folder salinan atau di View Report tidak diunduh lagi. "
                                  "Antrian ERP paling banyak 2 sekaligus; tiap submit ditunggu sampai tercatat (maks 3 menit), dicek ulang dulu sebelum submit ulang.")
             self.app.aktif(self.b_jalan, not self.galat)
 
@@ -328,6 +337,8 @@ def jalankan_aplikasi() -> None:
             if self.mode.get() == "rentang":
                 sampai, _ = mesin.cek_rentang_ongkos(self.dari.nilai, self.sampai.nilai, ",".join(dists))
                 argumen = ["--ongkos-dari", f"{self.dari.nilai}", "--ongkos-sampai", f"{sampai}", "--ongkos-dist", ",".join(dists)]
+            elif self.mode.get() == "unggah_j073":
+                argumen = ["--unggah-ulang-j073", "--ongkos-dist", ",".join(dists)]
             else:
                 argumen = ["--isi-ulang", f"{self.mulai.nilai:%Y-%m}", "--ongkos-dist", ",".join(dists)]
             self.destroy()
