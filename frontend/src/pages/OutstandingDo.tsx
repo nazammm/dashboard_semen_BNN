@@ -5,11 +5,12 @@ import { DataSource, sellInTargetsFor } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact } from '../lib/format';
-import { fmtDate } from '../lib/dates';
+import { addDays, addMonths, endOfMonth, fmtDate, fmtRange, isISO, startOfMonth, startOfYear, type DateRange } from '../lib/dates';
 import type { Row } from '../lib/types';
 import { DataBadge } from '../components/DataStatus';
 import { Badge, Card, ChartBox, ErrorBox, FileIcon, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th, cx } from '../components/ui';
 import { exportRowsToExcel } from '../lib/xlsx';
+import { DateRangePicker, type RangePreset } from '../components/DateRangePicker';
 import { JALUR_DARAT, JALUR_FAS, OPEN_STATUS, REGION_ORDER, UNMAPPED, key, outRecs, outSummary, sellinGeo, type OutRec } from '../lib/ringkasan';
 
 /* ============================================================================
@@ -19,7 +20,8 @@ import { JALUR_DARAT, JALUR_FAS, OPEN_STATUS, REGION_ORDER, UNMAPPED, key, outRe
    Outstanding = sisa order Verified (belum dikirim) + Partially Delivered (terkirim sebagian).
    Not Verified dihitung terpisah karena belum disetujui.
    Tabel utama mengikuti laporan outstanding: per daerah x jalur (FAS Kapal = Sunda Kelapa, FAS Container = CCY & Tanjung Priok)
-   x tipe semen, untuk semua order dan untuk order satu bulan (default bulan order terakhir).
+   x tipe semen, untuk semua order dan untuk order pada rentang tanggal terpilih (default bulan order terakhir).
+   Filter rentang tanggal order juga membatasi KPI, tabel per distributor, grafik, daftar order, dan unduhan.
    Terminal & pabrik (ITP Lampung/Palembang/Pontianak Terminal, ITP-Citeureup) di tabel terpisah.
    Lewat estimasi = estimasi tanggal pengiriman sudah lewat dari posisi data.
 ============================================================================ */
@@ -36,6 +38,19 @@ const SEMEN_OPTS = [
   { value: 'all', label: 'Semua Tipe' }, { value: 'STR', label: 'STR' }, { value: 'RJW', label: 'RJW' }, { value: 'CWC', label: 'CWC (putih)' },
 ];
 const statusList = (s: string) => (s === 'open' ? OPEN_STATUS : [s]);
+const EMPTY_RANGE: DateRange = { from: '', to: '' };
+const inRange = (t: string, r: DateRange | null) => !r || (t >= r.from && t <= r.to);
+function presetsFor(last: string): RangePreset[] {
+  const prev = addMonths(startOfMonth(last), -1);
+  return [
+    { label: 'Bulan order terakhir', range: { from: startOfMonth(last), to: last } },
+    { label: 'Bulan sebelumnya', range: { from: prev, to: endOfMonth(prev) } },
+    { label: '7 hari terakhir', range: { from: addDays(last, -6), to: last } },
+    { label: '30 hari terakhir', range: { from: addDays(last, -29), to: last } },
+    { label: '3 bulan terakhir', range: { from: addMonths(startOfMonth(last), -2), to: last } },
+    { label: 'Tahun ini', range: { from: startOfYear(last), to: last } },
+  ];
+}
 const LIST_LIMIT = 50;
 
 export default function OutstandingDo() {
@@ -83,8 +98,17 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
   const [dist, setDist] = useState('all');
   const [semen, setSemen] = useState('all');
   const [status, setStatus] = useState('open');
-  const bulanOpts = useMemo(() => [...new Set(recs.map(r => r.tanggal_order.slice(0, 7)))].sort().reverse(), [recs]);
-  const [bulan, setBulan] = useState(() => bulanOpts[0] || '');
+  /* rentang tanggal order: kosong = semua order */
+  const { first, last } = useMemo(() => {
+    let a = '', b = '';
+    recs.forEach(r => { if (!a || r.tanggal_order < a) a = r.tanggal_order; if (!b || r.tanggal_order > b) b = r.tanggal_order; });
+    return { first: a, last: b };
+  }, [recs]);
+  const presets = useMemo(() => (last ? presetsFor(last) : []), [last]);
+  const [range, setRange] = useState<DateRange>(EMPTY_RANGE);
+  const rng = isISO(range.from) && isISO(range.to) ? range : null;
+  // kolom kanan tabel daerah: rentang terpilih, atau bulan order terakhir kalau rentang kosong
+  const kanan: DateRange = rng || (last ? { from: startOfMonth(last), to: last } : EMPTY_RANGE);
   const opts = useMemo(() => {
     const regions = new Map<string, number>(), dists = new Map<string, { nama: string; ton: number }>();
     recs.forEach(r => {
@@ -99,22 +123,24 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
     };
   }, [recs, region]);
   const changeRegion = (v: string) => { setRegion(v); if (v !== 'all' && dist !== 'all' && !recs.some(r => r.region === v && r.distributor === dist)) setDist('all'); };
-  const filterActive = region !== 'all' || dist !== 'all' || semen !== 'all' || status !== 'open';
-  const resetFilter = () => { setRegion('all'); setDist('all'); setSemen('all'); setStatus('open'); };
+  const filterActive = region !== 'all' || dist !== 'all' || semen !== 'all' || status !== 'open' || !!rng;
+  const resetFilter = () => { setRegion('all'); setDist('all'); setSemen('all'); setStatus('open'); setRange(EMPTY_RANGE); };
 
   const v = useMemo(() => {
     const wanted = new Set(statusList(status));
-    const cur = recs.filter(r => (region === 'all' || r.region === region) && (dist === 'all' || r.distributor === dist) && (semen === 'all' || r.semen === semen) && wanted.has(r.status));
+    // base: semua tanggal order (untuk kolom "Semua order" tabel daerah); cur: base dalam rentang tanggal
+    const base = recs.filter(r => (region === 'all' || r.region === region) && (dist === 'all' || r.distributor === dist) && (semen === 'all' || r.semen === semen) && wanted.has(r.status));
+    const cur = rng ? base.filter(r => inRange(r.tanggal_order, rng)) : base;
     const of = (jalurs: string[]) => cur.filter(r => jalurs.includes(r.jalur));
     const byDist = new Map<string, { label: string; recs: OutRec[] }>();
     cur.forEach(r => { const x = byDist.get(r.distributor) || { label: r.dist_nama, recs: [] }; x.recs.push(r); byDist.set(r.distributor, x); });
     return {
-      cur, sum: outSummary(cur), fas: outSummary(of(JALUR_FAS)), kapal: outSummary(of(['FAS Kapal'])), container: outSummary(of(['FAS Container'])),
-      darat: outSummary(of(JALUR_DARAT)), bulanSum: outSummary(cur.filter(r => r.tanggal_order.startsWith(bulan))),
-      regions: sortRegions([...cur.reduce((m, r) => m.set(r.region, (m.get(r.region) || 0) + r.ton), new Map<string, number>()).entries()]),
+      base, cur, sum: outSummary(cur), fas: outSummary(of(JALUR_FAS)), kapal: outSummary(of(['FAS Kapal'])), container: outSummary(of(['FAS Container'])),
+      darat: outSummary(of(JALUR_DARAT)),
+      regions: sortRegions([...base.reduce((m, r) => m.set(r.region, (m.get(r.region) || 0) + r.ton), new Map<string, number>()).entries()]),
       dists: [...byDist.entries()].map(([k, x]) => ({ key: k, label: x.label, ...outSummary(x.recs) })).sort((a, b) => b.ton - a.ton),
     };
-  }, [recs, region, dist, semen, status, bulan]);
+  }, [recs, region, dist, semen, status, rng?.from, rng?.to]);
 
   /* ---------- order per bulan (tanggal order): terkirim, outstanding, belum diverifikasi ---------- */
   const monthly = useMemo(() => {
@@ -126,18 +152,19 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
       x.kirim += Number(r.terkirim_ton || 0); x.out += Number(r.outstanding_ton || 0); x.nv += Number(r.belum_verifikasi_ton || 0);
       byM.set(k, x);
     });
-    const keys = [...byM.keys()].sort().slice(-12);
+    // dengan rentang: bulan yang bersinggungan dengan rentang; tanpa rentang: 12 bulan terakhir
+    const keys = rng ? [...byM.keys()].filter(k => k >= rng.from.slice(0, 7) && k <= rng.to.slice(0, 7)).sort() : [...byM.keys()].sort().slice(-12);
     const multiYear = new Set(keys.map(k => k.slice(0, 4))).size > 1;
     return {
       labels: keys.map(k => MONTHS_ID[+k.slice(5)] + (multiYear ? ` ${k.slice(2, 4)}` : '')),
       kirim: keys.map(k => byM.get(k)!.kirim), out: keys.map(k => byM.get(k)!.out), nv: keys.map(k => byM.get(k)!.nv),
     };
-  }, [bulanan, region, dist, semen, parentOf]);
+  }, [bulanan, region, dist, semen, parentOf, rng?.from, rng?.to]);
 
   /* ---------- daftar order (dimuat per filter) ---------- */
   const subs = region === 'all' ? undefined : [...new Set(recs.filter(r => r.region === region).map(r => String(r.sub)))];
-  const listFilter = { regions: subs, distributor: dist === 'all' ? undefined : dist, semen: semen === 'all' ? undefined : semen, status: statusList(status) };
-  const list = useAsync(() => DataSource.outstandingList(listFilter, LIST_LIMIT), [region, dist, semen, status]);
+  const listFilter = { regions: subs, distributor: dist === 'all' ? undefined : dist, semen: semen === 'all' ? undefined : semen, status: statusList(status), dari: rng?.from, sampai: rng?.to };
+  const list = useAsync(() => DataSource.outstandingList(listFilter, LIST_LIMIT), [region, dist, semen, status, rng?.from, rng?.to]);
   const [busy, setBusy] = useState(false);
   const [dlErr, setDlErr] = useState<string | null>(null);
   const download = async () => {
@@ -153,14 +180,14 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
           String(r.kode_customer), r.nama_customer as string | null, r.nama_tujuan as string | null, String(r.loco_franco),
           Number(r.order_qty), Number(r.delivery_qty), Number(r.sisa_zak), Number(r.sisa_ton)]),
         widths: [12, 10, 12, 10, 16, 12, 14, 14, 26, 26, 16, 22, 6, 12, 30, 30, 11, 11, 12, 10, 10],
-      }], `Outstanding_DO_posisi_${posisi}.xlsx`, 'outstanding-do');
+      }], `Outstanding_DO_posisi_${posisi}${rng ? `_order_${rng.from}_${rng.to}` : ''}.xlsx`, 'outstanding-do');
     } catch (e) { setDlErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
 
   const s = v.sum;
   const statusLabel = STATUS_OPTS.find(o => o.value === status)!.label;
-  const scope = [dist !== 'all' ? opts.dists.find(o => o.value === dist)?.label : region !== 'all' && region, semen !== 'all' && semen].filter(Boolean).join(' · ') || 'Semua';
-  const bulanLabel = bulan ? `Order ${MONTHS_ID[+bulan.slice(5)]} ${bulan.slice(0, 4)}` : '';
+  const scope = [dist !== 'all' ? opts.dists.find(o => o.value === dist)?.label : region !== 'all' && region, semen !== 'all' && semen, rng && `order ${fmtRange(rng)}`].filter(Boolean).join(' · ') || 'Semua';
+  const kananLabel = kanan.from ? `Order ${fmtRange(kanan)}` : '';
 
   return (
     <>
@@ -178,8 +205,9 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
           options={[{ value: 'all', label: 'Semua Distributor' }, ...opts.dists]} />
         <Select label="Tipe Semen" value={semen} onChange={e => setSemen(e.target.value)} style={{ minWidth: 120 }} options={SEMEN_OPTS} />
         <Select label="Status" value={status} onChange={e => setStatus(e.target.value)} style={{ minWidth: 150 }} options={STATUS_OPTS} />
-        <Select label="Bulan order (kolom kanan)" value={bulan} onChange={e => setBulan(e.target.value)} style={{ minWidth: 130 }}
-          options={bulanOpts.map(b => ({ value: b, label: `${MONTHS_ID[+b.slice(5)]} ${b.slice(0, 4)}` }))} />
+        <div className="min-w-[230px] max-[880px]:col-span-2 max-[880px]:min-w-0">
+          <DateRangePicker label="Tanggal order" value={range} onChange={setRange} min={first} max={last} presets={presets} allowClear placeholder="Semua tanggal order" />
+        </div>
         {filterActive && <button type="button" className="btn btn-sm self-end max-[880px]:col-span-2 max-[880px]:justify-center" onClick={resetFilter}>Reset filter</button>}
       </FilterBar>
 
@@ -192,10 +220,10 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
       </div>
 
       <h2 className="section-title">Outstanding FAS per daerah <span className="n">ton · {statusLabel.toLowerCase()} · {scope}</span></h2>
-      <JalurTable recs={v.cur} jalurs={JALUR_FAS} bulan={bulan} bulanLabel={bulanLabel} regions={v.regions} caption="Outstanding FAS Kapal dan FAS Container per daerah dan tipe semen" />
+      <JalurTable recs={v.base} jalurs={JALUR_FAS} kanan={kanan} kananLabel={kananLabel} regions={v.regions} caption="Outstanding FAS Kapal dan FAS Container per daerah dan tipe semen" />
 
       <h2 className="section-title">Outstanding terminal & pabrik per daerah <span className="n">ton · ITP Terminal (Lampung, Palembang, Pontianak) dan ITP-Citeureup</span></h2>
-      <JalurTable recs={v.cur} jalurs={JALUR_DARAT} bulan={bulan} bulanLabel={bulanLabel} regions={v.regions} caption="Outstanding dari terminal dan pabrik per daerah dan tipe semen" />
+      <JalurTable recs={v.base} jalurs={JALUR_DARAT} kanan={kanan} kananLabel={kananLabel} regions={v.regions} caption="Outstanding dari terminal dan pabrik per daerah dan tipe semen" />
 
       <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] max-[1100px]:grid-cols-1 gap-4 mt-9">
         <Card title={`Order per bulan tanggal order · ${scope}`}>
@@ -218,7 +246,7 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
                 plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c: any) => ` ${c.dataset.label}: ${fmt(c.parsed.y)} ton` } } },
               },
             } as ChartConfiguration)} />
-          <p className="text-faint text-[12px] mt-2">Tinggi batang = order masuk bulan itu (tanpa reject).</p>
+          <p className="text-faint text-[12px] mt-2">Tinggi batang = order masuk bulan itu (tanpa reject).{rng && ' Bulan pertama dan terakhir ditampilkan penuh, tidak dipotong sesuai rentang.'}</p>
         </Card>
         <Card className="!p-0 overflow-hidden">
           <div className="card-title px-4 pt-3.5 !mb-2">Per distributor · {statusLabel.toLowerCase()}</div>
@@ -296,10 +324,10 @@ function sortRegions(entries: [string, number][]) {
 
 const SEMEN_ORDER = ['STR', 'RJW', 'CWC'];
 /**
- * Tabel laporan outstanding: baris = daerah, kolom = [semua order | order satu bulan] x jalur x tipe semen.
+ * Tabel laporan outstanding: baris = daerah, kolom = [semua order | order pada rentang tanggal] x jalur x tipe semen.
  * Kolom tipe semen hanya yang ada isinya (CWC biasanya hanya dari pabrik).
  */
-function JalurTable({ recs, jalurs, bulan, bulanLabel, caption, regions }: { recs: OutRec[]; jalurs: string[]; bulan: string; bulanLabel: string; caption: string; regions: string[] }) {
+function JalurTable({ recs, jalurs, kanan, kananLabel, caption, regions }: { recs: OutRec[]; jalurs: string[]; kanan: DateRange; kananLabel: string; caption: string; regions: string[] }) {
   const t = useMemo(() => {
     const rows = recs.filter(r => jalurs.includes(r.jalur));
     const usedJalur = jalurs.filter(j => rows.some(r => r.jalur === j));
@@ -308,18 +336,18 @@ function JalurTable({ recs, jalurs, bulan, bulanLabel, caption, regions }: { rec
     const cell = new Map<string, number>();
     const add = (k: string, ton: number) => cell.set(k, (cell.get(k) || 0) + ton);
     rows.forEach(r => {
-      const inBulan = r.tanggal_order.startsWith(bulan);
+      const inBulan = !!kanan.from && inRange(r.tanggal_order, kanan);
       for (const reg of [r.region, '__total']) {
         add(`a|${reg}|${r.jalur}|${r.semen}`, r.ton); add(`a|${reg}|sum`, r.ton);
         if (inBulan) { add(`b|${reg}|${r.jalur}|${r.semen}`, r.ton); add(`b|${reg}|sum`, r.ton); }
       }
     });
     return { usedJalur, semenOf, cols, get: (k: string) => cell.get(k) || 0 };
-  }, [recs, jalurs, bulan]);
+  }, [recs, jalurs, kanan.from, kanan.to]);
 
   if (!t.cols.length) return <div className="card text-faint text-[13px]">Tidak ada outstanding pada filter ini.</div>;
   const num = (x: number) => (x ? fmtTon(x) : '–');
-  const blocks: { id: 'a' | 'b'; label: string }[] = [{ id: 'a', label: 'Semua order' }, { id: 'b', label: bulanLabel }];
+  const blocks: { id: 'a' | 'b'; label: string }[] = [{ id: 'a', label: 'Semua order' }, { id: 'b', label: kananLabel }];
   const line = (reg: string, strong?: boolean) => blocks.flatMap(b => [
     ...t.cols.map(c => <td key={`${b.id}${c.j}${c.sm}`} className={cx('num font-mono', b.id === 'b' && c === t.cols[0] && 'otb-sep')}>{num(t.get(`${b.id}|${reg}|${c.j}|${c.sm}`))}</td>),
     <td key={`${b.id}sum`} className={cx('num font-mono', strong !== false && 'font-semibold')}>{num(t.get(`${b.id}|${reg}|sum`))}</td>,
