@@ -293,6 +293,7 @@ WHERE LOWER(p.status_order) IN (N'verified', N'partially delivered', N'not verif
   AND p.mortar = 0;
 GO
 
+-- Catatan: 18_harga_loco.sql mendefinisikan ulang view ini (tambah nilai dan ton_tanpa_harga). Kalau file ini dijalankan ulang, jalankan 18 lagi.
 CREATE OR ALTER VIEW sementrack.v_outstanding_do_ringkas AS
 SELECT region, distributor, dist_nama, semen, status, jalur, tanggal_order, estimasi_kirim, posisi,
        COUNT(*) AS orders,

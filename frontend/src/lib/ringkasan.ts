@@ -170,6 +170,8 @@ export interface OutRec {
   region: string; sub?: string; distributor: string; dist_nama: string; semen: string; status: string; jalur: string;
   tanggal_order: string; estimasi: string | null; posisi: string; orders: number; ton: number;
   umur: number; lewat: boolean;
+  /** Perkiraan nilai (sisa zak x harga Loco Net, 18_harga_loco.sql); null = kolom belum ada. tanpaHarga = ton yang belum ketemu harganya. */
+  nilai: number | null; tanpaHarga: number;
 }
 export const outRecs = (rows: Row[]): OutRec[] => rows.map(r => {
   const t = String(r.tanggal_order).slice(0, 10), posisi = String(r.posisi).slice(0, 10), est = r.estimasi_kirim ? String(r.estimasi_kirim).slice(0, 10) : null;
@@ -177,13 +179,18 @@ export const outRecs = (rows: Row[]): OutRec[] => rows.map(r => {
     region: String(r.region || UNMAPPED), distributor: String(r.distributor), dist_nama: String(r.dist_nama || r.distributor), semen: String(r.semen),
     status: String(r.status), jalur: String(r.jalur || 'Lainnya'), tanggal_order: t, estimasi: est, posisi, orders: Number(r.orders || 0), ton: Number(r.ton || 0),
     umur: dayDiff(posisi, t), lewat: !!est && est < posisi,
+    nilai: 'nilai' in r ? Number(r.nilai || 0) : null, tanpaHarga: 'ton_tanpa_harga' in r ? Number(r.ton_tanpa_harga || 0) : Number(r.ton || 0),
   };
 });
 
-export interface OutSummary { ton: number; orders: number; lewat: number; tua: number; umurRata: number | null; tertua: string | null; buckets: number[] }
+export interface OutSummary {
+  ton: number; orders: number; lewat: number; tua: number; umurRata: number | null; tertua: string | null; buckets: number[];
+  /** nilai: jumlah perkiraan nilai (null = data harga belum tersedia). tanpaHarga: ton yang belum ada harganya. */
+  nilai: number | null; tanpaHarga: number;
+}
 /** tua = umur lebih dari 30 hari. umurRata = rata-rata umur ditimbang ton. */
 export function outSummary(recs: OutRec[]): OutSummary {
-  let ton = 0, orders = 0, lewat = 0, tua = 0, umurTon = 0, tertua: string | null = null;
+  let ton = 0, orders = 0, lewat = 0, tua = 0, umurTon = 0, tertua: string | null = null, nilai: number | null = null, tanpaHarga = 0;
   const buckets = UMUR_BUCKETS.map(() => 0);
   recs.forEach(r => {
     ton += r.ton; orders += r.orders; umurTon += r.umur * r.ton;
@@ -191,6 +198,8 @@ export function outSummary(recs: OutRec[]): OutSummary {
     if (r.umur > 30) tua += r.ton;
     buckets[UMUR_BUCKETS.findIndex(b => r.umur <= b.max)] += r.ton;
     if (!tertua || r.tanggal_order < tertua) tertua = r.tanggal_order;
+    if (r.nilai != null) nilai = (nilai ?? 0) + r.nilai;
+    tanpaHarga += r.tanpaHarga;
   });
-  return { ton, orders, lewat, tua, umurRata: ton > 0 ? umurTon / ton : null, tertua, buckets };
+  return { ton, orders, lewat, tua, umurRata: ton > 0 ? umurTon / ton : null, tertua, buckets, nilai, tanpaHarga };
 }

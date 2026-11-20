@@ -44,3 +44,18 @@ Ongkos kirim (halaman Ongkos Kirim di SEMENTRACK)
 - Antrian ERP paling banyak 2 job/laporan sekaligus. Submit yang ditolak ERP (antrian penuh dll.) dicoba lagi 1 menit kemudian.
 - Baris perintah: python j028_harian.py --bagian ONGKOS   |   --isi-ulang 2025-01 [--ongkos-dist 9575,4403]
   |   --ongkos-dari 2025-08-01 --ongkos-sampai 2025-10-31 --ongkos-dist 9575
+
+Harga Loco (perkiraan nilai di halaman Outstanding DO)
+- Centang "Harga Loco" di Beranda (dan ikut jadwal). Dari jadwal bagian ini hanya jalan seminggu sekali.
+- Sumber: ERP -> Order Process -> Other Inquiry -> Price & Promo Simulation. Per PT (Pengaturan -> Distributor harga,
+  bawaan 13 distributor) x produk CMT / RJW / CWC. Yang diambil hanya baris LOCO GUDANG, kolom Net Price, dengan
+  Effective Date dan Expired Date-nya.
+- Tidak dicek per hari: mulai 1 Januari, harga dibaca, lalu lompat ke Expired Date + 1 hari, sampai Expired kosong
+  (= masih berlaku). Jalan berikutnya mulai dari masa berlaku terakhir yang sudah terunggah (harga_loco.json), jadi
+  biasanya cukup satu kali Next per PT x produk.
+- Hasilnya file HARGA_LOCO_<tanggal>.csv di folder salinan\HARGA, diupload ke Kelola Data -> Sell In BNN -> Harga Loco.
+- Di Outstanding DO: nilai = sisa zak x Loco Net yang berlaku pada tanggal order. Kode 1001 di OS memakai harga 1001K untuk
+  sub region KTP dan 1001P untuk lainnya. OS tanpa harga (mis. 4401 BNN) ditandai "belum ada harga".
+- Sebelum dipakai pertama kali: jalankan docs\mssql\18_harga_loco.sql di SSMS.
+- Baris perintah: python j028_harian.py --bagian HARGA   |   --harga-dari 2025-01-01 (baca ulang semua sejak tanggal itu)
+  |   --harga-dist 1001K,9575

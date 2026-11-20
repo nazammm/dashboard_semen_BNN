@@ -4,14 +4,14 @@ import type { ChartConfiguration } from 'chart.js';
 import { DataSource, sellInTargetsFor } from '../lib/data';
 import { useAsync, useDocTitle } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
-import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact } from '../lib/format';
+import { COLORS, MONTHS_ID, chartSRSummary, fmt, fmtCompact, fmtIDR, fmtIDRCompact } from '../lib/format';
 import { addDays, addMonths, endOfMonth, fmtDate, fmtRange, isISO, startOfMonth, startOfYear, type DateRange } from '../lib/dates';
 import type { Row } from '../lib/types';
 import { DataBadge } from '../components/DataStatus';
 import { Badge, Card, ChartBox, ErrorBox, FileIcon, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th, cx } from '../components/ui';
 import { exportRowsToExcel } from '../lib/xlsx';
 import { DateRangePicker, type RangePreset } from '../components/DateRangePicker';
-import { JALUR_DARAT, JALUR_FAS, OPEN_STATUS, REGION_ORDER, UNMAPPED, key, outRecs, outSummary, sellinGeo, type OutRec } from '../lib/ringkasan';
+import { JALUR_DARAT, JALUR_FAS, OPEN_STATUS, REGION_ORDER, UNMAPPED, key, outRecs, outSummary, sellinGeo, type OutRec, type OutSummary } from '../lib/ringkasan';
 
 /* ============================================================================
    Outstanding DO (sell in): order ke pabrik yang belum terkirim, dari upload raw sell in
@@ -24,6 +24,8 @@ import { JALUR_DARAT, JALUR_FAS, OPEN_STATUS, REGION_ORDER, UNMAPPED, key, outRe
    Filter rentang tanggal order juga membatasi KPI, tabel per distributor, grafik, daftar order, dan unduhan.
    Terminal & pabrik (ITP Lampung/Palembang/Pontianak Terminal, ITP-Citeureup) di tabel terpisah.
    Lewat estimasi = estimasi tanggal pengiriman sudah lewat dari posisi data.
+   Perkiraan nilai = sisa zak x harga Loco Net yang berlaku pada tanggal order, per PT dan produk
+   (18_harga_loco.sql; harga diambil Nazam Auto Task dari ERP Price & Promo Simulation).
 ============================================================================ */
 
 const fmtTon = (t: number) => fmt(t, Math.abs(t) < 10 && t % 1 ? 1 : 0);
@@ -52,6 +54,8 @@ function presetsFor(last: string): RangePreset[] {
   ];
 }
 const LIST_LIMIT = 50;
+/** "Rp1,2 M" atau "–" kalau belum ada harga sama sekali. */
+const nilaiTeks = (n: number | null, ton: number, tanpa: number) => (n == null || (tanpa >= ton - 1e-6 && !n) ? '–' : fmtIDRCompact(n));
 
 export default function OutstandingDo() {
   useDocTitle('Outstanding DO');
@@ -174,12 +178,15 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
       await exportRowsToExcel([{
         name: 'Outstanding DO',
         header: ['Tanggal Order', 'Umur (hari)', 'Estimasi Kirim', 'Lewat (hari)', 'Status', 'Region', 'Sub Region', 'Jalur', 'Asal Pengiriman', 'Distributor', 'Order No', 'Produk', 'Tipe',
-          'Kode Customer', 'Nama Customer', 'Tujuan', 'Loco/Franco', 'Order (zak)', 'Terkirim (zak)', 'Sisa (zak)', 'Sisa (ton)'],
+          'Kode Customer', 'Nama Customer', 'Tujuan', 'Loco/Franco', 'Order (zak)', 'Terkirim (zak)', 'Sisa (zak)', 'Sisa (ton)',
+          'PT harga', 'Loco Net (Rp/zak)', 'Harga berlaku dari', 'Perkiraan nilai (Rp)'],
         rows: all.map(r => [String(r.tanggal_order).slice(0, 10), Number(r.umur_hari), r.estimasi_kirim ? String(r.estimasi_kirim).slice(0, 10) : null, Number(r.lewat_hari),
           String(r.status), parentOf(r.region), String(r.region), String(r.jalur), r.asal_pengiriman as string | null, String(r.dist_nama), String(r.order_no), String(r.produk), String(r.semen),
           String(r.kode_customer), r.nama_customer as string | null, r.nama_tujuan as string | null, String(r.loco_franco),
-          Number(r.order_qty), Number(r.delivery_qty), Number(r.sisa_zak), Number(r.sisa_ton)]),
-        widths: [12, 10, 12, 10, 16, 12, 14, 14, 26, 26, 16, 22, 6, 12, 30, 30, 11, 11, 12, 10, 10],
+          Number(r.order_qty), Number(r.delivery_qty), Number(r.sisa_zak), Number(r.sisa_ton),
+          (r.harga_dist as string | null) ?? null, r.harga_loco != null ? Number(r.harga_loco) : null,
+          r.harga_dari ? String(r.harga_dari).slice(0, 10) : null, r.nilai != null ? Number(r.nilai) : null]),
+        widths: [12, 10, 12, 10, 16, 12, 14, 14, 26, 26, 16, 22, 6, 12, 30, 30, 11, 11, 12, 10, 10, 10, 14, 14, 18],
       }], `Outstanding_DO_posisi_${posisi}${rng ? `_order_${rng.from}_${rng.to}` : ''}.xlsx`, 'outstanding-do');
     } catch (e) { setDlErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
@@ -211,9 +218,10 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
         {filterActive && <button type="button" className="btn btn-sm self-end max-[880px]:col-span-2 max-[880px]:justify-center" onClick={resetFilter}>Reset filter</button>}
       </FilterBar>
 
-      <div className="grid-kpi">
+      <div className="grid-kpi min-[1180px]:grid-cols-5">
         <Kpi title={status === 'open' ? 'Outstanding' : statusLabel} value={fmtTon(s.ton)} unit="ton"
           delta={`${fmt(s.orders)} order · ${fmtTon(s.lewat)} ton lewat estimasi kirim`} />
+        <NilaiKpi s={s} />
         <Kpi title="FAS Kapal" value={fmtTon(v.kapal.ton)} unit="ton" delta={`${share(v.kapal.ton, s.ton)} · ${fmt(v.kapal.orders)} order`} />
         <Kpi title="FAS Container" value={fmtTon(v.container.ton)} unit="ton" delta={`${share(v.container.ton, s.ton)} · ${fmt(v.container.orders)} order`} />
         <Kpi title="Terminal & pabrik" value={fmtTon(v.darat.ton)} unit="ton" delta={`${share(v.darat.ton, s.ton)} · ${fmt(v.darat.orders)} order`} />
@@ -225,7 +233,7 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
       <h2 className="section-title">Outstanding terminal & pabrik per daerah <span className="n">ton · ITP Terminal (Lampung, Palembang, Pontianak) dan ITP-Citeureup</span></h2>
       <JalurTable recs={v.base} jalurs={JALUR_DARAT} kanan={kanan} kananLabel={kananLabel} regions={v.regions} caption="Outstanding dari terminal dan pabrik per daerah dan tipe semen" />
 
-      <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] max-[1100px]:grid-cols-1 gap-4 mt-9">
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-[1100px]:grid-cols-1 gap-4 mt-9">
         <Card title={`Order per bulan tanggal order · ${scope}`}>
           <div className="legend">
             <span><i style={{ background: COLORS.prev }} aria-hidden="true" />Terkirim</span>
@@ -253,20 +261,28 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
           <div className="max-h-[360px] overflow-auto border-t border-line">
             <table className="tbl-dense !min-w-0">
               <caption className="sr-only">Outstanding per distributor</caption>
-              <thead><tr><th>Distributor</th><th className="num">Order</th><th className="num">Ton</th><th className="num">Lewat estimasi</th></tr></thead>
+              <thead><tr><th>Distributor</th><th className="num">Order</th><th className="num">Ton</th><th className="num" title="Ton yang estimasi kirimnya sudah lewat">Lewat est.</th>{s.nilai != null && <th className="num" title="Perkiraan nilai: sisa zak x Loco Net">Nilai</th>}</tr></thead>
               <tbody>
-                {v.dists.length === 0 && <tr><td colSpan={4} className="!text-center !text-faint !p-5">Tidak ada order pada filter ini.</td></tr>}
+                {v.dists.length === 0 && <tr><td colSpan={5} className="!text-center !text-faint !p-5">Tidak ada order pada filter ini.</td></tr>}
                 {v.dists.map(d => (
                   <tr key={d.key}>
                     <td><button type="button" className="link-btn !no-underline font-medium text-left" onClick={() => setDist(d.key)}>{d.label}</button></td>
                     <td className="num font-mono">{fmt(d.orders)}</td>
                     <td className="num font-mono font-semibold">{fmtTon(d.ton)}</td>
                     <td className="num font-mono">{fmtTon(d.lewat)}</td>
+                    {s.nilai != null && (
+                      <td className="num font-mono whitespace-nowrap" title={d.tanpaHarga > 0.05 ? `${fmtTon(d.tanpaHarga)} ton belum ada harga Loco` : undefined}>
+                        {nilaiTeks(d.nilai, d.ton, d.tanpaHarga)}{d.tanpaHarga > 0.05 && d.tanpaHarga < d.ton - 0.05 && <span className="text-amber">*</span>}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {s.nilai != null && v.dists.some(d => d.tanpaHarga > 0.05 && d.tanpaHarga < d.ton - 0.05) && (
+            <p className="text-faint text-[12px] px-4 py-2 border-t border-line">* sebagian order belum ada harga Loco, nilainya belum dihitung.</p>
+          )}
         </Card>
       </div>
 
@@ -285,13 +301,13 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
           <thead>
             <tr>
               <Th>Tanggal order</Th><Th num>Umur</Th><Th>Estimasi kirim</Th><Th>Distributor</Th><Th>Tujuan</Th><Th>Jalur</Th><Th>Produk</Th>
-              <Th num>Order (zak)</Th><Th num>Sisa (ton)</Th><Th>Status</Th>
+              <Th num>Order (zak)</Th><Th num>Sisa (ton)</Th>{s.nilai != null && <Th num>Perkiraan nilai</Th>}<Th>Status</Th>
             </tr>
           </thead>
           <tbody>
-            {list.error && <tr><td colSpan={10} className="!text-center !text-red !p-5">{list.error.message}</td></tr>}
-            {!list.data && !list.error && <tr><td colSpan={10} className="!text-center !text-faint !p-5">Memuat…</td></tr>}
-            {list.data && list.data.length === 0 && <tr><td colSpan={10} className="!text-center !text-faint !p-5">Tidak ada order pada filter ini.</td></tr>}
+            {list.error && <tr><td colSpan={11} className="!text-center !text-red !p-5">{list.error.message}</td></tr>}
+            {!list.data && !list.error && <tr><td colSpan={11} className="!text-center !text-faint !p-5">Memuat…</td></tr>}
+            {list.data && list.data.length === 0 && <tr><td colSpan={11} className="!text-center !text-faint !p-5">Tidak ada order pada filter ini.</td></tr>}
             {list.data && list.data.map(r => (
               <tr key={`${r.distributor}|${r.order_no}|${r.produk}`}>
                 <td className="whitespace-nowrap">{fmtDate(String(r.tanggal_order).slice(0, 10))}</td>
@@ -306,6 +322,11 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
                 <td className="whitespace-nowrap">{String(r.produk).replace(/^NEW\s*-\s*/i, '')}</td>
                 <td className="num font-mono">{fmt(r.order_qty)}</td>
                 <td className="num font-mono font-semibold">{fmtTon(Number(r.sisa_ton))}</td>
+                {s.nilai != null && (
+                  <td className="num font-mono whitespace-nowrap" title={r.harga_loco != null ? `Loco Net ${fmtIDR(r.harga_loco)} per zak (${String(r.harga_dist ?? '')}, berlaku sejak ${fmtDate(String(r.harga_dari).slice(0, 10))})` : 'Belum ada harga Loco untuk PT, produk, dan tanggal order ini'}>
+                    {r.harga_loco != null ? fmtIDRCompact(r.nilai) : <span className="text-faint">belum ada harga</span>}
+                  </td>
+                )}
                 <td>{r.status === 'Terkirim sebagian' ? <Badge variant="warn">Sebagian</Badge> : r.status === 'Belum diverifikasi' ? <Badge variant="neutral">Belum verifikasi</Badge> : <Badge variant="neutral">Belum dikirim</Badge>}</td>
               </tr>
             ))}
@@ -313,6 +334,25 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
         </table>
       </TableWrap>
     </>
+  );
+}
+
+/** KPI perkiraan nilai: sisa zak x Loco Net pada tanggal order. */
+function NilaiKpi({ s }: { s: OutSummary }) {
+  const { pageAllowed } = useAuth();
+  if (s.nilai == null) return <Kpi title="Perkiraan nilai" value="–" delta="Harga Loco belum disiapkan di database (18_harga_loco.sql)" />;
+  const berharga = s.ton - s.tanpaHarga;
+  if (berharga <= 0.05) {
+    return (
+      <Kpi title="Perkiraan nilai" value="–"
+        delta={<>Belum ada harga Loco untuk order ini{pageAllowed('kelola-data') && <> · <Link to="/kelola-data?data=sellin&menu=harga" className="underline">upload harga</Link></>}</>} />
+    );
+  }
+  return (
+    <Kpi title="Perkiraan nilai" value={fmtIDRCompact(s.nilai)}
+      delta={s.tanpaHarga > 0.05
+        ? <span>Loco Net x sisa zak · <span className="text-amber">{fmtTon(s.tanpaHarga)} ton ({share(s.tanpaHarga, s.ton)}) belum ada harga</span></span>
+        : 'Loco Net x sisa zak, harga pada tanggal order'} />
   );
 }
 

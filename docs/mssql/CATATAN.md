@@ -22,6 +22,7 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 15_salesman_tanpa_target.sql | Tim Sales: salesman yang ada di transaksi tapi belum punya target ikut tampil (status Tanpa target) | query cek di akhir skrip |
 | 16_toko_sales_baru.sql | Kelola Data → Toko & sales baru: view toko yang baru order dan salesman baru / tanpa target | query cek di akhir skrip |
 | 17_ongkos_kirim.sql | Ongkos Kirim: J073 dengan kolom pengiriman (semua distributor, retail + proyek), tabel ORDB019, view per perjalanan / DO, hak halaman | `SELECT * FROM sementrack.v_ongkos_info` |
+| 18_harga_loco.sql | Harga Loco Net (ERP Price & Promo Simulation) per PT x produk x masa berlaku; v_outstanding_do_harga + nilai di v_outstanding_do_ringkas. Jalankan lagi setiap kali 02_sellin.sql dijalankan ulang | `SELECT * FROM sementrack.v_harga_loco_info` |
 
 ## Untuk tahap 5 (backend)
 

@@ -27,11 +27,12 @@ BAGIAN = [("J028", "J028 + J028B", "Transaksi toko (Kelola Data → Transaksi)")
           ("J073", "J073", "Gudang INSA & PKB (Sell Out BNN)"),
           ("SUBDIST", "Sub ERP", "Penjualan subdist (Sell Out BNN)"),
           ("SELLIN", "Sell In", "TIRO, per tanggal pengiriman"),
-          ("OSDO", "Outstanding DO", "TIRO, per tanggal order"),
+          ("OSDO", "OS DO", "Outstanding DO dari TIRO, per tanggal order"),
           ("DOFAS", "DO FAS", "Rekap DO harian (folder korin)"),
           ("STOCK", "Stock", "Stock semen bulan berjalan (folder b236)"),
-          ("ONGKOS", "Ongkos kirim", "J073 + ORDB019 semua distributor, seminggu sekali")]
-NAMA_RIWAYAT = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS", "STOCK": "Stock", "ONGKOS": "Ongkos kirim"}
+          ("ONGKOS", "Ongkos kirim", "J073 + ORDB019 semua distributor, seminggu sekali"),
+          ("HARGA", "Harga Loco", "Loco Net per PT & produk untuk nilai OS DO, seminggu sekali")]
+NAMA_RIWAYAT = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS", "STOCK": "Stock", "ONGKOS": "Ongkos kirim", "HARGA": "Harga Loco"}
 BAWAAN = {"jadwal_aktif": False, "tiap_jam": 4, "jam_mulai": "07:00", "bagian": ["J028", "J073", "SUBDIST"],
           "tampilkan_browser": False, "paksa_subdist": False}
 
@@ -82,7 +83,7 @@ def simpan_setelan(s: dict) -> None:
 def simpan_akun(nilai: dict[str, str]) -> None:
     """akun_lokal.txt: password terenkripsi Windows (hanya bisa dibuka akun Windows ini)."""
     baris = ["# Ditulis oleh Nazam Auto Task. Password terenkripsi; ubah lewat Pengaturan di aplikasi."]
-    for k in ("ERP_USER", "SEMENTRACK_URL", "SEMENTRACK_USER", "TIRO_USER", "J073_DIST", "ONGKOS_DIST", "ONGKOS_FOLDER", "DOFAS_FILE", "STOCK_FILE"):
+    for k in ("ERP_USER", "SEMENTRACK_URL", "SEMENTRACK_USER", "TIRO_USER", "J073_DIST", "ONGKOS_DIST", "ONGKOS_FOLDER", "HARGA_DIST", "DOFAS_FILE", "STOCK_FILE"):
         baris.append(f"{k}={nilai.get(k, '').strip()}")
     for k in ("ERP_PASS", "SEMENTRACK_PASS", "TIRO_PASS"):
         v = nilai.get(k, "")
@@ -332,14 +333,15 @@ def jalankan_aplikasi() -> None:
 
     class Kartu(tk.Frame):
         def __init__(self, induk, judul: str, sub: str):
-            super().__init__(induk, bg=C["card"], highlightthickness=1, highlightbackground=C["line"], padx=16, pady=14)
+            super().__init__(induk, bg=C["card"], highlightthickness=1, highlightbackground=C["line"], padx=14, pady=14)
             atas = tk.Frame(self, bg=C["card"])
             atas.pack(fill="x")
             self.titik = tk.Label(atas, text="●", bg=C["card"], fg=C["line"], font=induk.winfo_toplevel().f_teks)
             self.titik.pack(side="left")
             tk.Label(atas, text=judul, bg=C["card"], fg=C["txt"], font=induk.winfo_toplevel().f_bold).pack(side="left", padx=(6, 0))
-            tk.Label(self, text=sub, bg=C["card"], fg=C["muted"], font=induk.winfo_toplevel().f_kecil, anchor="w", justify="left",
-                     wraplength=170).pack(anchor="w", fill="x", pady=(2, 8))
+            ket = tk.Label(self, text=sub, bg=C["card"], fg=C["muted"], font=induk.winfo_toplevel().f_kecil, anchor="w", justify="left",
+                           wraplength=150)
+            ket.pack(anchor="w", fill="x", pady=(2, 8))
             self.status = tk.Label(self, text="Belum jalan", bg=C["card"], fg=C["txt"], font=induk.winfo_toplevel().f_besar)
             self.status.pack(anchor="w")
             self.waktu = tk.Label(self, text="", bg=C["card"], fg=C["muted"], font=induk.winfo_toplevel().f_kecil, anchor="w")
@@ -347,6 +349,8 @@ def jalankan_aplikasi() -> None:
             self.pesan = tk.Label(self, text="", bg=C["card"], fg=C["muted"], font=induk.winfo_toplevel().f_kecil,
                                   justify="left", wraplength=180, anchor="w")
             self.pesan.pack(anchor="w", fill="x", pady=(6, 0))
+            # teks kecil mengikuti lebar kartu (5 kartu per baris)
+            self.bind("<Configure>", lambda e: [w.config(wraplength=max(e.width - 32, 100)) for w in (ket, self.pesan)])
 
         def isi(self, catatan: dict | None, bagian: dict | None):
             if not catatan or not bagian:
@@ -503,8 +507,8 @@ def jalankan_aplikasi() -> None:
             self.kartu = {}
             for i, (kode, judul, sub) in enumerate(BAGIAN):
                 kt = Kartu(baris, judul, sub)
-                kt.grid(row=i // 4, column=i % 4, sticky="nsew", padx=(0 if i % 4 == 0 else 12, 0), pady=(0 if i < 4 else 12, 0))
-                baris.columnconfigure(i % 4, weight=1, uniform="k")
+                kt.grid(row=i // 5, column=i % 5, sticky="nsew", padx=(0 if i % 5 == 0 else 10, 0), pady=(0 if i < 5 else 10, 0))
+                baris.columnconfigure(i % 5, weight=1, uniform="k")
                 self.kartu[kode] = kt
 
             jalan = tk.Frame(h, bg=C["card"], highlightthickness=1, highlightbackground=C["line"], padx=18, pady=14)
@@ -518,7 +522,7 @@ def jalankan_aplikasi() -> None:
             for i, (kode, judul, _) in enumerate(BAGIAN):
                 v = tk.BooleanVar(value=kode in self.setelan["bagian"])
                 ttk.Checkbutton(pilih, text=judul.replace("Outstanding DO", "OS DO"), variable=v, command=self.simpan_pilihan).grid(
-                    row=i // 4, column=i % 4, sticky="w", padx=(0, 14), pady=1)
+                    row=i // 5, column=i % 5, sticky="w", padx=(0, 14), pady=1)
                 self.v_bagian[kode] = v
             opsi = tk.Frame(kiri, bg=C["card"])
             opsi.pack(anchor="w", pady=(4, 0))
@@ -754,6 +758,17 @@ def jalankan_aplikasi() -> None:
             tk.Label(f, text="J073 dan ORDB019 yang sudah diunduh disimpan di sini; yang sudah ada tidak diunduh lagi.",
                      bg=C["card"], fg=C["muted"], font=self.f_kecil, wraplength=240, justify="left").grid(row=11, column=1, columnspan=2, sticky="w")
             self.tombol(f, "Ambil ongkos kirim…", self.dialog_ongkos, kecil=True).grid(row=12, column=0, columnspan=3, sticky="w", pady=(10, 0))
+
+            f = bagian(kiri, "Harga Loco (nilai Outstanding DO)")
+            tk.Label(f, text="Distributor harga", bg=C["card"], fg=C["muted"]).grid(row=1, column=0, sticky="nw", padx=(0, 12))
+            self.v_akun["HARGA_DIST"] = tk.StringVar(value=akun.get("HARGA_DIST", mesin.ONGKOS_DIST_BAWAAN) or mesin.ONGKOS_DIST_BAWAAN)
+            kotak = PilihDist(f, self, self.v_akun["HARGA_DIST"].get().split(","), kolom=2)
+            kotak.grid(row=1, column=1, columnspan=2, sticky="w")
+            kotak.saat_berubah = lambda pilihan: self.v_akun["HARGA_DIST"].set(",".join(pilihan))
+            tk.Label(f, text="ERP Price & Promo Simulation, produk CMT / RJW / CWC, baris LOCO GUDANG kolom Net Price. "
+                             "Dibaca per masa berlaku (lompat ke Expired Date), bukan per hari; jalan berikutnya hanya memeriksa "
+                             "masa berlaku terakhir. Dari jadwal paling sering seminggu sekali.",
+                     bg=C["card"], fg=C["muted"], font=self.f_kecil, wraplength=240, justify="left").grid(row=2, column=1, columnspan=2, sticky="w", pady=(4, 0))
 
             f = bagian(kiri, "Lainnya")
             self.v_startup = tk.BooleanVar(value=self.startup_path().exists())
