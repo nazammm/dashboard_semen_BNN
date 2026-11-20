@@ -17,7 +17,7 @@ import { exportRowsToExcel } from '../lib/xlsx';
    - Ongkos real  : yang dibayar ke transporter, dari laporan ORDB019 (per perjalanan / No Foad, per DO).
    - Ongkir dibayar toko (ditagih): dari J073. Kolom Delivery diisi -> (Delivery Price − Delivery Discount + Delivery Add) × qty;
      kosong pada DO kirim -> (Product Price − harga Loco Net) × qty, karena Product Price DO kirim sudah termasuk ongkir.
-   - Margin       : real − ditagih. Plus = ditanggung distributor, minus = untung (hijau).
+   - Margin       : ongkir dibayar toko − bayar truk, dari DO yang sama. Plus = untung (hijau), minus = rugi / ditanggung distributor.
    Angkutan ke gudang (baris ORDB019 tanpa No DO) dipisah dan tidak masuk hitungan ke toko.
    Status transporter (20_ongkos_insight.sql): armada sendiri = biaya di luar ERP, truk toko = memang tanpa biaya.
    Angka per ton dan per omzet hanya memakai DO yang semua perjalanannya sudah ada biayanya (tagihan
@@ -37,13 +37,13 @@ const SATUAN_OPTS = [{ value: 'ton', label: 'Rp per ton' }, { value: 'zak50', la
 const satuanOf = (s: string): Satuan => (s === 'zak50' ? { f: 0.05, lbl: '/zak 50 kg', kata: 'per zak 50 kg' }
   : s === 'zak40' ? { f: 0.04, lbl: '/zak 40 kg', kata: 'per zak 40 kg' } : { f: 1, lbl: '/ton', kata: 'per ton' });
 const SEGMEN_OPTS = [{ value: 'all', label: 'Retail + proyek' }, { value: 'RETAIL', label: 'Retail' }, { value: 'PROJECT', label: 'Proyek' }];
-/** Margin = ongkos real - ditagih ke toko. Plus = ditanggung distributor (hitam), minus = untung (hijau). */
+/** Margin = ongkir dibayar toko − bayar truk. Plus = untung (hijau), minus = rugi / ditanggung distributor (merah). */
+const judulMargin = (v: number) => (v > 0 ? 'Untung: ongkir dari toko lebih besar dari bayar truk' : v < 0 ? 'Rugi: bayar truk lebih besar dari ongkir dari toko, selisihnya ditanggung distributor' : undefined);
+const warnaMargin = (v: number) => cx(v > 0 && 'text-green font-semibold', v < 0 && 'text-red');
 const Margin = ({ v, compact }: { v: number; compact?: boolean }) => (
-  <span className={cx(v < 0 && 'text-green font-semibold')} title={v < 0 ? 'Untung: ditagih ke toko lebih besar dari yang dibayar ke transporter' : 'Ditanggung distributor: dibayar ke transporter lebih besar dari yang ditagih ke toko'}>
-    {compact ? fmtIDRCompact(v) : fmtIDR(v)}
-  </span>
+  <span className={warnaMargin(v)} title={judulMargin(v)}>{v > 0 ? '+' : ''}{compact ? fmtIDRCompact(v) : fmtIDR(v)}</span>
 );
-const MarginSatuan = ({ v }: { v: number }) => <span className={cx(v < 0 && 'text-green font-semibold')}>{fmt(v)}</span>;
+const MarginSatuan = ({ v }: { v: number }) => <span className={warnaMargin(v)} title={judulMargin(v)}>{v > 0 ? '+' : ''}{fmt(v)}</span>;
 const fmtPct = (v: number | null, d = 1) => (v == null || !isFinite(v) ? '–' : fmt(v * 100, d) + '%');
 const judul = (s: unknown) => String(s ?? '').toLowerCase().replace(/(^|[\s(/.-])([a-z])/g, (_, a, b) => a + b.toUpperCase());
 /** "ISA065 - PT GLOBAL TRANSPORTINDO PRIMA" → "Global Transportindo Prima" */
@@ -150,7 +150,7 @@ function Body({ info }: { info: Row[] }) {
 
   // tabel zona: klik judul kolom untuk mengurutkan (seperti halaman Tim Sales)
   const zonaSort = useSort(v?.zona ?? [], 'ton', 'desc', (z, k) => (
-    k === 'nama' ? z.nama : k === 'ton' ? z.ton : k === 'real' ? perTon(z.biaya, z.ton) : k === 'tagih' ? (z.tonTagih ? perTon(z.tagih, z.tonTagih) : null)
+    k === 'nama' ? z.nama : k === 'ton' ? z.ton : k === 'real' ? (z.tonTagih ? perTon(z.biayaTagih, z.tonTagih) : perTon(z.biaya, z.ton)) : k === 'tagih' ? (z.tonTagih ? perTon(z.tagih, z.tonTagih) : null)
       : k === 'margin' ? (z.tonTagih ? z.tanggung : null) : k === 'marginTon' ? (z.tonTagih ? perTon(z.tanggung, z.tonTagih) : null) : z.omzet ? z.biayaOmzet / z.omzet : null));
   const zh = (k: string, text: ReactNode, num = true, title?: string) => (
     <Th sortable num={num} ariaSort={zonaSort.ariaSort(k)} onSort={() => zonaSort.toggle(k)} title={title}>{text}</Th>
@@ -167,16 +167,16 @@ function Body({ info }: { info: Row[] }) {
     setBusy(true);
     try {
       await exportRowsToExcel([
-        { name: 'Per zona', header: ['Zona', 'Ton', 'Bayar truk (Rp)', 'Bayar truk per ton', 'Ongkir dibayar toko (Rp)', 'Ongkir dibayar toko per ton', 'Margin (Rp; + ditanggung, − untung)', 'Ongkos % omzet'],
-          rows: v.zona.map(z => [z.nama, z.ton, z.biaya, perTon(z.biaya, z.ton), z.tagih, perTon(z.tagih, z.tonTagih), z.tanggung, z.omzet ? z.biayaOmzet / z.omzet : null]),
+        { name: 'Per zona', header: ['Zona', 'Ton', 'Bayar truk (Rp)', 'Bayar truk per ton', 'Ongkir dibayar toko (Rp)', 'Ongkir dibayar toko per ton', 'Margin (Rp; + untung, − rugi)', 'Ongkos % omzet'],
+          rows: v.zona.map(z => [z.nama, z.ton, z.biaya, z.tonTagih ? perTon(z.biayaTagih, z.tonTagih) : perTon(z.biaya, z.ton), z.tagih, perTon(z.tagih, z.tonTagih), z.tanggung, z.omzet ? z.biayaOmzet / z.omzet : null]),
           widths: [24, 10, 16, 13, 14, 14, 20, 14] },
-        { name: 'Per zona x transporter', header: ['Zona', 'Transporter', 'Ton', 'Bayar truk (Rp)', 'Bayar truk per ton', 'Ongkir dibayar toko (Rp)', 'Ongkir dibayar toko per ton', 'Margin (Rp; + ditanggung, − untung)', 'Ongkos % omzet'],
-          rows: v.zona.flatMap(z => z.transporter.map(t => [z.nama, t.nama, t.ton, t.biaya, perTon(t.biaya, t.ton), t.tagih, perTon(t.tagih, t.tonTagih), t.tanggung, t.omzet ? t.biayaOmzet / t.omzet : null])),
+        { name: 'Per zona x transporter', header: ['Zona', 'Transporter', 'Ton', 'Bayar truk (Rp)', 'Bayar truk per ton', 'Ongkir dibayar toko (Rp)', 'Ongkir dibayar toko per ton', 'Margin (Rp; + untung, − rugi)', 'Ongkos % omzet'],
+          rows: v.zona.flatMap(z => z.transporter.map(t => [z.nama, t.nama, t.ton, t.biaya, t.tonTagih ? perTon(t.biayaTagih, t.tonTagih) : perTon(t.biaya, t.ton), t.tagih, perTon(t.tagih, t.tonTagih), t.tanggung, t.omzet ? t.biayaOmzet / t.omzet : null])),
           widths: [24, 30, 10, 16, 13, 14, 14, 20, 14] },
-        { name: 'Per transporter', header: ['Transporter', 'Perjalanan', 'Perjalanan ada biaya', 'Ton', 'Ton DO lengkap', 'Bayar truk (Rp)', 'Bayar truk per ton', 'Ongkir dibayar toko (Rp)', 'Ongkir dibayar toko per ton', 'Margin (Rp; + ditanggung, − untung)', 'Ongkos % omzet'],
+        { name: 'Per transporter', header: ['Transporter', 'Perjalanan', 'Perjalanan ada biaya', 'Ton', 'Ton DO lengkap', 'Bayar truk (Rp)', 'Bayar truk per ton', 'Ongkir dibayar toko (Rp)', 'Ongkir dibayar toko per ton', 'Margin (Rp; + untung, − rugi)', 'Ongkos % omzet'],
           rows: v.perTransporter.map(t => [t.nama, t.trips, t.tripsBiaya, t.ton, t.tonL, t.biaya, perTon(t.biaya, t.tonL), t.tagih, perTon(t.tagih, t.tonTagih), t.tanggung, t.omzet ? t.biayaOmzet / t.omzet : null]),
           widths: [32, 10, 12, 10, 12, 16, 12, 14, 13, 20, 14] },
-        { name: 'Per toko', header: ['Kode toko', 'Toko', 'Zona', 'DO', 'Ton', 'Bayar truk (Rp)', 'Bayar truk per ton', 'Ongkir dibayar toko (Rp)', 'Margin (Rp; + ditanggung, − untung)', 'Ongkos % omzet'],
+        { name: 'Per toko', header: ['Kode toko', 'Toko', 'Zona', 'DO', 'Ton', 'Bayar truk (Rp)', 'Bayar truk per ton', 'Ongkir dibayar toko (Rp)', 'Margin (Rp; + untung, − rugi)', 'Ongkos % omzet'],
           rows: v.toko.map(t => [t.cust, t.toko, t.zona, t.jumlahDo, t.ton, t.biaya, perTon(t.biaya, t.ton), t.tagih, t.tanggung, t.omzet ? t.biayaOmzet / t.omzet : null]),
           widths: [11, 34, 20, 6, 9, 16, 13, 14, 20, 14] },
         { name: 'Per DO', header: ['Distributor', 'Bulan kirim', 'No DO', 'Kode toko', 'Toko', 'Tipe kirim', 'Zona', 'Truk', 'Transporter', 'Ton', 'Bayar truk (Rp)', 'Ongkir dibayar toko (Rp)', 'Sumber ongkir', 'Loco Net per ton', 'Harga DO per ton', 'Omzet (Rp)', 'Biaya lengkap'],
@@ -229,7 +229,7 @@ function Body({ info }: { info: Row[] }) {
               <Tutup pct={v.tertutup} adaTagih={v.tagihTon != null} />
             </Kpi>
             <Kpi title="Margin ongkos" value={v.doTagih ? <Margin v={v.tanggung} compact /> : '–'}
-              delta={v.doTagih ? <>{fmtIDR((v.tanggungTon ?? 0) * S.f)} {S.kata} · {v.tanggung < 0 ? 'untung' : 'ditanggung distributor'} · {fmt(v.doTagih)} DO</> : v.tonLengkap ? 'butuh J073 dengan kolom pengiriman' : 'belum ada biaya di ORDB019'} />
+              delta={v.doTagih ? <>{fmtIDR((v.tanggungTon ?? 0) * S.f)} {S.kata} · {v.tanggung > 0 ? 'untung' : v.tanggung < 0 ? 'rugi, ditanggung distributor' : 'impas'} · {fmt(v.doTagih)} DO</> : v.tonLengkap ? 'butuh J073 dengan kolom pengiriman' : 'belum ada biaya di ORDB019'} />
           </div>
 
           <Tren info={infoScope} S={S} />
@@ -270,9 +270,9 @@ function Body({ info }: { info: Row[] }) {
             <table>
               <caption className="sr-only">Ongkos kirim per zona tujuan</caption>
               <thead><tr>
-                {zh('nama', 'Zona', false)}{zh('ton', 'Ton')}{zh('real', <>Bayar truk {S.lbl}</>)}{zh('tagih', <>Ongkir dibayar toko {S.lbl}</>)}
-                {zh('marginTon', <>Margin {S.lbl}</>, true, 'Bayar truk − ongkir dibayar toko, per satuan. Plus = ditanggung distributor, minus (hijau) = untung')}
-                {zh('margin', 'Margin (Rp)', true, 'Total margin. Plus = ditanggung distributor, minus (hijau) = untung')}{zh('pct', 'Ongkos % omzet')}
+                {zh('nama', 'Zona', false)}{zh('ton', 'Ton')}{zh('real', <>Bayar truk {S.lbl}</>, true, 'Dari DO yang sama dengan kolom ongkir dibayar toko (DO yang ada di J073), supaya bisa langsung dikurangkan')}{zh('tagih', <>Ongkir dibayar toko {S.lbl}</>)}
+                {zh('marginTon', <>Margin {S.lbl}</>, true, 'Ongkir dibayar toko − bayar truk, per satuan. Plus (hijau) = untung, minus (merah) = rugi / ditanggung distributor')}
+                {zh('margin', 'Margin (Rp)', true, 'Total margin. Plus (hijau) = untung, minus (merah) = rugi / ditanggung distributor')}{zh('pct', 'Ongkos % omzet')}
               </tr></thead>
               <tbody>
                 {!v.zona.length && <tr><td colSpan={7} className="!text-center !text-faint !p-5">Belum ada DO dengan biaya lengkap pada filter ini.</td></tr>}
@@ -280,7 +280,7 @@ function Body({ info }: { info: Row[] }) {
                 {zonaSort.sorted.map(z => {
                   const buka = zonaBuka.has(z.nama);
                   const sel = (x: typeof z | (typeof z.transporter)[number], anak?: boolean) => {
-                    const rt = perTon(x.biaya, x.ton), rz = perTon(z.biaya, z.ton);
+                    const rt = x.tonTagih ? perTon(x.biayaTagih, x.tonTagih) : perTon(x.biaya, x.ton), rz = z.tonTagih ? perTon(z.biayaTagih, z.tonTagih) : perTon(z.biaya, z.ton);
                     const mahal = anak && rt != null && rz != null && z.transporter.length > 1 && rt > rz * 1.1;
                     return <>
                       <td className="num font-mono">{fmtTon(x.ton)}</td>
@@ -358,7 +358,7 @@ function Body({ info }: { info: Row[] }) {
             Bayar truk dari ORDB019, dibagi ke DO sesuai baris laporan (bulan = bulan kirim); baris tanpa No DO (angkutan ke gudang) dipisah. Ongkir dibayar toko = (Delivery Price − Delivery Discount Price + Delivery Add Price) × qty dari J073;
             kalau kolom Delivery kosong pada DO kirim, dihitung dari harga: (Product Price − harga Loco Net pada tanggal DO) × qty, minimal 0. Per ton / per zak, omzet, dan margin hanya memakai DO yang semua perjalanannya sudah ada biayanya.
             Truk toko (Eks. Toko) memang tanpa biaya; armada sendiri (mis. LAM) biayanya di luar ERP dan tidak dihitung.
-            Margin = bayar truk − ongkir dibayar toko: plus = ditanggung distributor, minus (hijau) = untung. Per zak = per ton x berat zak (50 kg = 1/20 ton, 40 kg = 1/25 ton).
+            Margin = ongkir dibayar toko − bayar truk, dari DO yang sama: plus (hijau) = untung, minus (merah) = rugi / ditanggung distributor. Per zak = per ton x berat zak (50 kg = 1/20 ton, 40 kg = 1/25 ton).
           </p>
         </div>
       )}
@@ -453,11 +453,11 @@ function hitung(tripsSemua: Trip[], dosAll: DoRow[], tipe: string, trans: string
   const tipeRows = [...tp.values()].sort((a, b) => b.ton - a.ton);
 
   // per zona
-  type Agg = { nama: string; ton: number; biaya: number; tagih: number; tonTagih: number; tanggung: number; omzet: number; biayaOmzet: number };
-  const baru = (nama: string): Agg => ({ nama, ton: 0, biaya: 0, tagih: 0, tonTagih: 0, tanggung: 0, omzet: 0, biayaOmzet: 0 });
+  type Agg = { nama: string; ton: number; biaya: number; tagih: number; tonTagih: number; biayaTagih: number; tanggung: number; omzet: number; biayaOmzet: number };
+  const baru = (nama: string): Agg => ({ nama, ton: 0, biaya: 0, tagih: 0, tonTagih: 0, biayaTagih: 0, tanggung: 0, omzet: 0, biayaOmzet: 0 });
   const tambah = (x: Agg, d: DoRow) => {
     x.ton += d.ton; x.biaya += d.biaya;
-    if (d.tagih != null) { x.tagih += d.tagih; x.tonTagih += d.ton; x.tanggung += d.biaya - d.tagih; }
+    if (d.tagih != null) { x.tagih += d.tagih; x.tonTagih += d.ton; x.tanggung += d.tagih - d.biaya; x.biayaTagih += d.biaya; }
     if (d.omzet) { x.omzet += d.omzet; x.biayaOmzet += d.biaya; }
   };
   // per zona, dengan rincian per transporter di zona itu (jarak sama, jadi Rp/ton antar transporter sebanding)
@@ -483,13 +483,13 @@ function hitung(tripsSemua: Trip[], dosAll: DoRow[], tipe: string, trans: string
 
   // rangkuman per transporter (semua transporter pada filter tipe kirim; filter transporter hanya menandai barisnya)
   const dosTipe = dosAll.filter(d => tipe === 'all' || d.tipe === tipe);
-  const rk = new Map<string, { nama: string; trips: number; tripsBiaya: number; ton: number; tonL: number; biaya: number; tagih: number; tonTagih: number; tanggung: number; omzet: number; biayaOmzet: number }>();
-  const ambil = (nama: string) => rk.get(nama) || rk.set(nama, { nama, trips: 0, tripsBiaya: 0, ton: 0, tonL: 0, biaya: 0, tagih: 0, tonTagih: 0, tanggung: 0, omzet: 0, biayaOmzet: 0 }).get(nama)!;
+  const rk = new Map<string, { nama: string; trips: number; tripsBiaya: number; ton: number; tonL: number; biaya: number; tagih: number; tonTagih: number; biayaTagih: number; tanggung: number; omzet: number; biayaOmzet: number }>();
+  const ambil = (nama: string) => rk.get(nama) || rk.set(nama, { nama, trips: 0, tripsBiaya: 0, ton: 0, tonL: 0, biaya: 0, tagih: 0, tonTagih: 0, biayaTagih: 0, tanggung: 0, omzet: 0, biayaOmzet: 0 }).get(nama)!;
   tripsAll.forEach(t => { const x = ambil(t.transporter); x.trips++; x.ton += t.ton; if (t.biaya > 0) x.tripsBiaya++; });
   dosTipe.filter(d => d.lengkap).forEach(d => {
     const x = ambil(d.transporter);
     x.tonL += d.ton; x.biaya += d.biaya;
-    if (d.tagih != null) { x.tagih += d.tagih; x.tonTagih += d.ton; x.tanggung += d.biaya - d.tagih; }
+    if (d.tagih != null) { x.tagih += d.tagih; x.tonTagih += d.ton; x.tanggung += d.tagih - d.biaya; x.biayaTagih += d.biaya; }
     if (d.omzet) { x.omzet += d.omzet; x.biayaOmzet += d.biaya; }
   });
   const perTransporter = [...rk.values()].sort((a, b) => b.ton - a.ton);
@@ -500,7 +500,7 @@ function hitung(tripsSemua: Trip[], dosAll: DoRow[], tipe: string, trans: string
     const k = d.cust || `DO ${d.doNo}`;
     const x = km.get(k) || { cust: d.cust, toko: d.toko || (d.cust ? '' : 'DO belum ada di J073'), zonaTon: new Map(), jumlahDo: 0, ton: 0, biaya: 0, tagih: 0, tanggung: 0, adaTagih: false, omzet: 0, biayaOmzet: 0 };
     x.jumlahDo++; x.ton += d.ton; x.biaya += d.biaya; x.zonaTon.set(d.zona, (x.zonaTon.get(d.zona) || 0) + d.ton);
-    if (d.tagih != null) { x.tagih += d.tagih; x.tanggung += d.biaya - d.tagih; x.adaTagih = true; }
+    if (d.tagih != null) { x.tagih += d.tagih; x.tanggung += d.tagih - d.biaya; x.adaTagih = true; }
     if (d.omzet) { x.omzet += d.omzet; x.biayaOmzet += d.biaya; }
     km.set(k, x);
   });
@@ -549,7 +549,7 @@ function hitung(tripsSemua: Trip[], dosAll: DoRow[], tipe: string, trans: string
     pctOmzet: omzetDasar ? biayaOmzet / omzetDasar : null, omzetDasar,
     tagihTon: perTon(sum(dos.filter(d => d.tagih != null), d => d.tagih!), sum(dos.filter(d => d.tagih != null), d => d.ton)),
     tertutup: realTagih ? tagih / realTagih : null,
-    tanggung: realTagih - tagih, tanggungTon: perTon(realTagih - tagih, tonTagih), doTagih: ditagih.length,
+    tanggung: tagih - realTagih, tanggungTon: perTon(tagih - realTagih, tonTagih), doTagih: ditagih.length,
     belum: [...belum.entries()].map(([nama, x]) => ({ nama, ...x })).sort((a, b) => b.ton - a.ton),
     luar: [...luar.entries()].map(([nama, x]) => ({ nama, ...x })).sort((a, b) => b.ton - a.ton), tonLuar, gudang, tanpaOngkir,
     sumberTon, satuZak: {
@@ -612,8 +612,8 @@ function CaraBaca() {
           <li>Toko yang <b>dikirim</b> bayar <b>71.350</b>. Selisih <b>1.400</b> itu <b>ongkir yang dibayar toko</b>, sudah termasuk di harga DO.
             Di J073 kadang ditulis rinciannya (Delivery Price 1.950 − Delivery Discount 550), kadang kosong; kalau kosong, halaman ini menghitungnya dari harga DO − harga Loco.</li>
           <li>Distributor membayar truk (ORDB019), misalnya <b>2.960</b> per zak.</li>
-          <li><b>Margin</b> = bayar truk − ongkir dibayar toko = 2.960 − 1.400 = <b>1.560</b> per zak, ditanggung distributor.
-            Kalau hasilnya minus (warna hijau), ongkir yang dibayar toko lebih besar dari bayar truk: untung.</li>
+          <li><b>Margin</b> = ongkir dibayar toko − bayar truk = 1.400 − 2.960 = <b className="text-red">−1.560</b> per zak: rugi, selisihnya ditanggung distributor.
+            Kalau toko membayar ongkir 3.400 dan truk 2.974, margin <b className="text-green">+426</b>: untung.</li>
         </ul>
         <p className="mt-1.5">Per zak = per ton x berat zak (50 kg = 1/20 ton, 40 kg = 1/25 ton), karena truk dibayar per muatan. Angkutan dari pelabuhan / terminal ke gudang distributor
           (baris ORDB019 tanpa No DO) ditampilkan terpisah dan tidak ikut dihitung.</p>
@@ -626,7 +626,7 @@ function CaraBaca() {
 function SatuZak({ v, S }: { v: Hasil; S: Satuan }) {
   const z = v.satuZak;
   if (z.ongkir == null || z.truk == null) return null;
-  const m = z.truk - z.ongkir;
+  const m = z.ongkir - z.truk;   // margin: plus = untung
   const baris = (label: ReactNode, val: number | null, opts: { tanda?: string; tebal?: boolean; warna?: string; sub?: ReactNode } = {}) => (
     <div className={cx('flex items-baseline justify-between gap-4 py-1.5', opts.tebal && 'border-t border-line mt-1 pt-2.5')}>
       <div className="min-w-0"><div className={cx('text-[13.5px]', opts.tebal ? 'text-ink font-semibold' : 'text-soft')}>{label}</div>{opts.sub && <div className="text-faint text-[11.5px]">{opts.sub}</div>}</div>
@@ -643,15 +643,15 @@ function SatuZak({ v, S }: { v: Hasil; S: Satuan }) {
         {baris('Ongkir dibayar toko', z.ongkir, { tanda: z.loco != null ? '+ ' : '', sub: 'sudah termasuk di harga DO' })}
         {z.loco != null && baris('Harga sampai toko', z.loco + z.ongkir, { tebal: true })}
         <div className="h-3" />
-        {baris('Bayar ke truk (ORDB019)', z.truk)}
-        {baris('Ongkir dibayar toko', z.ongkir, { tanda: '− ' })}
-        {baris(m < 0 ? 'Margin: untung' : 'Margin: ditanggung distributor', m, { tebal: true, warna: m < 0 ? 'text-green' : undefined })}
+        {baris('Ongkir dibayar toko (uang masuk)', z.ongkir)}
+        {baris('Bayar ke truk (uang keluar, ORDB019)', z.truk, { tanda: '− ' })}
+        {baris(m > 0 ? 'Margin: untung' : m < 0 ? 'Margin: rugi (ditanggung distributor)' : 'Margin: impas', m, { tebal: true, tanda: m > 0 ? '+' : '', warna: m > 0 ? 'text-green' : m < 0 ? 'text-red' : undefined })}
       </div>
       <div className="text-[13px] text-soft leading-relaxed self-center">
         <p>
-          {m < 0
-            ? <>Toko membayar ongkir <b className="text-green">{fmt(-m * S.f)} {S.kata}</b> lebih besar dari yang dibayar ke truk.</>
-            : <>Untuk setiap {S.kata.replace('per ', '')}, distributor menombok <b className="text-ink">{fmt(m * S.f)}</b>: bayar ke truk {fmt(z.truk * S.f)}, sedangkan toko hanya membayar ongkir {fmt(z.ongkir * S.f)}.</>}
+          {m >= 0
+            ? <>Untuk setiap {S.kata.replace('per ', '')}, toko membayar ongkir {fmt(z.ongkir * S.f)} dan distributor membayar truk {fmt(z.truk * S.f)}: untung <b className="text-green">{fmt(m * S.f)}</b>.</>
+            : <>Untuk setiap {S.kata.replace('per ', '')}, distributor menombok <b className="text-red">{fmt(-m * S.f)}</b>: bayar ke truk {fmt(z.truk * S.f)}, sedangkan toko hanya membayar ongkir {fmt(z.ongkir * S.f)}.</>}
         </p>
         <p className="mt-2 text-faint text-[12px]">Dari DO yang biaya truknya lengkap ({fmtTon(z.ton)} ton). Ongkir dibayar toko diambil dari: {pecah.join(' · ') || '–'}.</p>
       </div>
@@ -806,7 +806,7 @@ function Tren({ info, S }: { info: Row[]; S: Satuan }) {
   return (
     <Card title={duaGaris ? `Bayar truk vs ongkir dibayar toko, ${S.kata} per bulan` : `Ongkos real ${S.kata} per bulan`} className="mt-4">
       <p className="text-faint text-[12px] -mt-1 mb-2">
-        {duaGaris ? 'Dari DO yang biaya truknya lengkap. Jarak antara dua garis = margin (ditanggung distributor). ' : 'Perjalanan yang sudah ada biayanya. '}
+        {duaGaris ? 'Dari DO yang biaya truknya lengkap. Garis hijau di atas garis biru = untung, di bawah = rugi (ditanggung distributor). ' : 'Perjalanan yang sudah ada biayanya. '}
         Bulan dengan biaya belum lengkap (di bawah 80% muatan) diberi titik kosong.
       </p>
       {duaGaris && (
@@ -830,7 +830,7 @@ function Tren({ info, S }: { info: Row[]; S: Satuan }) {
                   const i = items[0]?.dataIndex; if (i == null) return '';
                   const r = t.rp[i], g = t.tagih[i];
                   const out = [`Biaya lengkap ${fmtPct(t.cov[i], 0)} muatan`];
-                  if (duaGaris && r != null && g != null) out.unshift(`Margin: ${fmt(r - g)}${S.lbl}${r - g < 0 ? ' (untung)' : ''}`);
+                  if (duaGaris && r != null && g != null) out.unshift(`Margin: ${g - r > 0 ? '+' : ''}${fmt(g - r)}${S.lbl} (${g - r > 0 ? 'untung' : g - r < 0 ? 'rugi' : 'impas'})`);
                   return out;
                 },
               } },
@@ -841,12 +841,12 @@ function Tren({ info, S }: { info: Row[]; S: Satuan }) {
   );
 }
 
-const URUT_TOKO = [{ value: 'tanggung', label: 'Margin (paling ditanggung)' }, { value: 'pct', label: 'Ongkos % omzet' }, { value: 'rpton', label: 'Ongkos per satuan' }, { value: 'ton', label: 'Ton' }];
+const URUT_TOKO = [{ value: 'tanggung', label: 'Margin (paling rugi dulu)' }, { value: 'pct', label: 'Ongkos % omzet' }, { value: 'rpton', label: 'Ongkos per satuan' }, { value: 'ton', label: 'Ton' }];
 function TokoTable({ v, S }: { v: Hasil; S: Satuan }) {
   const [urut, setUrut] = useState('tanggung');
   const [semua, setSemua] = useState(false);
   const rows = useMemo(() => {
-    const val = (t: Hasil['toko'][number]) => (urut === 'tanggung' ? (t.adaTagih ? t.tanggung : -1) : urut === 'pct' ? (t.omzet ? t.biayaOmzet / t.omzet : -1) : urut === 'rpton' ? t.biaya / t.ton : t.ton);
+    const val = (t: Hasil['toko'][number]) => (urut === 'tanggung' ? (t.adaTagih ? -t.tanggung : -Infinity) : urut === 'pct' ? (t.omzet ? t.biayaOmzet / t.omzet : -1) : urut === 'rpton' ? t.biaya / t.ton : t.ton);
     return [...v.toko].sort((a, b) => val(b) - val(a));
   }, [v.toko, urut]);
   const tampil = semua ? rows : rows.slice(0, 15);
