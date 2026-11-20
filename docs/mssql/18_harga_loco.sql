@@ -7,6 +7,12 @@
    - sementrack.harga_dist_map: kode distributor di Outstanding DO -> kode ERP harga. Bawaan:
      1001 sub region KTP -> 1001K, 1001 lainnya -> 1001P. Distributor lain memakai kodenya sendiri.
      Tambah baris di sini kalau ada distributor OS yang harganya ikut distributor lain.
+   - sementrack.harga_gudang_map: distributor dengan beberapa gudang LOCO (mis. INSA: INSA, KUALA TANJUNG, ACEH)
+     -> gudang mana yang dipakai untuk tujuan OS tertentu. Urutan pemilihan gudang untuk satu baris OS:
+       1. pola tujuan di harga_gudang_map (selain '%') yang cocok dengan Tujuan / sub region OS;
+       2. nama gudang tertulis di Tujuan OS (mis. "Kuala Tanjung, Pelabuhan" -> KUALA TANJUNG);
+       3. gudang utama distributor (baris '%' di harga_gudang_map, mis. 4094 -> INSA);
+       4. kalau distributor itu hanya punya satu gudang LOCO, gudang itu. Selain itu: belum ada harga (tidak ditebak).
    - v_outstanding_do_harga: Outstanding DO + harga Loco Net yang berlaku pada tanggal order,
      nilai = sisa zak x Loco Net. v_outstanding_do_ringkas dapat kolom nilai dan ton_tanpa_harga.
    Produk dicocokkan lewat tipe semen (STR = CMT / Tiga Roda, RJW = Rajawali, CWC = white cement),
@@ -49,6 +55,22 @@ CREATE TABLE sementrack.harga_dist_map (
 GO
 IF NOT EXISTS (SELECT 1 FROM sementrack.harga_dist_map WHERE os_code = N'1001')
   INSERT INTO sementrack.harga_dist_map (os_code, region_like, erp_code) VALUES (N'1001', N'%KTP%', N'1001K'), (N'1001', N'%', N'1001P');
+GO
+
+IF OBJECT_ID(N'sementrack.harga_gudang_map', N'U') IS NULL
+CREATE TABLE sementrack.harga_gudang_map (
+  dist_code nvarchar(20) NOT NULL,          -- kode ERP harga (4094, 1001K, ...)
+  tujuan_like nvarchar(200) NOT NULL,       -- pola LIKE untuk "Tujuan | sub region" OS (huruf besar), '%' = gudang utama
+  warehouse nvarchar(50) NOT NULL,          -- kolom Warehouse di ERP Price & Promo Simulation
+  CONSTRAINT PK_harga_gudang_map PRIMARY KEY (dist_code, tujuan_like)
+);
+GO
+IF NOT EXISTS (SELECT 1 FROM sementrack.harga_gudang_map WHERE dist_code = N'4094')
+  INSERT INTO sementrack.harga_gudang_map (dist_code, tujuan_like, warehouse) VALUES
+    (N'4094', N'%', N'INSA'),                       -- Belawan / Medan: gudang INSA
+    (N'4094', N'%KUALA TANJUNG%', N'KUALA TANJUNG'),
+    (N'4094', N'%ACEH%', N'ACEH'), (N'4094', N'%LHOKSEUMAWE%', N'ACEH'), (N'4094', N'%KRUENG GEUKUEH%', N'ACEH'),
+    (N'4094', N'%MALAHAYATI%', N'ACEH'), (N'4094', N'%MEULABOH%', N'ACEH');
 GO
 
 ALTER TABLE sementrack.kelola_log DROP CONSTRAINT IF EXISTS CK_kelola_log_dataset_check;
@@ -114,6 +136,7 @@ CREATE OR ALTER VIEW sementrack.v_outstanding_do_harga AS
 SELECT o.*,
        e.erp_code AS harga_dist,
        h.product_code AS harga_produk,
+       h.warehouse AS harga_gudang,
        h.net_price AS harga_loco,
        h.berlaku_dari AS harga_dari,
        h.berlaku_sampai AS harga_sampai,
@@ -126,10 +149,23 @@ OUTER APPLY (SELECT TOP (1) m.erp_code FROM sementrack.harga_dist_map m
              WHERE m.os_code = k.os_code AND ISNULL(o.region, N'') LIKE m.region_like
              ORDER BY CASE WHEN m.region_like = N'%' THEN 1 ELSE 0 END, LEN(m.region_like) DESC) mp
 CROSS APPLY (SELECT ISNULL(mp.erp_code, k.os_code) AS erp_code) e
-OUTER APPLY (SELECT TOP (1) h.product_code, h.net_price, h.berlaku_dari, h.berlaku_sampai FROM sementrack.harga_loco h
+CROSS APPLY (SELECT UPPER(ISNULL(o.nama_tujuan, N'') + N' | ' + ISNULL(o.region, N'')) AS tujuan) t
+OUTER APPLY (SELECT TOP (1) g.warehouse FROM sementrack.harga_gudang_map g
+             WHERE g.dist_code = e.erp_code AND g.tujuan_like <> N'%' AND t.tujuan LIKE UPPER(g.tujuan_like)
+             ORDER BY LEN(g.tujuan_like) DESC) gm
+OUTER APPLY (SELECT TOP (1) g.warehouse FROM sementrack.harga_gudang_map g WHERE g.dist_code = e.erp_code AND g.tujuan_like = N'%') gd
+OUTER APPLY (SELECT TOP (1) h.product_code, h.net_price, h.berlaku_dari, h.berlaku_sampai, h.warehouse
+             FROM sementrack.harga_loco h
+             CROSS APPLY (SELECT CASE WHEN h.warehouse = gm.warehouse THEN 0
+                                      WHEN h.warehouse <> N'' AND CHARINDEX(h.warehouse, t.tujuan) > 0 THEN 1
+                                      WHEN h.warehouse = gd.warehouse THEN 2 ELSE 3 END AS rk) r
              WHERE h.dist_code = e.erp_code AND h.semen = o.semen AND h.kg = k.kg AND h.opc = k.opc
                AND o.tanggal_order >= h.berlaku_dari AND (h.berlaku_sampai IS NULL OR o.tanggal_order <= h.berlaku_sampai)
-             ORDER BY h.berlaku_dari DESC, h.warehouse, h.product_code) h;
+               AND (r.rk < 3 OR NOT EXISTS (SELECT 1 FROM sementrack.harga_loco h2
+                                            WHERE h2.dist_code = h.dist_code AND h2.semen = h.semen AND h2.kg = h.kg AND h2.opc = h.opc
+                                              AND h2.warehouse <> h.warehouse AND o.tanggal_order >= h2.berlaku_dari
+                                              AND (h2.berlaku_sampai IS NULL OR o.tanggal_order <= h2.berlaku_sampai)))
+             ORDER BY r.rk, h.berlaku_dari DESC, h.product_code) h;
 GO
 
 -- Ringkasan halaman: sama dengan 02_sellin.sql + nilai dan ton yang belum ada harganya
@@ -145,19 +181,23 @@ GO
 
 -- Harga yang tersimpan per distributor x produk (Kelola Data dan keterangan halaman)
 CREATE OR ALTER VIEW sementrack.v_harga_loco_info AS
-SELECT h.dist_code, h.product_code, MAX(h.product_name) AS product_name, h.semen, MAX(h.kg) AS kg,
+SELECT h.dist_code, h.product_code, h.warehouse, MAX(h.product_name) AS product_name, h.semen, MAX(h.kg) AS kg,
        COUNT(*) AS masa_berlaku, MIN(h.berlaku_dari) AS dari, MAX(h.diambil) AS diambil,
-       (SELECT TOP (1) x.net_price FROM sementrack.harga_loco x WHERE x.dist_code = h.dist_code AND x.product_code = h.product_code
-        ORDER BY x.berlaku_dari DESC, x.warehouse) AS harga_terakhir,
-       (SELECT TOP (1) x.berlaku_dari FROM sementrack.harga_loco x WHERE x.dist_code = h.dist_code AND x.product_code = h.product_code
-        ORDER BY x.berlaku_dari DESC, x.warehouse) AS berlaku_terakhir,
-       (SELECT TOP (1) x.berlaku_sampai FROM sementrack.harga_loco x WHERE x.dist_code = h.dist_code AND x.product_code = h.product_code
-        ORDER BY x.berlaku_dari DESC, x.warehouse) AS sampai_terakhir
+       (SELECT TOP (1) x.net_price FROM sementrack.harga_loco x WHERE x.dist_code = h.dist_code AND x.product_code = h.product_code AND x.warehouse = h.warehouse
+        ORDER BY x.berlaku_dari DESC) AS harga_terakhir,
+       (SELECT TOP (1) x.berlaku_dari FROM sementrack.harga_loco x WHERE x.dist_code = h.dist_code AND x.product_code = h.product_code AND x.warehouse = h.warehouse
+        ORDER BY x.berlaku_dari DESC) AS berlaku_terakhir,
+       (SELECT TOP (1) x.berlaku_sampai FROM sementrack.harga_loco x WHERE x.dist_code = h.dist_code AND x.product_code = h.product_code AND x.warehouse = h.warehouse
+        ORDER BY x.berlaku_dari DESC) AS sampai_terakhir
 FROM sementrack.harga_loco h
-GROUP BY h.dist_code, h.product_code, h.semen;
+GROUP BY h.dist_code, h.product_code, h.warehouse, h.semen;
 GO
 
--- Cek: OS yang belum ketemu harganya, per distributor dan produk
-SELECT harga_dist, produk, COUNT(*) AS orders, CAST(SUM(sisa_ton) AS decimal(20,1)) AS ton, MIN(tanggal_order) AS order_awal, MAX(tanggal_order) AS order_akhir
+-- Cek: OS yang belum ketemu harganya, per distributor, tujuan, dan produk
+SELECT harga_dist, nama_tujuan, produk, COUNT(*) AS orders, CAST(SUM(sisa_ton) AS decimal(20,1)) AS ton, MIN(tanggal_order) AS order_awal, MAX(tanggal_order) AS order_akhir
 FROM sementrack.v_outstanding_do_harga WHERE harga_loco IS NULL AND status IN (N'Belum dikirim', N'Terkirim sebagian')
-GROUP BY harga_dist, produk ORDER BY ton DESC;
+GROUP BY harga_dist, nama_tujuan, produk ORDER BY ton DESC;
+-- Cek: gudang harga yang dipakai per distributor dan tujuan
+SELECT harga_dist, nama_tujuan, harga_gudang, COUNT(*) AS orders, CAST(SUM(sisa_ton) AS decimal(20,1)) AS ton
+FROM sementrack.v_outstanding_do_harga WHERE status IN (N'Belum dikirim', N'Terkirim sebagian')
+GROUP BY harga_dist, nama_tujuan, harga_gudang ORDER BY harga_dist, ton DESC;

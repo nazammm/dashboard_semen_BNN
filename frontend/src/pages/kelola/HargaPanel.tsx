@@ -79,12 +79,13 @@ function HargaPreview({ phase, onSave, onCancel }: {
           <div className="card-title mb-2">Per PT & produk</div>
           <div className="border border-line rounded overflow-x-auto">
             <table className="!min-w-0 tbl-dense">
-              <thead><tr><th>PT</th><th>Produk</th><th>Tipe</th><th className="num">Masa berlaku</th><th>Sejak</th><th className="num">Loco Net terakhir</th><th>Berlaku s.d.</th></tr></thead>
+              <thead><tr><th>PT</th><th>Produk</th><th>Gudang</th><th>Tipe</th><th className="num">Masa berlaku</th><th>Sejak</th><th className="num">Loco Net terakhir</th><th>Berlaku s.d.</th></tr></thead>
               <tbody>
                 {st.kombinasi.map(k => (
-                  <tr key={k.dist + k.produk}>
+                  <tr key={k.dist + k.produk + k.gudang}>
                     <td className="font-mono text-[12px]">{k.dist}</td>
                     <td className="text-[12px] whitespace-nowrap">{k.produk} · {k.nama}</td>
+                    <td className="text-[12px] whitespace-nowrap">{k.gudang || '–'}</td>
                     <td className="text-[12px]">{k.semen}{k.kg ? ` ${k.kg} kg` : ''}</td>
                     <td className="num font-mono">{fmt(k.masa)}</td>
                     <td className="whitespace-nowrap text-[12px]">{fmtDate(k.dari)}</td>
@@ -100,7 +101,8 @@ function HargaPreview({ phase, onSave, onCancel }: {
           <Note tone="warn">
             Untuk tiap PT x produk di file, harga sejak tanggal paling awal di file akan <b>diganti</b>. Harga sebelum tanggal itu dan PT / produk lain tidak berubah.
           </Note>
-          <Note tone="info">Harga dipakai di Outstanding DO menurut tanggal order: Loco Net yang berlaku pada tanggal itu x sisa zak. Kode 1001 di OS memakai harga 1001K untuk sub region KTP dan 1001P untuk lainnya.</Note>
+          <Note tone="info">Harga dipakai di Outstanding DO menurut tanggal order: Loco Net yang berlaku pada tanggal itu x sisa zak. Kode 1001 di OS memakai harga 1001K untuk sub region KTP dan 1001P untuk lainnya.
+            PT dengan beberapa gudang (mis. INSA: INSA, Kuala Tanjung, Aceh) memakai gudang yang sesuai tujuan OS.</Note>
           {st.skipped > 0 && <Note tone="info">{fmt(st.skipped)} baris franco dilewati (yang dipakai hanya LOCO).</Note>}
           <InvalidRows invalid={st.invalid} issues={st.issues} what="baris dilewati" />
         </div>
@@ -119,12 +121,13 @@ function HargaTersimpan() {
       <div className="card-title px-4 pt-3.5 !mb-2">Harga Loco tersimpan</div>
       <div className="overflow-x-auto border-t border-line">
         <table className="tbl-dense !min-w-0">
-          <thead><tr><th>PT</th><th>Produk</th><th className="num">Masa berlaku</th><th>Sejak</th><th className="num">Loco Net terakhir</th><th>Berlaku</th><th>Diambil</th></tr></thead>
+          <thead><tr><th>PT</th><th>Produk</th><th>Gudang</th><th className="num">Masa berlaku</th><th>Sejak</th><th className="num">Loco Net terakhir</th><th>Berlaku</th><th>Diambil</th></tr></thead>
           <tbody>
             {info.data.map(r => (
-              <tr key={`${r.dist_code}|${r.product_code}`}>
+              <tr key={`${r.dist_code}|${r.product_code}|${r.warehouse}`}>
                 <td className="font-mono text-[12px]">{String(r.dist_code)}</td>
                 <td className="text-[12px] whitespace-nowrap">{String(r.product_code)} · {String(r.product_name ?? '')}</td>
+                <td className="text-[12px] whitespace-nowrap">{String(r.warehouse ?? '') || '–'}</td>
                 <td className="num font-mono">{fmt(r.masa_berlaku)}</td>
                 <td className="whitespace-nowrap text-[12px]">{tgl(r.dari)}</td>
                 <td className="num font-mono">{fmtIDR(r.harga_terakhir)}</td>

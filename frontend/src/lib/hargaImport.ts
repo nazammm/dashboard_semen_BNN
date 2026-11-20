@@ -10,7 +10,7 @@ import { normHeader, parseDelimited, toISODate, toNumber } from './sellin';
 
 export type HargaRow = (string | number | null)[];
 export interface HargaKombinasi {
-  dist: string; produk: string; nama: string; semen: string; kg: number | null;
+  dist: string; produk: string; gudang: string; nama: string; semen: string; kg: number | null;
   masa: number; dari: string; sampai: string | null; hargaTerakhir: number; hargaMin: number; hargaMax: number;
 }
 export interface HargaStats {
@@ -85,16 +85,16 @@ export function parseHargaText(text: string, fileName: string): HargaParseResult
 
 function ringkas(rows: HargaRow[], st: HargaStats): HargaStats {
   const by = new Map<string, HargaRow[]>();
-  rows.forEach(r => { const k = `${r[0]}|${r[1]}`; (by.get(k) || by.set(k, []).get(k)!).push(r); });
+  rows.forEach(r => { const k = `${r[0]}|${r[1]}|${r[6]}`; (by.get(k) || by.set(k, []).get(k)!).push(r); });
   st.kombinasi = [...by.values()].map(rs => {
     rs.sort((a, b) => String(a[7]).localeCompare(String(b[7])));
     const last = rs[rs.length - 1], hs = rs.map(r => Number(r[10]));
     return {
-      dist: String(last[0]), produk: String(last[1]), nama: String(last[2] ?? ''), semen: String(last[3]), kg: last[4] as number | null,
+      dist: String(last[0]), produk: String(last[1]), gudang: String(last[6] ?? ''), nama: String(last[2] ?? ''), semen: String(last[3]), kg: last[4] as number | null,
       masa: new Set(rs.map(r => r[7])).size, dari: String(rs[0][7]), sampai: (last[8] as string | null) ?? null,
       hargaTerakhir: Number(last[10]), hargaMin: Math.min(...hs), hargaMax: Math.max(...hs),
     };
-  }).sort((a, b) => a.dist.localeCompare(b.dist) || a.produk.localeCompare(b.produk));
+  }).sort((a, b) => a.dist.localeCompare(b.dist) || a.produk.localeCompare(b.produk) || a.gudang.localeCompare(b.gudang));
   st.dists = [...new Set(rows.map(r => String(r[0])))].sort();
   const dari = rows.map(r => String(r[7])).sort(), sampai = rows.map(r => String(r[8] ?? r[11] ?? r[7])).sort();
   st.dari = dari[0] || ''; st.sampai = sampai[sampai.length - 1] || '';

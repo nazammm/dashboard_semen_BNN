@@ -21,6 +21,15 @@ insert into sementrack.harga_dist_map (os_code, region_like, erp_code)
 select * from (values ('1001', '%KTP%', '1001K'), ('1001', '%', '1001P')) v(a, b, c)
 where not exists (select 1 from sementrack.harga_dist_map where os_code = '1001');
 
+create table if not exists sementrack.harga_gudang_map (
+  dist_code text not null, tujuan_like text not null, warehouse text not null, primary key (dist_code, tujuan_like)
+);
+insert into sementrack.harga_gudang_map (dist_code, tujuan_like, warehouse)
+select * from (values ('4094', '%', 'INSA'), ('4094', '%KUALA TANJUNG%', 'KUALA TANJUNG'), ('4094', '%ACEH%', 'ACEH'),
+                      ('4094', '%LHOKSEUMAWE%', 'ACEH'), ('4094', '%KRUENG GEUKUEH%', 'ACEH'), ('4094', '%MALAHAYATI%', 'ACEH'),
+                      ('4094', '%MEULABOH%', 'ACEH')) v(a, b, c)
+where not exists (select 1 from sementrack.harga_gudang_map where dist_code = '4094');
+
 alter table sementrack.kelola_log drop constraint if exists kelola_log_dataset_check;
 alter table sementrack.kelola_log add constraint kelola_log_dataset_check
   check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073', 'target', 'outstanding', 'tabel', 'stock', 'ongkos', 'harga'));
@@ -61,8 +70,10 @@ begin
   return query select v_new, v_old, v_from, v_to, v_dists, v_komb;
 end $$;
 
-create or replace view sementrack.v_outstanding_do_harga as
-select o.*, e.erp_code as harga_dist, h.product_code as harga_produk, h.net_price as harga_loco,
+drop view if exists sementrack.v_outstanding_do_ringkas;
+drop view if exists sementrack.v_outstanding_do_harga;
+create view sementrack.v_outstanding_do_harga as
+select o.*, e.erp_code as harga_dist, h.product_code as harga_produk, h.warehouse as harga_gudang, h.net_price as harga_loco,
        h.berlaku_dari as harga_dari, h.berlaku_sampai as harga_sampai, round(o.sisa_zak * h.net_price, 2) as nilai
 from sementrack.v_outstanding_do o
 cross join lateral (select split_part(o.distributor, ' ', 1) as os_code,
@@ -71,26 +82,40 @@ left join lateral (select m.erp_code from sementrack.harga_dist_map m
                    where m.os_code = k.os_code and coalesce(o.region, '') like m.region_like
                    order by (m.region_like = '%'), length(m.region_like) desc limit 1) mp on true
 cross join lateral (select coalesce(mp.erp_code, k.os_code) as erp_code) e
-left join lateral (select h.product_code, h.net_price, h.berlaku_dari, h.berlaku_sampai from sementrack.harga_loco h
+cross join lateral (select upper(coalesce(o.nama_tujuan, '') || ' | ' || coalesce(o.region, '')) as tujuan) t
+left join lateral (select g.warehouse from sementrack.harga_gudang_map g
+                   where g.dist_code = e.erp_code and g.tujuan_like <> '%' and t.tujuan like upper(g.tujuan_like)
+                   order by length(g.tujuan_like) desc limit 1) gm on true
+left join lateral (select g.warehouse from sementrack.harga_gudang_map g where g.dist_code = e.erp_code and g.tujuan_like = '%' limit 1) gd on true
+left join lateral (select h.product_code, h.net_price, h.berlaku_dari, h.berlaku_sampai, h.warehouse, r.rk
+                   from sementrack.harga_loco h
+                   cross join lateral (select case when h.warehouse = gm.warehouse then 0
+                                                   when h.warehouse <> '' and strpos(t.tujuan, h.warehouse) > 0 then 1
+                                                   when h.warehouse = gd.warehouse then 2 else 3 end as rk) r
                    where h.dist_code = e.erp_code and h.semen = o.semen and h.kg = k.kg and h.opc = k.opc
                      and o.tanggal_order >= h.berlaku_dari and (h.berlaku_sampai is null or o.tanggal_order <= h.berlaku_sampai)
-                   order by h.berlaku_dari desc, h.warehouse, h.product_code limit 1) h on true;
+                     and (r.rk < 3 or not exists (select 1 from sementrack.harga_loco h2
+                                                  where h2.dist_code = h.dist_code and h2.semen = h.semen and h2.kg = h.kg and h2.opc = h.opc
+                                                    and h2.warehouse <> h.warehouse and o.tanggal_order >= h2.berlaku_dari
+                                                    and (h2.berlaku_sampai is null or o.tanggal_order <= h2.berlaku_sampai)))
+                   order by r.rk, h.berlaku_dari desc, h.product_code limit 1) h on true;
 
-create or replace view sementrack.v_outstanding_do_ringkas as
+create view sementrack.v_outstanding_do_ringkas as
 select region, distributor, dist_nama, semen, status, jalur, tanggal_order, estimasi_kirim, posisi,
        count(*)::int as orders, round(sum(sisa_ton), 3) as ton,
        round(sum(nilai), 2) as nilai, round(sum(case when harga_loco is null then sisa_ton else 0 end), 3) as ton_tanpa_harga
 from sementrack.v_outstanding_do_harga
 group by 1, 2, 3, 4, 5, 6, 7, 8, 9;
 
-create or replace view sementrack.v_harga_loco_info as
-select h.dist_code, h.product_code, max(h.product_name) as product_name, h.semen, max(h.kg) as kg,
+drop view if exists sementrack.v_harga_loco_info;
+create view sementrack.v_harga_loco_info as
+select h.dist_code, h.product_code, h.warehouse, max(h.product_name) as product_name, h.semen, max(h.kg) as kg,
        count(*)::int as masa_berlaku, min(h.berlaku_dari) as dari, max(h.diambil) as diambil,
-       (array_agg(h.net_price order by h.berlaku_dari desc, h.warehouse))[1] as harga_terakhir,
+       (array_agg(h.net_price order by h.berlaku_dari desc))[1] as harga_terakhir,
        max(h.berlaku_dari) as berlaku_terakhir,
-       (array_agg(h.berlaku_sampai order by h.berlaku_dari desc, h.warehouse))[1] as sampai_terakhir
+       (array_agg(h.berlaku_sampai order by h.berlaku_dari desc))[1] as sampai_terakhir
 from sementrack.harga_loco h
-group by h.dist_code, h.product_code, h.semen;
+group by h.dist_code, h.product_code, h.warehouse, h.semen;
 
 grant select on sementrack.v_outstanding_do_harga, sementrack.v_outstanding_do_ringkas, sementrack.v_harga_loco_info to public;
 

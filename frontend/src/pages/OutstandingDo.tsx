@@ -179,14 +179,14 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
         name: 'Outstanding DO',
         header: ['Tanggal Order', 'Umur (hari)', 'Estimasi Kirim', 'Lewat (hari)', 'Status', 'Region', 'Sub Region', 'Jalur', 'Asal Pengiriman', 'Distributor', 'Order No', 'Produk', 'Tipe',
           'Kode Customer', 'Nama Customer', 'Tujuan', 'Loco/Franco', 'Order (zak)', 'Terkirim (zak)', 'Sisa (zak)', 'Sisa (ton)',
-          'PT harga', 'Loco Net (Rp/zak)', 'Harga berlaku dari', 'Perkiraan nilai (Rp)'],
+          'PT harga', 'Gudang harga', 'Loco Net (Rp/zak)', 'Harga berlaku dari', 'Perkiraan nilai (Rp)'],
         rows: all.map(r => [String(r.tanggal_order).slice(0, 10), Number(r.umur_hari), r.estimasi_kirim ? String(r.estimasi_kirim).slice(0, 10) : null, Number(r.lewat_hari),
           String(r.status), parentOf(r.region), String(r.region), String(r.jalur), r.asal_pengiriman as string | null, String(r.dist_nama), String(r.order_no), String(r.produk), String(r.semen),
           String(r.kode_customer), r.nama_customer as string | null, r.nama_tujuan as string | null, String(r.loco_franco),
           Number(r.order_qty), Number(r.delivery_qty), Number(r.sisa_zak), Number(r.sisa_ton),
-          (r.harga_dist as string | null) ?? null, r.harga_loco != null ? Number(r.harga_loco) : null,
+          (r.harga_dist as string | null) ?? null, (r.harga_gudang as string | null) ?? null, r.harga_loco != null ? Number(r.harga_loco) : null,
           r.harga_dari ? String(r.harga_dari).slice(0, 10) : null, r.nilai != null ? Number(r.nilai) : null]),
-        widths: [12, 10, 12, 10, 16, 12, 14, 14, 26, 26, 16, 22, 6, 12, 30, 30, 11, 11, 12, 10, 10, 10, 14, 14, 18],
+        widths: [12, 10, 12, 10, 16, 12, 14, 14, 26, 26, 16, 22, 6, 12, 30, 30, 11, 11, 12, 10, 10, 10, 16, 14, 14, 18],
       }], `Outstanding_DO_posisi_${posisi}${rng ? `_order_${rng.from}_${rng.to}` : ''}.xlsx`, 'outstanding-do');
     } catch (e) { setDlErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
@@ -323,7 +323,7 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
                 <td className="num font-mono">{fmt(r.order_qty)}</td>
                 <td className="num font-mono font-semibold">{fmtTon(Number(r.sisa_ton))}</td>
                 {s.nilai != null && (
-                  <td className="num font-mono whitespace-nowrap" title={r.harga_loco != null ? `Loco Net ${fmtIDR(r.harga_loco)} per zak (${String(r.harga_dist ?? '')}, berlaku sejak ${fmtDate(String(r.harga_dari).slice(0, 10))})` : 'Belum ada harga Loco untuk PT, produk, dan tanggal order ini'}>
+                  <td className="num font-mono whitespace-nowrap" title={r.harga_loco != null ? `Loco Net ${fmtIDR(r.harga_loco)} per zak (${String(r.harga_dist ?? '')}${r.harga_gudang ? ` gudang ${String(r.harga_gudang)}` : ''}, berlaku sejak ${fmtDate(String(r.harga_dari).slice(0, 10))})` : 'Belum ada harga Loco untuk PT, produk, dan tanggal order ini'}>
                     {r.harga_loco != null ? fmtIDRCompact(r.nilai) : <span className="text-faint">belum ada harga</span>}
                   </td>
                 )}

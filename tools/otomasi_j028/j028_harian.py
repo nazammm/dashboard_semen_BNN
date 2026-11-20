@@ -1795,9 +1795,13 @@ def ambil_harga(pw, tampil: bool, dists: list[str], dari: date | None) -> tuple[
                 semua += baris
                 akhir = max(b["effective_date"] for b in baris)
                 terakhir[k] = akhir.isoformat()
-                skr = [b for b in baris if b["effective_date"] == akhir][0]
-                print(f"  {dist} {kode} {nama}: {len({b['effective_date'] for b in baris})} masa berlaku, Loco Net terakhir "
-                      f"{skr['net_price']:,.0f} sejak {akhir}" + (f" s.d. {skr['expired_date']}" if skr["expired_date"] else ""))
+                # harga terakhir per gudang (INSA punya beberapa gudang LOCO: INSA, KUALA TANJUNG, ACEH)
+                per_gudang: dict[str, dict] = {}
+                for x in sorted(baris, key=lambda x: x["effective_date"]):
+                    per_gudang[x["warehouse"] or "-"] = x
+                teks = ", ".join(f"{g} {x['net_price']:,.0f} sejak {x['effective_date']}" + (f" s.d. {x['expired_date']}" if x["expired_date"] else "")
+                                 for g, x in per_gudang.items())
+                print(f"  {dist} {kode} {nama}: {len({(b['warehouse'], b['effective_date']) for b in baris})} masa berlaku; Loco Net terakhir {teks}")
     finally:
         browser.close()
     if gagal and not semua:
