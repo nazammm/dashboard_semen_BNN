@@ -164,18 +164,18 @@ function Body({ info }: { info: Row[] }) {
       {!v && !load.error && <PageSkeleton />}
       {v && (
         <div className={cx(load.loading && 'opacity-60 transition-opacity')}>
-          <Kelengkapan v={v} periodeLabel={periodeLabel} />
+          <Kelengkapan v={v} periodeLabel={periodeLabel} namaDist={c => dists.find(x => x.code === c)?.kode || c} />
 
           <div className="grid-kpi mt-4">
-            <Kpi title="Ongkos real" value={fmtIDRCompact(v.real)}
-              delta={<>{fmtIDR(v.realTon ?? 0)} per ton · {fmt(v.tripBerbiaya)} perjalanan</>} />
+            <Kpi title="Ongkos real" value={v.tonLengkap ? fmtIDRCompact(v.real) : '–'}
+              delta={v.tonLengkap ? <>{fmtIDR(v.realTon ?? 0)} per ton · {fmt(v.tripBerbiaya)} perjalanan</> : 'belum ada biaya di ORDB019'} />
             <Kpi title="Ongkos terhadap omzet" value={fmtPct(v.pctOmzet)}
-              delta={v.omzetDasar ? <>dari omzet muatan {fmtIDRCompact(v.omzetDasar)}</> : 'omzet DO belum ada di J073'} />
+              delta={v.omzetDasar ? <>dari omzet muatan {fmtIDRCompact(v.omzetDasar)}</> : v.tonLengkap ? 'omzet DO belum ada di J073' : 'belum ada biaya di ORDB019'} />
             <Kpi title="Ditagih ke toko" value={v.tagihTon == null ? '–' : fmtIDR(v.tagihTon)} unit={v.tagihTon == null ? undefined : '/ton'}>
-              <Tutup pct={v.tertutup} />
+              <Tutup pct={v.tertutup} adaTagih={v.tagihTon != null} />
             </Kpi>
-            <Kpi title="Ditanggung distributor" value={fmtIDRCompact(v.tanggung)}
-              delta={v.doTagih ? <>{fmtIDR(v.tanggungTon ?? 0)} per ton · {fmt(v.doTagih)} DO</> : 'butuh J073 dengan kolom pengiriman'} />
+            <Kpi title="Ditanggung distributor" value={v.doTagih ? fmtIDRCompact(v.tanggung) : '–'}
+              delta={v.doTagih ? <>{fmtIDR(v.tanggungTon ?? 0)} per ton · {fmt(v.doTagih)} DO</> : v.tonLengkap ? 'butuh J073 dengan kolom pengiriman' : 'belum ada biaya di ORDB019'} />
           </div>
 
           <Tren info={infoScope} />
@@ -286,9 +286,21 @@ function hitung(tripsAll: Trip[], dosAll: DoRow[], tipe: string, trans: string) 
   const tagih = sum(ditagih, d => d.tagih!), realTagih = sum(ditagih, d => d.biaya), tonTagih = sum(ditagih, d => d.ton);
   const omzetDasar = sum(omzetDos, d => d.omzet!), biayaOmzet = sum(omzetDos, d => d.biaya);
 
-  // perjalanan yang belum ada biayanya, per transporter
+  // distributor x bulan yang laporan ORDB019-nya sama sekali tanpa biaya (Harga Ritase dan Total semua 0 di ERP):
+  // bukan tagihan yang telat, ERP memang belum mencatat ongkos untuk periode itu
+  const grup = new Map<string, { dist: string; periode: string; ton: number; ada: boolean }>();
+  tripsAll.forEach(t => {
+    const k = `${t.dist}|${t.periode}`;
+    const g = grup.get(k) || { dist: t.dist, periode: t.periode, ton: 0, ada: false };
+    g.ton += t.ton; if (t.biaya > 0 || t.ritase > 0) g.ada = true; grup.set(k, g);
+  });
+  const kosong = [...grup.values()].filter(g => !g.ada).sort((a, b) => a.periode.localeCompare(b.periode) || a.dist.localeCompare(b.dist));
+  const kunciKosong = new Set(kosong.map(g => `${g.dist}|${g.periode}`));
+  const tonKosong = sum(dos.filter(d => kunciKosong.has(`${d.dist}|${d.periode}`)), d => d.ton);
+
+  // perjalanan yang belum ada biayanya, per transporter (di luar laporan yang kosong sama sekali)
   const belum = new Map<string, { ton: number; trips: number; ritase: number }>();
-  trips.filter(t => t.biaya === 0).forEach(t => {
+  trips.filter(t => t.biaya === 0 && !kunciKosong.has(`${t.dist}|${t.periode}`)).forEach(t => {
     const x = belum.get(t.transporter) || { ton: 0, trips: 0, ritase: 0 };
     x.ton += t.ton; x.trips++; if (t.ritase > 0) x.ritase++; belum.set(t.transporter, x);
   });
@@ -383,9 +395,10 @@ function hitung(tripsAll: Trip[], dosAll: DoRow[], tipe: string, trans: string) 
   cek.sort((a, b) => b.nilai - a.nilai);
 
   return {
-    dos, ton, tonLengkap, real, realTon: perTon(real, tonLengkap), tripBerbiaya: trips.filter(t => t.biaya > 0).length, tripSemua: trips.length,
+    dos, ton, tonLengkap, real, kosong, tonKosong, realTon: perTon(real, tonLengkap), tripBerbiaya: trips.filter(t => t.biaya > 0).length, tripSemua: trips.length,
     pctOmzet: omzetDasar ? biayaOmzet / omzetDasar : null, omzetDasar,
-    tagihTon: perTon(tagih, tonTagih), tertutup: realTagih ? tagih / realTagih : null,
+    tagihTon: perTon(sum(dos.filter(d => d.tagih != null), d => d.tagih!), sum(dos.filter(d => d.tagih != null), d => d.ton)),
+    tertutup: realTagih ? tagih / realTagih : null,
     tanggung: realTagih - tagih, tanggungTon: perTon(realTagih - tagih, tonTagih), doTagih: ditagih.length,
     belum: [...belum.entries()].map(([nama, x]) => ({ nama, ...x })).sort((a, b) => b.ton - a.ton),
     truk, tipe: tipeRows, zona, transporter, ritaseBeda: { beda, total: totalR }, toko, cek: cek.slice(0, 5),
@@ -395,25 +408,40 @@ function hitung(tripsAll: Trip[], dosAll: DoRow[], tipe: string, trans: string) 
 /* ---------------------------------------------------------------------------
    Komponen
 --------------------------------------------------------------------------- */
-function Kelengkapan({ v, periodeLabel }: { v: Hasil; periodeLabel: string }) {
+function Kelengkapan({ v, periodeLabel, namaDist }: { v: Hasil; periodeLabel: string; namaDist: (kode: string) => string }) {
   if (!v.ton) return <div className="card text-soft text-[13px]">Tidak ada pengiriman semen pada filter ini.</div>;
-  const p = v.tonLengkap / v.ton;
-  if (p >= 0.97) return null;
+  const daftarKosong = v.kosong.map(g => `${namaDist(g.dist)} ${bulanLabel(g.periode).replace(/^(\w{3})\w*/, '$1')}`);
+  const ringkasKosong = daftarKosong.length > 6 ? `${daftarKosong.slice(0, 6).join(', ')}, dan ${fmt(daftarKosong.length - 6)} lainnya` : daftarKosong.join(', ');
+  if (v.tonKosong >= v.ton * 0.999) {
+    return (
+      <div className="upl-note is-info" role="note">
+        <svg viewBox="0 0 24 24" className="w-[18px] h-[18px] shrink-0 mt-px" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5M12 8v.1" /></svg>
+        <div className="text-[13px] leading-relaxed">
+          <b>ORDB019 {periodeLabel} belum berisi biaya sama sekali</b> ({ringkasKosong}): kolom Harga Ritase dan Total di laporan ERP bernilai 0 untuk semua perjalanan.
+          Ini bukan tagihan transporter yang telat; ERP memang belum mencatat ongkos kirim untuk periode itu, jadi ongkos real, per ton, dan ditanggung tidak bisa dihitung.
+          Ongkos yang ditagih ke toko (dari J073) dan isi truk tetap dihitung.
+        </div>
+      </div>
+    );
+  }
+  const p = v.tonLengkap / Math.max(v.ton - v.tonKosong, 1e-9);
+  if (p >= 0.97 && !v.kosong.length) return null;
   const top = v.belum.slice(0, 3);
   return (
     <div className={cx('upl-note', p < 0.8 ? 'is-warn' : 'is-info')} role="note">
       <svg viewBox="0 0 24 24" className="w-[18px] h-[18px] shrink-0 mt-px" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M12 3.5 21.5 20h-19L12 3.5Z" /><path d="M12 10v4.5M12 17.2v.1" /></svg>
       <div className="text-[13px] leading-relaxed">
-        <b>Biaya baru lengkap untuk {fmtPct(p, 0)} muatan {periodeLabel}</b> ({fmtTon(v.tonLengkap)} dari {fmtTon(v.ton)} ton).
+        <b>Biaya baru lengkap untuk {fmtPct(p, 0)} muatan {periodeLabel}</b> ({fmtTon(v.tonLengkap)} dari {fmtTon(v.ton - v.tonKosong)} ton{v.tonKosong ? ' yang laporannya sudah berisi biaya' : ''}).
         {top.length > 0 && <> Perjalanan yang tagihannya belum masuk: {top.map((t, i) => <span key={t.nama}>{i ? ', ' : ''}{t.nama} {fmtTon(t.ton)} ton{t.ritase ? ` (${fmt(t.ritase)} sudah ada ritase)` : ''}</span>)}.</>}
+        {v.kosong.length > 0 && <> ORDB019 tanpa biaya sama sekali (Harga Ritase dan Total 0 di ERP): {ringkasKosong}, {fmtTon(v.tonKosong)} ton.</>}
         {' '}Angka per ton, omzet, dan ditanggung di bawah hanya memakai DO yang biayanya sudah lengkap.
       </div>
     </div>
   );
 }
 
-function Tutup({ pct }: { pct: number | null }) {
-  if (pct == null) return <div className="kpi-delta">butuh J073 dengan kolom pengiriman</div>;
+function Tutup({ pct, adaTagih }: { pct: number | null; adaTagih: boolean }) {
+  if (pct == null) return <div className="kpi-delta">{adaTagih ? 'rata-rata DO yang terkirim; belum bisa dibanding ongkos real' : 'butuh J073 dengan kolom pengiriman'}</div>;
   const w = Math.max(0, Math.min(1, pct));
   return (
     <div className="mt-2">
