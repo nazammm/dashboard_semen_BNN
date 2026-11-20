@@ -23,6 +23,7 @@ import { TabelPanel } from './kelola/TabelPanel';
 import { StockUpload } from './kelola/StockPanel';
 import { BaruPanel } from './kelola/BaruPanel';
 import { OngkosUpload } from './kelola/OngkosPanel';
+import { HargaUpload } from './kelola/HargaPanel';
 import { JENIS_LABEL } from '../lib/targetImport';
 
 type Tab = 'transaksi' | 'sellin' | 'sellout' | 'stock' | 'ongkos' | 'target' | 'tabel' | 'baru' | 'riwayat';
@@ -42,7 +43,7 @@ const MENUS: Record<Exclude<Tab, 'riwayat'>, { id: string; label: string }[]> = 
   tabel: [],
   baru: [],
   transaksi: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }, { id: 'sinkron', label: 'Waktu pembaruan' }],
-  sellin: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'outstanding', label: 'Outstanding DO' }, { id: 'hapus', label: 'Hapus' }],
+  sellin: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'outstanding', label: 'Outstanding DO' }, { id: 'harga', label: 'Harga Loco' }, { id: 'hapus', label: 'Hapus' }],
   sellout: [{ id: 'dofas', label: 'Tempel DO FAS' }, { id: 'erp', label: 'Tempel Sub ERP' }, { id: 'j073', label: 'Upload J073' }],
   stock: [{ id: 'upload', label: 'Upload file stok' }],
   ongkos: [{ id: 'ordb', label: 'Upload ORDB019' }, { id: 'j073', label: 'Upload J073' }],
@@ -95,6 +96,7 @@ export default function KelolaData() {
           {tab === 'transaksi' && menu === 'sinkron' && <StatusSyncForm onChanged={changed} />}
           {tab === 'sellin' && menu === 'upload' && <SellinUpload onChanged={changed} />}
           {tab === 'sellin' && menu === 'outstanding' && <OutstandingUpload onChanged={changed} />}
+          {tab === 'sellin' && menu === 'harga' && <HargaUpload onChanged={changed} />}
           {tab === 'sellin' && menu === 'hapus' && <HapusPanel dataset="sellin" lastDate={statusRow?.data_sampai ? String(statusRow.data_sampai).slice(0, 10) : null} onChanged={changed} />}
           {tab === 'sellout' && (menu === 'dofas' || menu === 'erp') && <SelloutPaste dataset={menu} onChanged={changed} />}
           {tab === 'sellout' && menu === 'j073' && <J073Upload onChanged={changed} />}
@@ -145,9 +147,9 @@ function StatusStrip({ row }: { row: Row | null }) {
 /* ---------------------------------------------------------------------------
    Riwayat upload & hapus (Transaksi + Sell In BNN)
 --------------------------------------------------------------------------- */
-const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', target: 'Target', outstanding: 'Outstanding DO', tabel: 'Edit tabel', stock: 'Stock', ongkos: 'ORDB019' };
+const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', target: 'Target', outstanding: 'Outstanding DO', tabel: 'Edit tabel', stock: 'Stock', ongkos: 'ORDB019', harga: 'Harga Loco' };
 const inFilter = (f: string, ds: unknown) => f === 'all' || ds === f || (f === 'sellout' && (ds === 'dofas' || ds === 'erp' || ds === 'j073'))
-  || (f === 'sellin' && ds === 'outstanding') || (f === 'ongkos' && ds === 'j073');
+  || (f === 'sellin' && (ds === 'outstanding' || ds === 'harga')) || (f === 'ongkos' && ds === 'j073');
 
 function Riwayat({ version, dataset, limit, compact }: { version: number; dataset?: string; limit?: number; compact?: boolean }) {
   const [rows, setRows] = useState<Row[] | null>(null);

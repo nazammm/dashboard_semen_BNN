@@ -50,6 +50,16 @@ Antrian ERP paling banyak MAKS_ANTRIAN (2) job + laporan sekaligus, termasuk yan
     python j028_harian.py --isi-ulang 2025-01
     python j028_harian.py --ongkos-dari 2025-08-01 --ongkos-sampai 2025-10-31 --ongkos-dist 9575,4403
 
+Harga Loco (perkiraan nilai Outstanding DO): ERP Order Process -> Other Inquiry -> Price & Promo Simulation
+(SLS_Price_Promo_Simulation.aspx), per PT (HARGA_DIST, bawaan 13 distributor) x produk CMT / RJW / CWC (HARGA_PRODUK).
+Yang dipakai hanya baris LOCO GUDANG, kolom Net Price, berlaku Effective Date s.d. Expired Date. Tidak dicek per hari:
+dari tanggal awal (HARGA_DARI, bawaan 1 Januari) harga dibaca, lalu lompat ke Expired Date + 1 hari, sampai Expired kosong
+(= masih berlaku). Jalan berikutnya mulai dari masa berlaku terakhir yang sudah terunggah (harga_loco.json), jadi biasanya
+satu kali Next per PT x produk. Hasil: HARGA_LOCO_<waktu>.csv di folder salinan, diupload ke Kelola Data -> Sell In BNN ->
+Harga Loco. Dari jadwal: paling sering sekali seminggu (HARGA_HARI).
+    python j028_harian.py --bagian HARGA
+    python j028_harian.py --bagian HARGA --harga-dari 2025-01-01      # baca ulang dari tanggal ini
+
 Satu bagian gagal tidak menghentikan bagian lain; semua kegagalan dilaporkan di akhir.
 Sub ERP: hanya bulan yang diambil yang diganti; tidak disimpan kalau ada angka yang turun (kecuali --paksa).
 J073: distributor diatur J073_DIST (bawaan 4094 = INSA, 9575 = PKB).
@@ -68,6 +78,7 @@ Kalau bagian ERP gagal, screenshot dan HTML halaman terakhir disimpan di folder 
 (login_gagal, menu_J028, sebelum_submit_J028, setelah_submit_J028, gagal) untuk dicari penyebabnya.
 """
 import argparse
+import csv
 import getpass
 import json
 import os
@@ -79,7 +90,7 @@ from pathlib import Path
 
 from playwright.sync_api import Error as PWError, Page, TimeoutError as PWTimeout, sync_playwright
 
-VERSI = "2026.11.20.2"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
+VERSI = "2026.11.20.3"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
 ERP = os.environ.get("ERP_URL", "https://www.bangunsukses.com").rstrip("/")   # ERP_URL hanya untuk uji
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
@@ -114,6 +125,9 @@ TUNGGU_MUNCUL_JOB_MENIT = int(os.environ.get("TUNGGU_MUNCUL_JOB_MENIT", "3"))
 # Tidak muncul: dicoba lagi 1 menit kemudian, tapi sebelum submit ulang dicek dulu apakah ternyata cuma telat tercatat.
 KONFIRMASI_JOB_DETIK = int(os.environ.get("KONFIRMASI_JOB_DETIK", "180"))
 COBA_MUNCUL = int(os.environ.get("COBA_MUNCUL", "2"))          # paling banyak 2 kali submit untuk yang tidak pernah muncul   # isi ulang: sekian job/laporan per putaran unduh-upload
+HARGA_HALAMAN = "SLS_Price_Promo_Simulation.aspx"
+HARGA_HARI = int(os.environ.get("HARGA_HARI", "7"))            # dari jadwal: harga Loco dibaca paling sering sekali seminggu
+HARGA_MAKS_LOMPAT = 60                                          # pengaman: paling banyak sekian Next per PT x produk
 POLA_STATUS = re.compile(r"FINISH|PROCESS|QUEUE|WAIT|PENDING|RUNNING|ERROR|FAIL|CANCEL|DONE|SUCCESS", re.I)
 POLA_KODE = re.compile(r"^(J028B?|J073|ORDB\d+)$", re.I)
 
@@ -125,6 +139,15 @@ def j073_dist() -> list[str]:
 def ongkos_dist() -> list[str]:
     # 4094E (INSA-E) di ERP kosong: datanya ada di 4094
     return [k.strip().upper() for k in os.environ.get("ONGKOS_DIST", ONGKOS_DIST_BAWAAN).split(",") if k.strip() and k.strip().upper() != "4094E"]
+
+
+def harga_dist() -> list[str]:
+    return [k.strip().upper() for k in os.environ.get("HARGA_DIST", ONGKOS_DIST_BAWAAN).split(",") if k.strip() and k.strip().upper() != "4094E"]
+
+
+def harga_produk() -> re.Pattern:
+    """Produk yang dibaca: kode diawali CMT / RJW / CWC (bisa diganti lewat HARGA_PRODUK, pola regex)."""
+    return re.compile(os.environ.get("HARGA_PRODUK", r"^(CMT|RJW|CWC)"), re.I)
 
 
 J073_DIST = j073_dist()   # nilai awal (untuk tampilan); saat jalan selalu dibaca ulang lewat j073_dist()
@@ -997,6 +1020,9 @@ class Hasil:
         self.tiro: dict[str, Path] = {}
         self.dofas: dict[int, str] = {}
         self.stock: list[Path] = []
+        self.harga: Path | None = None               # CSV harga Loco
+        self.harga_status: dict[str, str] = {}
+        self.harga_ringkas = ""       # masa berlaku terakhir per PT|produk (disimpan setelah upload berhasil)
         self.subdist: dict[int, str] = {}
         self.gagal: dict[str, str] = {}
         self.berhasil: dict[str, str] = {}
@@ -1530,6 +1556,271 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
         browser.close()
 
 
+# ---------------------------------------------------------------------------
+# Harga Loco (Price & Promo Simulation) untuk perkiraan nilai Outstanding DO
+# ---------------------------------------------------------------------------
+HARGA_PAKAI_BACK = True
+HARGA_STATUS = DASAR / "harga_loco.json"      # masa berlaku terakhir yang sudah terunggah per "PT|produk"
+KOLOM_HARGA = ["dist_code", "product_code", "product_name", "warehouse", "delivery_type", "price", "net_price",
+               "effective_date", "expired_date", "diambil"]
+
+
+def baca_harga_status() -> dict[str, str]:
+    try:
+        return json.loads(HARGA_STATUS.read_text(encoding="utf-8")).get("terakhir", {})
+    except (OSError, ValueError):
+        return {}
+
+
+def simpan_harga_status(baru: dict[str, str]) -> None:
+    st = baca_harga_status()
+    st.update(baru)
+    HARGA_STATUS.write_text(json.dumps({"diperbarui": datetime.now().isoformat(timespec="seconds"), "terakhir": st},
+                                       ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def harga_terakhir() -> datetime | None:
+    """Waktu terakhir bagian Harga Loco berhasil (dari riwayat.json)."""
+    try:
+        r = json.loads(RIWAYAT.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    for c in reversed(r):
+        b = c.get("bagian", {}).get("Harga Loco")
+        if b and b.get("ok") and not c.get("pratinjau"):
+            return datetime.fromisoformat(c["mulai"])
+    return None
+
+
+def tanggal_teks(t: str) -> date | None:
+    """"03 Jul 2026" / "3-Jul-2026" / "2026-07-03" / "03/07/2026" -> date. Kosong -> None."""
+    t = (t or "").strip()
+    if not t:
+        return None
+    m = re.match(r"(\d{1,2})[\s\-/]+([A-Za-z]{3})[A-Za-z]*[\s\-/]+(\d{4})", t)
+    if m:
+        nama = {b.lower(): i + 1 for i, b in enumerate(BULAN_EN)} | {"mei": 5, "agu": 8, "agt": 8, "okt": 10, "des": 12}
+        bln = nama.get(m.group(2).lower())
+        return date(int(m.group(3)), bln, int(m.group(1))) if bln else None
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", t)
+    if m:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    m = re.match(r"(\d{1,2})/(\d{1,2})/(\d{4})", t)
+    if m:
+        return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+    return None
+
+
+def angka_teks(t: str) -> float | None:
+    t = (t or "").strip().replace(" ", "")
+    if not t:
+        return None
+    neg = t.startswith("(") and t.endswith(")")
+    t = t.strip("()").replace(",", "")
+    try:
+        v = float(t)
+    except ValueError:
+        return None
+    return -v if neg else v
+
+
+JS_TABEL_HARGA = """() => {
+  const sel = t => (t.innerText || '').replace(/\\s+/g, ' ').trim();
+  for (const tb of document.querySelectorAll('table')) {
+    const rows = [...tb.rows];
+    const hi = rows.findIndex(r => { const x = [...r.cells].map(sel).join('|').toLowerCase();
+      return x.includes('delivery type') && x.includes('net price') && x.includes('expired date') && !x.includes('promo'); });
+    if (hi < 0) continue;
+    // tabel paling dalam saja (bukan tabel tata letak yang membungkusnya)
+    if (tb.querySelector('table')) continue;
+    return { header: [...rows[hi].cells].map(sel), rows: rows.slice(hi + 1).map(r => [...r.cells].map(sel)) };
+  }
+  return null;
+}"""
+
+
+def buka_form_harga(page: Page, dist: str) -> None:
+    """Halaman Price & Promo Simulation dengan distributor terpilih (memilih distributor memuat ulang halaman)."""
+    dd = page.locator("#ContentPlaceHolder1_ddDist")
+    if not dd.count() or not page.locator("#ContentPlaceHolder1_ddProductName").count():
+        page.goto(f"{ERP}/{HARGA_HALAMAN}")
+        try:
+            dd.wait_for(timeout=30_000)
+        except PWTimeout:
+            raise SystemExit(f"Halaman Price & Promo Simulation tidak bisa dibuka.\nHalaman: {jejak(page, 'harga_halaman')}")
+    nilai = dd.evaluate("s => s.value")
+    if (nilai or "").strip().upper() != dist.upper():
+        pilih_dist(page, "#ContentPlaceHolder1_ddDist", dist)
+        page.locator("#ContentPlaceHolder1_ddProductName").wait_for(timeout=30_000)
+
+
+def produk_harga(page: Page, dist: str) -> list[tuple[str, str]]:
+    buka_form_harga(page, dist)
+    opsi = page.locator("#ContentPlaceHolder1_ddProductName").evaluate("s => [...s.options].map(o => [o.value, o.text])")
+    pola = harga_produk()
+    hasil = []
+    for v, t in opsi:
+        kode = (v or "").strip().upper()
+        if not kode or not pola.search(kode):
+            continue
+        nama = re.sub(rf"^\s*{re.escape(kode)}\s*-\s*", "", t or "", flags=re.I).strip() or kode
+        hasil.append((kode, nama))
+    return hasil
+
+
+def baca_harga(page: Page, dist: str, kode: str, d: date) -> list[dict]:
+    """Satu kali Next: baris LOCO di tabel Basic and Additional Price pada tanggal simulasi d."""
+    buka_form_harga(page, dist)
+    prod = page.locator("#ContentPlaceHolder1_ddProductName")
+    if (prod.evaluate("s => s.value") or "").strip().upper() != kode:
+        prod.select_option(kode)
+        try:
+            page.wait_for_load_state("networkidle", timeout=30_000)
+        except PWTimeout:
+            pass
+    teks = tanggal_erp(d)
+    # kolom tanggal memakai kalender: isi nilainya langsung (juga kalau readonly), lalu picu change
+    page.locator("#ContentPlaceHolder1_txtPeriode").evaluate(
+        "(el, v) => { el.removeAttribute('readonly'); el.value = v; el.dispatchEvent(new Event('change', {bubbles: true})); }", teks)
+    tombol = page.locator("input[type=submit][value='Next'], input[type=button][value='Next'], button:has-text('Next')").first
+    n_pesan = len(PESAN_ERP)
+    try:
+        with page.expect_navigation(timeout=60_000):
+            tombol.click()
+    except PWTimeout:
+        baru = " ".join(PESAN_ERP[n_pesan:])
+        raise SystemExit(f"Next tidak membuka hasil simulasi {dist} {kode} {d}" + (f" (pesan ERP: {baru})" if baru else "")
+                         + f".\nHalaman: {jejak(page, 'harga_next')}")
+    data = page.evaluate(JS_TABEL_HARGA)
+    isi = page.locator("body").inner_text()
+    if not data:
+        if re.search(r"Basic and Additional Price", isi, re.I):
+            return []                                  # tabel ada tapi kosong
+        raise SystemExit(f"Hasil Price & Promo Simulation {dist} {kode} {d} tidak terbaca.\nHalaman: {jejak(page, 'harga_hasil')}")
+    m = re.search(r"Tanggal\s+Simulasi\s*:?\s*([0-9]{1,2}[\s\-/][A-Za-z0-9]{2,9}[\s\-/][0-9]{4})", isi, re.I)
+    tgl = tanggal_teks(m.group(1)) if m else None
+    if tgl != d:
+        raise SystemExit(f"Tanggal simulasi di ERP ({m.group(1) if m else 'tidak terbaca'}) tidak sama dengan {d}: format tanggal "
+                         f"kolom Periode berbeda.\nHalaman: {jejak(page, 'harga_tanggal')}")
+    if not re.search(rf"(?<![0-9A-Z]){re.escape(dist)}(?![0-9A-Z])", isi.upper()) or kode not in isi.upper():
+        raise SystemExit(f"Hasil simulasi bukan untuk {dist} {kode}.\nHalaman: {jejak(page, 'harga_salah')}")
+    h = [x.lower() for x in data["header"]]
+    def kol(nama: str) -> int:
+        return h.index(nama) if nama in h else -1
+    i_tipe, i_wh, i_price, i_net, i_eff, i_exp = (kol("delivery type"), kol("warehouse"), kol("price"), kol("net price"),
+                                                  kol("effective date"), kol("expired date"))
+    if min(i_tipe, i_net, i_eff, i_exp) < 0:
+        raise SystemExit(f"Kolom tabel harga berbeda dari yang dikenal: {data['header']}\nHalaman: {jejak(page, 'harga_kolom')}")
+    hasil = []
+    for r in data["rows"]:
+        if len(r) <= max(i_tipe, i_net, i_eff, i_exp) or "LOCO" not in r[i_tipe].upper():
+            continue
+        net, eff = angka_teks(r[i_net]), tanggal_teks(r[i_eff])
+        if net is None or eff is None:
+            continue
+        hasil.append({"warehouse": r[i_wh] if i_wh >= 0 else "", "delivery_type": r[i_tipe], "price": angka_teks(r[i_price]) if i_price >= 0 else None,
+                      "net_price": net, "effective_date": eff, "expired_date": tanggal_teks(r[i_exp])})
+    # kembali ke formulir lewat tombol Back (distributor biasanya tetap terpilih); kalau tidak berhasil, berikutnya buka ulang halaman
+    global HARGA_PAKAI_BACK
+    if HARGA_PAKAI_BACK:
+        try:
+            kembali = page.locator("input[type=submit][value='Back'], input[type=button][value='Back'], button:has-text('Back')").first
+            if kembali.count():
+                with page.expect_navigation(timeout=15_000):
+                    kembali.click()
+            else:
+                HARGA_PAKAI_BACK = False
+        except (PWTimeout, PWError):
+            HARGA_PAKAI_BACK = False
+    return hasil
+
+
+def lompat_harga(page: Page, dist: str, kode: str, nama: str, mulai: date, sampai: date) -> list[dict]:
+    """Masa berlaku harga Loco dari tanggal mulai: baca, lompat ke Expired + 1 hari, berhenti saat Expired kosong
+    (masih berlaku) atau sudah lewat tanggal sampai. Tanggal tanpa harga: lompat ke awal bulan berikutnya."""
+    d, hasil, n = mulai, [], 0
+    while d <= sampai and n < HARGA_MAKS_LOMPAT:
+        n += 1
+        baris = baca_harga(page, dist, kode, d)
+        if not baris:
+            d = bulan_tambah(d.replace(day=1), 1)
+            continue
+        for b in baris:
+            b.update(dist_code=dist, product_code=kode, product_name=nama, diambil=date.today())
+        hasil += baris
+        exp = [b["expired_date"] for b in baris]
+        if any(e is None for e in exp):
+            break
+        d = max(min(exp) + timedelta(days=1), d + timedelta(days=1))
+    return hasil
+
+
+def ambil_harga(pw, tampil: bool, dists: list[str], dari: date | None) -> tuple[Path | None, dict[str, str], str, list[str]]:
+    """Baca harga Loco semua PT x produk, tulis CSV. Kembali: (file, masa berlaku terakhir per PT|produk, ringkasan,
+    PT / produk yang gagal dibaca). Satu PT / produk gagal tidak menghentikan yang lain."""
+    status = {} if dari else baca_harga_status()
+    awal = dari or date(date.today().year, 1, 1)
+    user = rahasia("ERP_USER", "User ERP")
+    pwd = rahasia("ERP_PASS", "Password ERP (tidak tampil)", tersembunyi=True)
+    browser, ctx, page = buka_browser(pw, tampil)
+    semua, terakhir, gagal = [], {}, []
+    try:
+        login_erp(page, user, pwd)
+        for dist in dists:
+            try:
+                produk = produk_harga(page, dist)
+            except (SystemExit, PWTimeout, PWError) as e:
+                gagal.append(f"{dist}: {pesan(e).splitlines()[0]}")
+                continue
+            if not produk:
+                print(f"  {dist}: tidak ada produk CMT / RJW / CWC di pilihan")
+                continue
+            for kode, nama in produk:
+                k = f"{dist}|{kode}"
+                mulai = date.fromisoformat(status[k]) if k in status else awal
+                try:
+                    baris = lompat_harga(page, dist, kode, nama, mulai, date.today())
+                except (SystemExit, PWTimeout, PWError) as e:
+                    gagal.append(f"{dist} {kode}: {pesan(e).splitlines()[0]}")
+                    print(f"  {dist} {kode} GAGAL: {pesan(e).splitlines()[0]}")
+                    try:
+                        page.goto(f"{ERP}/{HARGA_HALAMAN}")
+                    except (PWTimeout, PWError):
+                        pass
+                    continue
+                kunci_segarkan()
+                if not baris:
+                    print(f"  {dist} {kode} {nama}: tidak ada harga LOCO sejak {mulai}")
+                    continue
+                semua += baris
+                akhir = max(b["effective_date"] for b in baris)
+                terakhir[k] = akhir.isoformat()
+                skr = [b for b in baris if b["effective_date"] == akhir][0]
+                print(f"  {dist} {kode} {nama}: {len({b['effective_date'] for b in baris})} masa berlaku, Loco Net terakhir "
+                      f"{skr['net_price']:,.0f} sejak {akhir}" + (f" s.d. {skr['expired_date']}" if skr["expired_date"] else ""))
+    finally:
+        browser.close()
+    if gagal and not semua:
+        raise SystemExit("Harga Loco tidak terbaca: " + "; ".join(gagal[:5]))
+    for g in gagal:
+        print(f"  Harga Loco GAGAL sebagian: {g}")
+    if not semua:
+        return None, {}, "tidak ada harga baru", gagal
+    folder = folder_file() / "HARGA"
+    folder.mkdir(parents=True, exist_ok=True)
+    f = folder / f"HARGA_LOCO_{datetime.now():%Y%m%d_%H%M}.csv"
+    with f.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(KOLOM_HARGA)
+        for b in semua:
+            w.writerow([b["dist_code"], b["product_code"], b["product_name"], b["warehouse"], b["delivery_type"],
+                        "" if b["price"] is None else f"{b['price']:.2f}", f"{b['net_price']:.2f}", b["effective_date"].isoformat(),
+                        b["expired_date"].isoformat() if b["expired_date"] else "", b["diambil"].isoformat()])
+    ringkas = f"{len(terakhir)} PT x produk, {len(semua)} baris harga"
+    print(f"  Harga Loco: {ringkas} -> {f}")
+    return f, terakhir, ringkas, gagal
+
+
 def judul_berkas(f: Path) -> str:
     return f.read_text(encoding="utf-8", errors="replace").splitlines()[0]
 
@@ -1676,6 +1967,8 @@ def main() -> None:
     ap.add_argument("--ongkos-dari", type=date.fromisoformat, metavar="YYYY-MM-DD", help="Ongkos kirim rentang pilihan (paling panjang 3 bulan): awal")
     ap.add_argument("--ongkos-sampai", type=date.fromisoformat, metavar="YYYY-MM-DD", help="Ongkos kirim rentang pilihan: akhir (bawaan: akhir bulan ketiga / hari ini)")
     ap.add_argument("--ongkos-dist", metavar="KODE,KODE", help="Ongkos kirim rentang pilihan: distributor tertentu saja (bawaan: ONGKOS_DIST)")
+    ap.add_argument("--harga-dari", type=date.fromisoformat, metavar="YYYY-MM-DD", help="Harga Loco: baca ulang semua masa berlaku sejak tanggal ini")
+    ap.add_argument("--harga-dist", metavar="KODE,KODE", help="Harga Loco: PT tertentu saja (bawaan: HARGA_DIST)")
     ap.add_argument("--isi-ulang", metavar="YYYY-MM", help="Ongkos kirim: isi data lama sejak bulan ini (J073 per 3 bulan, ORDB019 per bulan); bisa dilanjutkan")
     a = ap.parse_args()
     if a.log:
@@ -1727,6 +2020,15 @@ def main() -> None:
         if t and datetime.now() - t < timedelta(days=ONGKOS_HARI) - timedelta(hours=2):
             print(f"Ongkos kirim terakhir diperbarui {t:%Y-%m-%d %H:%M}; jadwal berikutnya {(t + timedelta(days=ONGKOS_HARI)):%Y-%m-%d}.")
             bagian.discard("ONGKOS")
+            if not bagian:
+                return
+    if a.harga_dari or a.harga_dist:
+        bagian.add("HARGA")
+    if "HARGA" in bagian and a.jadwal and not a.harga_dari:
+        t = harga_terakhir()
+        if t and datetime.now() - t < timedelta(days=HARGA_HARI) - timedelta(hours=2):
+            print(f"Harga Loco terakhir diperbarui {t:%Y-%m-%d %H:%M}; jadwal berikutnya {(t + timedelta(days=HARGA_HARI)):%Y-%m-%d}.")
+            bagian.discard("HARGA")
             if not bagian:
                 return
     if not kunci_ambil():
@@ -1796,6 +2098,18 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
             h.gagal.update(h2.gagal)
             if "J073" in bagian and not h.j073 and any(k["jenis"] == "J073" for k in ongkos):
                 h.berhasil["J073"] = "ikut file J073 Ongkos kirim"
+        if "HARGA" in bagian:
+            dists = [d.strip().upper() for d in (a.harga_dist or "").split(",") if d.strip()] or harga_dist()
+            print("Harga Loco: " + ", ".join(dists) + (f", baca ulang sejak {a.harga_dari}" if a.harga_dari else ""))
+            try:
+                h.harga, h.harga_status, ringkas, gagal = ambil_harga(pw, not a.tanpa_layar, dists, a.harga_dari)
+                h.harga_ringkas = ringkas
+                if not h.harga:
+                    h.berhasil["Harga Loco"] = ringkas
+                if gagal:
+                    h.gagal["Harga Loco sebagian"] = f"{len(gagal)} PT / produk gagal dibaca: " + "; ".join(gagal[:3])
+            except (SystemExit, Exception) as e:  # noqa: BLE001
+                h.catat_gagal("Harga Loco", e)
         if a.berkas:
             h.j028 = list(a.berkas)
         if h.j028:
@@ -1805,7 +2119,7 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
                 h.catat_gagal("J028", e)
                 h.j028 = []
 
-        ada = h.subdist or h.j028 or h.j073 or h.tiro or h.dofas or h.stock or h.ongkos
+        ada = h.subdist or h.j028 or h.j073 or h.tiro or h.dofas or h.stock or h.ongkos or h.harga
         if ada and not a.hanya_unduh:
             browser, page, url = masuk_sementrack(pw, not a.tanpa_layar)
             try:
@@ -1825,6 +2139,8 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
                     ("Stock", h.stock, lambda: " + ".join(unggah_berkas(page, url, "/kelola-data?data=stock&menu=upload", [f], "Stock_" + f.stem.replace(" ", "_"), not a.tanpa_simpan, True) for f in h.stock)),
                     # Ongkos kirim: J073 dulu (DO, toko, tagihan), lalu ORDB019 per distributor per bulan
                     ("Ongkos kirim", h.ongkos, lambda: unggah_ongkos(page, url, h, not a.tanpa_simpan)),
+                    # Harga Loco: masa berlaku yang dibaca diganti; status lompatan baru disimpan setelah upload berhasil
+                    ("Harga Loco", h.harga, lambda: unggah_harga(page, url, h, not a.tanpa_simpan)),
                 ]
                 for nama, isi, kerja in langkah:
                     if not isi:
@@ -1837,9 +2153,17 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
             finally:
                 browser.close()
         if a.hanya_unduh:
-            for nama, isi in (("Sub ERP", h.subdist), ("DO FAS", h.dofas), ("J028", h.j028), ("J073", h.j073), ("Sell In", h.tiro.get("SELLIN")), ("OS DO", h.tiro.get("OSDO")), ("Stock", h.stock), ("Ongkos kirim", h.ongkos)):
+            for nama, isi in (("Sub ERP", h.subdist), ("DO FAS", h.dofas), ("J028", h.j028), ("J073", h.j073), ("Sell In", h.tiro.get("SELLIN")), ("OS DO", h.tiro.get("OSDO")), ("Stock", h.stock), ("Ongkos kirim", h.ongkos), ("Harga Loco", h.harga)):
                 if isi:
                     h.berhasil[nama] = "terunduh"
+
+
+def unggah_harga(page: Page, url: str, h: Hasil, simpan: bool) -> str:
+    hasil = unggah_berkas(page, url, "/kelola-data?data=sellin&menu=harga", [h.harga], h.harga.stem, simpan, True)
+    if not simpan:
+        return hasil
+    simpan_harga_status(h.harga_status)
+    return h.harga_ringkas or hasil
 
 
 def unggah_ongkos(page: Page, url: str, h: Hasil, simpan: bool, tandai: bool = False) -> str:
@@ -1903,7 +2227,7 @@ def isi_ulang_ongkos(pw, a, h: Hasil) -> None:
     print("Selesai " + h.berhasil["Ongkos kirim"])
 
 
-SEMUA_BAGIAN = {"J028", "J073", "SUBDIST", "SELLIN", "OSDO", "DOFAS", "STOCK", "ONGKOS"}
+SEMUA_BAGIAN = {"J028", "J073", "SUBDIST", "SELLIN", "OSDO", "DOFAS", "STOCK", "ONGKOS", "HARGA"}
 ISI_ULANG = DASAR / "isi_ulang_ongkos.json"
 RIWAYAT = DASAR / "riwayat.json"
 KUNCI = DASAR / "sedang_jalan.lock"
@@ -1935,7 +2259,7 @@ def kunci_lepas() -> None:
     except OSError:
         pass
 NAMA_BAGIAN = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS", "STOCK": "Stock",
-               "ONGKOS": "Ongkos kirim"}
+               "ONGKOS": "Ongkos kirim", "HARGA": "Harga Loco"}
 
 
 def ongkos_terakhir() -> datetime | None:

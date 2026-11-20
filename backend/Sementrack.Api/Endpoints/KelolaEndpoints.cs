@@ -162,6 +162,23 @@ internal static class KelolaEndpoints
             });
         });
 
+        // Harga Loco Net (harga_loco.sql): per distributor x produk x masa berlaku; masa berlaku sejak awal file diganti.
+        d.MapPost("/harga", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) =>
+        {
+            var limit = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (limit is { IsReadOnly: false }) limit.MaxRequestBodySize = StageMaxBody;
+            return SellinEndpoints.Run(ctx, auth, log, "harga simpan", async s =>
+            {
+                var b = await Helpers.ReadBodyAsync(ctx.Request);
+                var rowsEl = b.Get("rows");
+                if (rowsEl is not { ValueKind: JsonValueKind.Array }) return Helpers.Error(400, "baris tidak valid");
+                var rows = await db.QueryAsync("select * from sementrack.harga_loco_simpan($1::json, $2, $3)",
+                    new object?[] { rowsEl.Value.GetRawText(), s.Username, b.GetString("file_name") }, timeoutSeconds: LongQuery);
+                db.ClearCache();
+                return Helpers.Json(rows[0]);
+            });
+        });
+
         // Target per tahun (target_tahunan.sql): ringkasan, isi satu jenis x tahun (untuk diunduh), dan simpan tempelan.
         d.MapGet("/target-ringkas", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) => SellinEndpoints.Run(ctx, auth, log, "target ringkas", async _ =>
             Helpers.Json(await db.QueryAsync("select * from sementrack.v_target_ringkas order by jenis, tahun desc, metrik"))));

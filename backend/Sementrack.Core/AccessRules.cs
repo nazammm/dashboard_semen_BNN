@@ -63,7 +63,7 @@ public static class AccessRules
         "v_sellout_bnn_monthly", "v_sellout_bnn_peta", "v_sellout_bnn_ta", "v_target_sell_in", "v_target_sell_out",
         "v_outstanding_do", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_sellin_po_bulanan",
         "v_stock_semen", "v_stock_harian", "v_stock_info", "stock_daerah", "v_toko_aktif_bulanan", "v_penjualan_toko_bulanan", "v_penjualan_toko_dist_bulanan", "v_toko_baru", "v_salesman_baru",
-        "v_ongkos_info", "v_ongkos_trip", "v_ongkos_do",
+        "v_ongkos_info", "v_ongkos_trip", "v_ongkos_do", "v_outstanding_do_harga", "v_harga_loco_info",
     };
 
     /// <summary>Tabel di atas yang punya kolom dist_code -> filter distributor DIPAKSA server untuk spv/sales.</summary>
@@ -112,6 +112,8 @@ public static class AccessRules
         ["v_ongkos_info"] = "sementrack.v_ongkos_info",       // ongkos_kirim.sql
         ["v_ongkos_trip"] = "sementrack.v_ongkos_trip",
         ["v_ongkos_do"] = "sementrack.v_ongkos_do",
+        ["v_outstanding_do_harga"] = "sementrack.v_outstanding_do_harga",   // harga_loco.sql
+        ["v_harga_loco_info"] = "sementrack.v_harga_loco_info",
     };
 
     /// <summary>Fungsi yang versi barunya ada di schema sementrack.</summary>
@@ -169,7 +171,7 @@ public static class AccessRules
                                    "v_sellout_bnn_ta", "v_target_sell_out", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_salesman_performance",
                                    "v_stock_harian", "v_stock_info" }, Array.Empty<string>()),
         ["sell-in-bnn"] = new(new[] { "v_sellin_bnn_daily", "v_sellin_bnn_info", "v_target_sell_in" }, Array.Empty<string>()),
-        ["outstanding-do"] = new(new[] { "v_outstanding_do", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_sellin_po_bulanan", "v_target_sell_in" }, Array.Empty<string>()),
+        ["outstanding-do"] = new(new[] { "v_outstanding_do", "v_outstanding_do_harga", "v_harga_loco_info", "v_outstanding_do_ringkas", "v_outstanding_do_info", "v_sellin_po_bulanan", "v_target_sell_in" }, Array.Empty<string>()),
         ["sell-out-bnn"] = new(new[] { "v_sellout_bnn_monthly", "v_sellout_bnn_peta", "v_sellout_bnn_ta", "v_target_sell_out" }, Array.Empty<string>()),
         ["stock"] = new(new[] { "v_stock_semen", "v_stock_harian", "v_stock_info" }, Array.Empty<string>()),
         ["ongkos-kirim"] = new(new[] { "v_ongkos_info", "v_ongkos_trip", "v_ongkos_do" }, Array.Empty<string>()),

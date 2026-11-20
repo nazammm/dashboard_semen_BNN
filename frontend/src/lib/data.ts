@@ -138,8 +138,12 @@ export const DataSource = {
     if (f.dari) q.push(`tanggal_order=gte.${enc(f.dari)}`);
     if (f.sampai) q.push(`tanggal_order=lte.${enc(f.sampai)}`);
     const qs = `?select=*&${q.join('&')}&order=tanggal_order.asc,distributor.asc,order_no.asc,produk.asc`;
-    return limit == null ? apiGetAll('v_outstanding_do', qs) : apiGet<Row[]>(`v_outstanding_do${qs}&limit=${limit}`);
+    // v_outstanding_do_harga (18_harga_loco.sql) = v_outstanding_do + harga Loco Net; belum dibuat -> tanpa harga
+    const ambil = (v: string) => (limit == null ? apiGetAll(v, qs) : apiGet<Row[]>(`${v}${qs}&limit=${limit}`));
+    return ambil('v_outstanding_do_harga').catch(() => ambil('v_outstanding_do'));
   },
+  /** Harga Loco Net yang tersimpan per distributor x produk. */
+  hargaInfo: () => getData('harga:info', () => apiGetAll('v_harga_loco_info', '?select=*&order=dist_code.asc,product_code.asc')),
   sellinInfo: () => getData<Row | null>('sellin:info', async () => (await apiGet<Row[]>('v_sellin_bnn_info?select=*'))[0] || null),
   transaksiDetail: (date: string, distCode?: string | null, productCodes?: string[] | null) => {
     const distFilter = distCode && distCode !== 'all' ? `&dist_code=eq.${enc(distCode)}` : '';
