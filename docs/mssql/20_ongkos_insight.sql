@@ -132,7 +132,7 @@ SELECT k.dist_code, k.periode, k.do_no, k.biaya, k.ton_kirim, k.trip, k.trip_tan
        CASE WHEN j.ton_do > 0 THEN j.net * k.ton_kirim / j.ton_do END AS omzet,
        CASE WHEN j.ton_do > 0 AND j.delivery_type IS NOT NULL THEN
          (CASE WHEN j.ada_rincian = 1 THEN j.tagih_rincian WHEN j.delivery_type LIKE N'LG%' THEN 0
-               WHEN j.tagih_harga IS NOT NULL THEN j.tagih_harga ELSE 0 END) * k.ton_kirim / j.ton_do END AS tagih,
+               WHEN j.tagih_harga IS NOT NULL THEN j.tagih_harga END) * k.ton_kirim / j.ton_do END AS tagih,   -- kosong = belum bisa dihitung (NULL), bukan 0
        CASE WHEN j.delivery_type IS NULL THEN NULL WHEN j.ada_rincian = 1 THEN N'rincian' WHEN j.delivery_type LIKE N'LG%' THEN N'lg'
             WHEN j.tagih_harga IS NOT NULL THEN N'harga' ELSE N'kosong' END AS tagih_sumber,
        CASE WHEN j.ton_do > 0 AND j.delivery_type IS NOT NULL THEN j.handling * k.ton_kirim / j.ton_do END AS handling,
