@@ -33,11 +33,10 @@ Ongkos kirim (halaman Ongkos Kirim di SEMENTRACK)
   D:\Nazam\Template\Auto Task File). Yang sudah ada di sana tidak diunduh lagi. Bulan ini dan bulan lalu hanya dipakai
   kalau diunduh hari ini (masih berubah); bulan yang sudah tutup cukup sekali.
 - Sebelum meminta ORDB019, View Report diperiksa dulu (sampai 20 halaman): laporan yang sudah ada langsung diunduh.
-- J073: setelah submit, View Job ditunggu sampai Job ID-nya muncul (maks 3 menit) baru job berikutnya dikirim, jadi Job ID
-  tidak tertukar. Kalau tidak muncul, 1 menit kemudian View Job dicek lagi dulu; kalau ternyata cuma telat, Job ID itu
-  dipakai (tidak submit ulang). Isi file tetap dicek (Distributor Code) sebagai pengaman.
-- Antrian ERP paling banyak 2 job/laporan sekaligus. Laporan yang belum muncul di View Report dicek tiap 1 menit sampai
-  30 menit (munculnya bisa ±10 menit); baru setelah semua halaman diperiksa dan tetap tidak ada, diminta ulang sekali.
-  Submit yang gagal / ditolak ERP dicoba lagi 1 menit kemudian (3 kali).
+- Setiap submit (J073 dan ORDB019) ditunggu sampai ID-nya muncul di View Job / View Report (dicek tiap 15 detik, maks
+  3 menit), baru kiriman berikutnya dikirim. Jadi ID tidak tertukar (ORDB019 dicocokkan lewat DIST + PERIODE).
+- Tidak muncul dalam 3 menit: 1 menit kemudian dicek lagi dulu (View Report: semua halaman). Kalau ternyata cuma telat,
+  ID itu dipakai, tidak submit ulang. Baru kalau tetap tidak ada, submit ulang (maks 3 kali). Isi file tetap dicek.
+- Antrian ERP paling banyak 2 job/laporan sekaligus. Submit yang ditolak ERP (antrian penuh dll.) dicoba lagi 1 menit kemudian.
 - Baris perintah: python j028_harian.py --bagian ONGKOS   |   --isi-ulang 2025-01 [--ongkos-dist 9575,4403]
   |   --ongkos-dari 2025-08-01 --ongkos-sampai 2025-10-31 --ongkos-dist 9575
