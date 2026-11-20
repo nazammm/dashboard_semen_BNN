@@ -40,7 +40,8 @@ Supaya tidak mengunduh berulang:
    bulan sesudahnya). Isi file diperiksa (distributor / periode) sebelum disimpan.
 2. Sebelum meminta ORDB019, View Report (SYS_Report_View.aspx, sampai MAKS_HALAMAN_VIEW halaman) diperiksa: laporan dengan
    DIST + PERIODE yang sama, FINISHED, dan segar langsung diunduh.
-3. Yang sudah disubmit tapi belum muncul ditunggu (cek tiap 1 menit lewat View Report) sampai TUNGGU_MUNCUL_MENIT (30);
+3. Yang sudah disubmit tapi belum muncul ditunggu (cek tiap 1 menit) sampai TUNGGU_MUNCUL_MENIT (30, laporan) atau
+   TUNGGU_MUNCUL_JOB_MENIT (10, job J073 / J028: Job ID langsung tercatat saat submit);
    lalu semua halaman diperiksa sekali lagi, baru submit ulang sekali (COBA_MUNCUL). Submit yang gagal / ditolak ERP
    dicoba lagi 1 menit kemudian (COBA_KIRIM 3 kali).
 Antrian ERP paling banyak MAKS_ANTRIAN (2) job + laporan sekaligus, termasuk yang belum muncul di View.
@@ -106,6 +107,8 @@ JEDA_COBA_DETIK = int(os.environ.get("JEDA_COBA_DETIK", "60"))
 # sudah submit tapi belum muncul di View: dicek tiap menit (bisa sampai ±10 menit; ERP menulis waktu tunggu 0-30 menit).
 # Setelah TUNGGU_MUNCUL_MENIT semua halaman View Report diperiksa dulu; baru kalau tetap tidak ada, submit ulang SEKALI.
 TUNGGU_MUNCUL_MENIT = int(os.environ.get("TUNGGU_MUNCUL_MENIT", "30"))
+# Job (View Job) langsung tercatat begitu disubmit dan mulai dalam hitungan detik; 10 menit tanpa Job ID = tidak dibuat ERP.
+TUNGGU_MUNCUL_JOB_MENIT = int(os.environ.get("TUNGGU_MUNCUL_JOB_MENIT", "10"))
 COBA_MUNCUL = int(os.environ.get("COBA_MUNCUL", "2"))          # paling banyak 2 kali submit untuk yang tidak pernah muncul   # isi ulang: sekian job/laporan per putaran unduh-upload
 POLA_STATUS = re.compile(r"FINISH|PROCESS|QUEUE|WAIT|PENDING|RUNNING|ERROR|FAIL|CANCEL|DONE|SUCCESS", re.I)
 POLA_KODE = re.compile(r"^(J028B?|J073|ORDB\d+)$", re.I)
@@ -1289,7 +1292,8 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                 if a["job"] is None:
                     # sudah submit tapi belum muncul: View dicek tiap menit; setelah TUNGGU_MUNCUL_MENIT dianggap tidak
                     # diterima ERP, lalu submit ulang (paling banyak COBA_KIRIM kali)
-                    if time.time() - a["waktu"] > TUNGGU_MUNCUL_MENIT * 60:
+                    batas_muncul = TUNGGU_MUNCUL_JOB_MENIT if jenis == "job" else TUNGGU_MUNCUL_MENIT
+                    if time.time() - a["waktu"] > batas_muncul * 60:
                         tempat = "View Job" if jenis == "job" else "View Report"
                         if jenis == "laporan" and cari_semua_halaman(a):
                             maju = True                          # ketemu di halaman lain (dan sudah diunduh kalau selesai)
@@ -1297,11 +1301,11 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                         aktif.remove(a)
                         maju = True
                         if a.get("muncul", 1) < COBA_MUNCUL:
-                            print(f"  {a['label']}: {TUNGGU_MUNCUL_MENIT} menit belum muncul di {tempat} (semua halaman sudah diperiksa), submit ulang sekali")
+                            print(f"  {a['label']}: {batas_muncul} menit belum muncul di {tempat}" + (" (semua halaman sudah diperiksa)" if jenis == "laporan" else "") + ", submit ulang sekali")
                             antre.insert(0, {k: v for k, v in a.items() if k not in ("waktu", "job")} | {"muncul": a.get("muncul", 1) + 1, "coba": 1, "siap": time.time()})
                         else:
                             h.catat_gagal(a["label"], SystemExit(f"{a['label']} tidak muncul di {tempat} setelah {COBA_MUNCUL} kali submit dan "
-                                                                 f"{TUNGGU_MUNCUL_MENIT} menit menunggu. Lihat screenshot sebelum_submit di folder unduhan."))
+                                                                 f"{batas_muncul} menit menunggu. Lihat screenshot sebelum_submit di folder unduhan."))
                     continue
                 if jenis == "laporan" and a["job"] not in daftar:
                     # sudah tergeser ke halaman berikutnya View Report: cari di sana
@@ -1432,6 +1436,11 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
                 jeda = max(1, min(jeda, int(min(x.get("siap", 0) for x in antre) - time.time()) + 1))
             sisa = len(aktif) + len(antre)
             print(f"  {sisa} job/laporan belum selesai, cek lagi " + (f"{jeda // 60} menit" if jeda >= 60 and jeda % 60 == 0 else f"{jeda} detik") + " lagi")
+            for a in aktif:                              # yang ditunggu, supaya jelas di log
+                menit = int((time.time() - a["waktu"]) // 60)
+                print(f"    menunggu: {a['label'].replace('Ongkos kirim ', '')} · " + (f"{a['job']} belum FINISHED" if a["job"] else
+                      f"belum ada {'Job' if a['jenis'] == 'job' else 'Report'} ID ({menit} menit sejak submit; "
+                      f"submit ulang setelah {TUNGGU_MUNCUL_JOB_MENIT if a['jenis'] == 'job' else TUNGGU_MUNCUL_MENIT} menit)"))
             time.sleep(jeda)
 
         if perlu_j028 and len(h.j028) < perlu_j028:
