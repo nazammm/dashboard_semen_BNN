@@ -8,7 +8,8 @@ alter table sementrack.sellout_j073
   add column if not exists delivery_type text, add column if not exists zona_kirim text,
   add column if not exists harga_kirim numeric, add column if not exists diskon_kirim numeric, add column if not exists tambah_kirim numeric,
   add column if not exists handling numeric, add column if not exists qty_kirim numeric,
-  add column if not exists kecamatan text, add column if not exists kabupaten text, add column if not exists cust_group text;
+  add column if not exists kecamatan text, add column if not exists kabupaten text, add column if not exists cust_group text,
+  add column if not exists harga_produk numeric;
 create index if not exists sellout_j073_dist_do_idx on sementrack.sellout_j073 (dist_code, do_no);
 
 drop function if exists sementrack.sellout_j073_simpan(json, text, text);
@@ -31,7 +32,8 @@ begin
          nullif(r.val ->> 12, '')::numeric as harga_kirim, nullif(r.val ->> 13, '')::numeric as diskon_kirim,
          nullif(r.val ->> 14, '')::numeric as tambah_kirim, nullif(r.val ->> 15, '')::numeric as handling,
          nullif(r.val ->> 16, '')::numeric as qty_kirim,
-         nullif(upper(btrim(r.val ->> 17)), '') as kecamatan, nullif(upper(btrim(r.val ->> 18)), '') as kabupaten, nullif(upper(btrim(r.val ->> 19)), '') as cust_group
+         nullif(upper(btrim(r.val ->> 17)), '') as kecamatan, nullif(upper(btrim(r.val ->> 18)), '') as kabupaten, nullif(upper(btrim(r.val ->> 19)), '') as cust_group,
+         nullif(r.val ->> 20, '')::numeric as harga_produk
   from json_array_elements(p_rows) with ordinality as r(val, ord);
   if exists (select 1 from _j073 where coalesce(dist_code, '') = '' or do_date is null or coalesce(do_no, '') = ''
                                      or coalesce(customer_code, '') = '' or coalesce(product_code, '') = '' or order_qty is null) then
@@ -46,10 +48,10 @@ begin
        d as (delete from sementrack.sellout_j073 j using r where j.dist_code = r.dist_code and j.do_date between r.a and r.b returning 1)
   select count(*) into v_old from d;
   insert into sementrack.sellout_j073 (dist_code, do_date, do_no, customer_code, customer_name, product_code, product_name, order_qty, net_amount, warehouse,
-                                       delivery_type, zona_kirim, harga_kirim, diskon_kirim, tambah_kirim, handling, qty_kirim, kecamatan, kabupaten, cust_group)
+                                       delivery_type, zona_kirim, harga_kirim, diskon_kirim, tambah_kirim, handling, qty_kirim, kecamatan, kabupaten, cust_group, harga_produk)
   select x.dist_code, x.do_date, x.do_no, x.customer_code, x.customer_name, x.product_code, x.product_name, x.order_qty, x.net_amount, x.warehouse,
          x.delivery_type, x.zona_kirim, x.harga_kirim, x.diskon_kirim, x.tambah_kirim, x.handling, x.qty_kirim, x.kecamatan, x.kabupaten,
-         nullif(x.cust_group, 'RETAIL') from _j073 x;
+         nullif(x.cust_group, 'RETAIL'), x.harga_produk from _j073 x;
   select count(*), coalesce(sum(sementrack.j073_ton(x.product_code, x.product_name, x.order_qty)), 0), min(x.do_date), max(x.do_date),
          array_agg(distinct x.dist_code order by x.dist_code)
     into v_new, v_ton, v_from, v_to, v_dists from _j073 x;
@@ -124,7 +126,11 @@ select x.dist_code, coalesce(d.dist_code, x.dist_code) as kode, coalesce(d.dist_
 from (select distinct dist_code from sementrack.ongkos_kirim) x
 left join lateral (select d.dist_code, d.dist_name from public.distributor d where d.kode_erp = x.dist_code order by d.dist_code limit 1) d on true;
 
-create or replace view sementrack.v_ongkos_trip as
+-- ongkos_insight.sql menambah kolom ke view-view ini; hapus dulu supaya file ini bisa dijalankan ulang
+drop view if exists sementrack.v_ongkos_info;
+drop view if exists sementrack.v_ongkos_do;
+drop view if exists sementrack.v_ongkos_trip;
+create view sementrack.v_ongkos_trip as
 select k.dist_code, k.periode, k.foad, min(k.kirim_date) as kirim_date,
        max(k.transporter) as transporter, max(k.truk) as truk, max(k.asal) as asal, max(k.zona) as zona, max(k.tujuan) as tujuan,
        max(k.segmen) as segmen, max(k.harga_ritase) as harga_ritase, sum(k.total) as biaya, sum(k.ton) as ton,

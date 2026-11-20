@@ -34,6 +34,8 @@ Ongkos kirim (halaman Ongkos Kirim): per distributor di ONGKOS_DIST (13 distribu
 - rentang pilihan (paling panjang 3 bulan): --ongkos-dari / --ongkos-sampai / --ongkos-dist.
 - isi data lama: --isi-ulang 2026-01 [--ongkos-dist ...] (ongkos kirim dilacak mulai Januari 2026, ONGKOS_MULAI), per bulan untuk semua distributor bersamaan, dicatat di
   isi_ulang_ongkos.json; kalau terhenti jalankan lagi, yang sudah masuk dilewati.
+- upload ulang salinan J073 lokal (2026 ke atas) tanpa membuka ERP: --unggah-ulang-j073 [--ongkos-dist ...]. Dipakai sekali
+  setelah kolom Product Price ditambahkan (ongkir dibayar toko yang kolom Delivery-nya kosong dihitung dari harga).
 Supaya tidak mengunduh berulang:
 1. Salinan lokal (ONGKOS_FOLDER, bawaan D:\\Nazam\\Template\\Auto Task File\\J073|ORDB019\\<kode>\\...) yang masih segar
    dipakai langsung tanpa membuka ERP. Segar = diunduh hari ini, atau diunduh setelah bulannya tutup (mulai tanggal 1 dua
@@ -90,7 +92,7 @@ from pathlib import Path
 
 from playwright.sync_api import Error as PWError, Page, TimeoutError as PWTimeout, sync_playwright
 
-VERSI = "2026.11.20.6"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
+VERSI = "2026.11.20.7"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
 ERP = os.environ.get("ERP_URL", "https://www.bangunsukses.com").rstrip("/")   # ERP_URL hanya untuk uji
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
@@ -1165,6 +1167,29 @@ def file_j073_lokal(dist: str, a: date, b: date, hari: date) -> Path | None:
     return min(pilihan)[1] if pilihan else None
 
 
+def j073_lokal_semua(dists: list[str] | None = None) -> list[tuple[Path, dict]]:
+    """Semua salinan J073 lokal yang menyentuh ONGKOS_MULAI ke atas, untuk diupload ulang tanpa ERP. File yang rentangnya
+    sudah tercakup file lain yang lebih baru dilewati; urutan upload dari yang paling lama diunduh (yang terbaru menang)."""
+    semua = []
+    akar = folder_file() / "J073"
+    for folder in sorted(akar.iterdir()) if akar.exists() else []:
+        if not folder.is_dir() or (dists and folder.name.upper() not in dists):
+            continue
+        for p in folder.glob("J073_*_*_*.TXT"):
+            m = re.fullmatch(r"J073_(.+)_(\d{8})_(\d{8})\.TXT", p.name, re.I)
+            if not m:
+                continue
+            fa, fb = (datetime.strptime(x, "%Y%m%d").date() for x in m.groups()[1:])
+            if fb >= ONGKOS_MULAI:
+                semua.append((waktu_file(p), m.group(1).upper(), fa, fb, p))
+    pilih: list[tuple] = []
+    for w, d, fa, fb, p in sorted(semua, key=lambda x: x[0], reverse=True):
+        if not any(d == d2 and fa2 <= fa and fb <= fb2 for _, d2, fa2, fb2, _ in pilih):
+            pilih.append((w, d, fa, fb, p))
+    return [(p, {"jenis": "J073", "dist": d, "dari": fa, "sampai": fb, "kunci": f"J073|{d}|{fa}|{fb}"})
+            for w, d, fa, fb, p in sorted(pilih, key=lambda x: x[0])]
+
+
 def cari_lokal(k: dict, hari: date) -> Path | None:
     return file_ordb_lokal(k["dist"], k["bulan"], hari) if k["jenis"] == "ORDB" else file_j073_lokal(k["dist"], k["dari"], k["sampai"], hari)
 
@@ -2029,6 +2054,7 @@ def main() -> None:
     ap.add_argument("--ongkos-dist", metavar="KODE,KODE", help="Ongkos kirim rentang pilihan: distributor tertentu saja (bawaan: ONGKOS_DIST)")
     ap.add_argument("--harga-dari", type=date.fromisoformat, metavar="YYYY-MM-DD", help="Harga Loco: baca ulang semua masa berlaku sejak tanggal ini")
     ap.add_argument("--harga-dist", metavar="KODE,KODE", help="Harga Loco: PT tertentu saja (bawaan: HARGA_DIST)")
+    ap.add_argument("--unggah-ulang-j073", action="store_true", help="Ongkos kirim: upload ulang semua salinan J073 lokal 2026 ke atas (tanpa ERP)")
     ap.add_argument("--isi-ulang", metavar="YYYY-MM", help="Ongkos kirim: isi data lama sejak bulan ini (J073 per 3 bulan, ORDB019 per bulan); bisa dilanjutkan")
     a = ap.parse_args()
     if a.log:
@@ -2061,7 +2087,10 @@ def main() -> None:
             sys.exit("--bagian hanya boleh " + ", ".join(sorted(SEMUA_BAGIAN)))
     else:
         bagian = {"J028", "J073", "SUBDIST"} if a.semua else {"SUBDIST"} if a.subdist else {"J073"} if a.j073 else {"J028"}
-    if a.isi_ulang:
+    if a.unggah_ulang_j073:
+        a.ongkos_dist = [d for d in (k.strip().upper() for k in (a.ongkos_dist or "").split(",")) if d] or None
+        bagian = {"ONGKOS"}
+    elif a.isi_ulang:
         try:
             a.isi_ulang = date.fromisoformat(a.isi_ulang[:7] + "-01")
         except ValueError:
@@ -2144,6 +2173,15 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
         if a.isi_ulang:
             isi_ulang_ongkos(pw, a, h)
             return
+        if a.unggah_ulang_j073:
+            h.ongkos = j073_lokal_semua(a.ongkos_dist)
+            print(f"Upload ulang J073 lokal sejak {ONGKOS_MULAI:%Y-%m}: {len(h.ongkos)} file di {folder_file() / 'J073'}")
+            for f, k in h.ongkos:
+                print(f"  {k['dist']} {k['dari']} s.d. {k['sampai']}: {f.name}")
+            if not h.ongkos:
+                h.berhasil["Ongkos kirim"] = "tidak ada salinan J073 lokal 2026"
+                return
+            bagian = set()
         dari_erp = (bagian & {"J028", "J073", "SUBDIST"}) - ({"J028"} if a.berkas else set())
         if "ONGKOS" not in bagian:
             ongkos = []

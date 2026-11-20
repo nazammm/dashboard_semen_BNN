@@ -34,6 +34,10 @@ Ongkos kirim (halaman Ongkos Kirim di SEMENTRACK)
     * Rentang tanggal lewat kalender, paling panjang 3 bulan; atau
     * Isi data lama sejak bulan tertentu sampai hari ini (dikerjakan per bulan untuk semua distributor terpilih, bisa
       dilanjutkan kalau terhenti; tercatat di isi_ulang_ongkos.json).
+    * Upload ulang salinan J073 di folder (2026 ke atas), tanpa membuka ERP. Pakai SEKALI setelah versi 2026.11.20.7
+      (dan 20_ongkos_insight.sql di SSMS): kolom Product Price ikut tersimpan, jadi "ongkir dibayar toko" untuk DO yang
+      kolom Delivery-nya kosong bisa dihitung dari harga DO - harga Loco. Bulan yang belum punya salinan J073 (mis.
+      April-Juni 2026 untuk beberapa distributor) ambil dulu lewat rentang tanggal.
 - Semua J073 / ORDB019 yang terunduh disalin ke folder salinan (Pengaturan -> Folder salinan, bawaan
   D:\Nazam\Template\Auto Task File). Yang sudah ada di sana tidak diunduh lagi. Bulan ini dan bulan lalu hanya dipakai
   kalau diunduh hari ini (masih berubah); bulan yang sudah tutup cukup sekali.
@@ -45,6 +49,7 @@ Ongkos kirim (halaman Ongkos Kirim di SEMENTRACK)
 - Antrian ERP paling banyak 2 job/laporan sekaligus. Submit yang ditolak ERP (antrian penuh dll.) dicoba lagi 1 menit kemudian.
 - Baris perintah: python j028_harian.py --bagian ONGKOS   |   --isi-ulang 2026-01 [--ongkos-dist 9575,4403]
   |   --ongkos-dari 2026-08-01 --ongkos-sampai 2026-10-31 --ongkos-dist 9575
+  |   --unggah-ulang-j073 [--ongkos-dist 4094,9575]
 
 Harga Loco (perkiraan nilai di halaman Outstanding DO)
 - Centang "Harga Loco" di Beranda (dan ikut jadwal). Dari jadwal bagian ini hanya jalan seminggu sekali.

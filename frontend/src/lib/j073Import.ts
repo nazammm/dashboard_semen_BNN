@@ -7,7 +7,8 @@
    Pembagian ke baris Sell Out BNN (INSA, INSA-E, INSA - ACEH, PKB, Dumai-PKB, Dumai-Patent)
    dilakukan di database (sementrack.sellout_j073_aturan), bukan di sini.
    Murni (tanpa DOM) supaya bisa jalan di Web Worker dan diuji di Node.
-   Urutan kolom yang dikirim = urutan argumen sementrack.sellout_j073_simpan.
+   Urutan kolom yang dikirim = urutan argumen sementrack.sellout_j073_simpan
+   (indeks 19 = cust group, 20 = Product Price per zak).
 ============================================================================ */
 import { DateOrderDetector, isAmbiguousDate, kgPerZak, normHeader, toISODate, toNumber, type DateOrder, type DateOrderInfo, type RowCollector } from './sellin';
 
@@ -33,6 +34,8 @@ const COLS = [
   { key: 'kecamatan', header: 'kecamatan' },
   { key: 'kabupaten', header: 'kabupaten' },
   { key: 'cust_group', header: 'Cust Group', required: true },
+  // harga per zak di DO (Product Price), sudah termasuk ongkir untuk DO kirim; opsional (file lama)
+  { key: 'harga_produk', header: 'Product Price', alias: ['tdProductPrice'] },
   // hanya untuk saringan, tidak dikirim
   { key: 'category', header: 'Product Category', required: true },
   { key: 'dist_name', header: 'Distributor Name' },
@@ -135,6 +138,8 @@ export class J073Collector implements RowCollector<J073ParseResult> {
       out.push(ANGKA_KIRIM.has(k) ? (v == null || ['', '-'].includes(String(v).trim()) ? null : this.angka(v)) : String(v ?? '').trim() || null);
     }
     out.push(grup || null);
+    const hp = get('harga_produk');
+    out.push(hp == null || ['', '-'].includes(String(hp).trim()) ? null : this.angka(hp));
     if (grup !== 'RETAIL') st.proyek++;
     this.rows.push(out);
     this.tons.push(j073Ton(qty!, name));
