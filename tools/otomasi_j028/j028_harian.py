@@ -90,7 +90,7 @@ from pathlib import Path
 
 from playwright.sync_api import Error as PWError, Page, TimeoutError as PWTimeout, sync_playwright
 
-VERSI = "2026.11.20.3"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
+VERSI = "2026.11.20.4"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
 ERP = os.environ.get("ERP_URL", "https://www.bangunsukses.com").rstrip("/")   # ERP_URL hanya untuk uji
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
