@@ -17,7 +17,7 @@ from pathlib import Path
 import j028_harian as mesin
 
 APP = "Nazam Auto Task"
-VERSI = "1.0"
+VERSI = mesin.VERSI
 DASAR = mesin.DASAR
 FOLDER = mesin.FOLDER
 LOG = FOLDER / "log.txt"
