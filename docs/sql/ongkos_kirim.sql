@@ -69,7 +69,7 @@ create index if not exists ongkos_kirim_dist_periode_idx on sementrack.ongkos_ki
 
 alter table sementrack.kelola_log drop constraint if exists kelola_log_dataset_check;
 alter table sementrack.kelola_log add constraint kelola_log_dataset_check
-  check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073', 'target', 'outstanding', 'tabel', 'stock', 'ongkos'));
+  check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073', 'target', 'outstanding', 'tabel', 'stock', 'ongkos', 'harga'));
 
 create or replace function sementrack.ongkos_simpan(p_rows json, p_user text, p_file text default null)
 returns table(rows_saved integer, rows_deleted integer, biaya numeric, ton numeric, periode_dari date, periode_sampai date, dist_codes text[])
@@ -98,6 +98,9 @@ begin
   end if;
   if exists (select 1 from _o where periode > date_trunc('month', current_date)::date) then
     raise exception 'Periode ORDB019 setelah bulan ini' using errcode = '22023';
+  end if;
+  if exists (select 1 from _o where periode < date '2026-01-01') then
+    raise exception 'Ongkos kirim dilacak mulai Januari 2026, ORDB019 sebelum itu tidak disimpan' using errcode = '22023';
   end if;
   with d as (delete from sementrack.ongkos_kirim k using (select distinct dist_code, periode from _o) r
              where k.dist_code = r.dist_code and k.periode = r.periode returning 1)
@@ -163,7 +166,7 @@ select t.dist_code, d.kode, d.nama, t.periode, count(*)::int as trip, sum(t.ton)
        sum(case when t.biaya > 0 then t.ton else 0 end) as ton_berbiaya, sum(t.biaya) as biaya,
        (select max(do_date) from sementrack.sellout_j073 j where j.dist_code = t.dist_code) as j073_sampai
 from sementrack.v_ongkos_trip t join sementrack.v_ongkos_dist d on d.dist_code = t.dist_code
-where t.ton > 0
+where t.ton > 0 and t.periode >= date '2026-01-01'          -- ongkos kirim dilacak mulai 2026
 group by t.dist_code, d.kode, d.nama, t.periode;
 
 create or replace view sementrack.v_sellout_j073_baris as
@@ -280,5 +283,12 @@ end $$;
 
 grant select on sementrack.v_ongkos_dist, sementrack.v_ongkos_trip, sementrack.v_ongkos_do, sementrack.v_ongkos_info,
   sementrack.v_sellout_j073_baris, sementrack.v_data_status to public;
+
+
+-- Ongkos kirim dilacak mulai 2026: data sebelum itu dihapus (J073 RETAIL distributor Sell Out tetap)
+delete from sementrack.ongkos_kirim where periode < date '2026-01-01';
+delete from sementrack.sellout_j073 j
+where j.do_date < date '2026-01-01'
+  and (j.cust_group is not null or not exists (select 1 from sementrack.sellout_j073_aturan a where a.dist_code = j.dist_code));
 
 commit;

@@ -129,6 +129,9 @@ function Body({ info }: { info: Row[] }) {
         { name: 'Per zona', header: ['Zona', 'Ton', 'Ongkos real (Rp)', 'Real per ton', 'Ditagih (Rp)', 'Ditagih per ton', 'Ditanggung distributor (Rp)', 'Ongkos % omzet'],
           rows: v.zona.map(z => [z.nama, z.ton, z.biaya, perTon(z.biaya, z.ton), z.tagih, perTon(z.tagih, z.tonTagih), z.tanggung, z.omzet ? z.biayaOmzet / z.omzet : null]),
           widths: [24, 10, 16, 13, 14, 14, 20, 14] },
+        { name: 'Per transporter', header: ['Transporter', 'Perjalanan', 'Perjalanan ada biaya', 'Ton', 'Ton DO lengkap', 'Ongkos real (Rp)', 'Real per ton', 'Ditagih (Rp)', 'Ditagih per ton', 'Ditanggung distributor (Rp)', 'Ongkos % omzet'],
+          rows: v.perTransporter.map(t => [t.nama, t.trips, t.tripsBiaya, t.ton, t.tonL, t.biaya, perTon(t.biaya, t.tonL), t.tagih, perTon(t.tagih, t.tonTagih), t.tanggung, t.omzet ? t.biayaOmzet / t.omzet : null]),
+          widths: [32, 10, 12, 10, 12, 16, 12, 14, 13, 20, 14] },
         { name: 'Per toko', header: ['Kode toko', 'Toko', 'Zona', 'DO', 'Ton', 'Ongkos real (Rp)', 'Real per ton', 'Ditagih (Rp)', 'Ditanggung distributor (Rp)', 'Ongkos % omzet'],
           rows: v.toko.map(t => [t.cust, t.toko, t.zona, t.jumlahDo, t.ton, t.biaya, perTon(t.biaya, t.ton), t.tagih, t.tanggung, t.omzet ? t.biayaOmzet / t.omzet : null]),
           widths: [11, 34, 20, 6, 9, 16, 13, 14, 20, 14] },
@@ -220,6 +223,42 @@ function Body({ info }: { info: Row[] }) {
               </tbody>
             </table>
           </TableWrap>
+
+          <h2 className="section-title mt-[38px]">Ongkos per transporter <span className="n">{distLabel} · {periodeLabel}{tipeOk !== 'all' ? ` · ${tipeLabel(tipeOk)}` : ''}</span></h2>
+          <TableWrap>
+            <table>
+              <caption className="sr-only">Rangkuman ongkos kirim per transporter</caption>
+              <thead><tr>
+                <th>Transporter</th><th className="num">Perjalanan</th><th className="num">Ton</th><th className="num">Ada biaya</th>
+                <th className="num">Real /ton</th><th className="num">Ditagih /ton</th><th className="num">Ditanggung distributor</th><th className="num">Ongkos % omzet</th>
+              </tr></thead>
+              <tbody>
+                {!v.perTransporter.length && <tr><td colSpan={8} className="!text-center !text-faint !p-5">Belum ada perjalanan pada filter ini.</td></tr>}
+                {v.perTransporter.map(t => {
+                  const pct = t.trips ? t.tripsBiaya / t.trips : 0;
+                  return (
+                    <tr key={t.nama} className={cx(transOk === t.nama && 'bg-[#eef4f1]')}>
+                      <td>
+                        <button type="button" className="link-btn !no-underline font-medium text-left" title="Tampilkan transporter ini saja"
+                          onClick={() => setTrans(transOk === t.nama ? 'all' : t.nama)}>{t.nama}</button>
+                      </td>
+                      <td className="num font-mono">{fmt(t.trips)}</td>
+                      <td className="num font-mono">{fmtTon(t.ton)}</td>
+                      <td className={cx('num font-mono', pct < 0.5 && 'text-amber')}>{fmtPct(pct, 0)}</td>
+                      <td className="num font-mono">{t.tonL ? fmtRpTon(perTon(t.biaya, t.tonL)) : '–'}</td>
+                      <td className="num font-mono">{t.tonTagih ? fmtRpTon(perTon(t.tagih, t.tonTagih)) : '–'}</td>
+                      <td className="num font-mono">{t.tonTagih ? fmtIDR(t.tanggung) : '–'}</td>
+                      <td className="num font-mono">{t.omzet ? fmtPct(t.biayaOmzet / t.omzet) : '–'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </TableWrap>
+          <p className="text-faint text-[12px] mt-1.5">
+            Ada biaya = perjalanan yang sudah ada ongkosnya di ORDB019. Per ton, ditagih, dan ditanggung hanya dari DO yang biayanya lengkap (sama dengan tabel zona).
+            Klik nama transporter untuk menampilkan transporter itu saja; klik lagi untuk kembali.
+          </p>
 
           <div className="grid gap-4 mt-6 grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] max-[1100px]:grid-cols-1">
             <Card title="Tagihan transporter vs harga ritase">
@@ -344,6 +383,19 @@ function hitung(tripsAll: Trip[], dosAll: DoRow[], tipe: string, trans: string) 
   });
   const transporter = [...trm.values()].map(x => ({ ...x, vsRitase: x.ritase > 0 ? x.biayaR / x.ritase - 1 : null })).sort((a, b) => b.ton - a.ton);
 
+  // rangkuman per transporter (semua transporter pada filter tipe kirim; filter transporter hanya menandai barisnya)
+  const dosTipe = dosAll.filter(d => tipe === 'all' || d.tipe === tipe);
+  const rk = new Map<string, { nama: string; trips: number; tripsBiaya: number; ton: number; tonL: number; biaya: number; tagih: number; tonTagih: number; tanggung: number; omzet: number; biayaOmzet: number }>();
+  const ambil = (nama: string) => rk.get(nama) || rk.set(nama, { nama, trips: 0, tripsBiaya: 0, ton: 0, tonL: 0, biaya: 0, tagih: 0, tonTagih: 0, tanggung: 0, omzet: 0, biayaOmzet: 0 }).get(nama)!;
+  tripsAll.forEach(t => { const x = ambil(t.transporter); x.trips++; x.ton += t.ton; if (t.biaya > 0) x.tripsBiaya++; });
+  dosTipe.filter(d => d.lengkap).forEach(d => {
+    const x = ambil(d.transporter);
+    x.tonL += d.ton; x.biaya += d.biaya;
+    if (d.tagih != null) { x.tagih += d.tagih; x.tonTagih += d.ton; x.tanggung += d.biaya - d.tagih; }
+    if (d.omzet) { x.omzet += d.omzet; x.biayaOmzet += d.biaya; }
+  });
+  const perTransporter = [...rk.values()].sort((a, b) => b.ton - a.ton);
+
   // per toko
   const km = new Map<string, { cust: string; toko: string; zonaTon: Map<string, number>; jumlahDo: number; ton: number; biaya: number; tagih: number; tanggung: number; adaTagih: boolean; omzet: number; biayaOmzet: number }>();
   lengkap.forEach(d => {
@@ -401,7 +453,7 @@ function hitung(tripsAll: Trip[], dosAll: DoRow[], tipe: string, trans: string) 
     tertutup: realTagih ? tagih / realTagih : null,
     tanggung: realTagih - tagih, tanggungTon: perTon(realTagih - tagih, tonTagih), doTagih: ditagih.length,
     belum: [...belum.entries()].map(([nama, x]) => ({ nama, ...x })).sort((a, b) => b.ton - a.ton),
-    truk, tipe: tipeRows, zona, transporter, ritaseBeda: { beda, total: totalR }, toko, cek: cek.slice(0, 5),
+    truk, tipe: tipeRows, zona, transporter, perTransporter, ritaseBeda: { beda, total: totalR }, toko, cek: cek.slice(0, 5),
   };
 }
 

@@ -32,7 +32,7 @@ Ongkos kirim (halaman Ongkos Kirim): per distributor di ONGKOS_DIST (13 distribu
 - jadwal mingguan (--jadwal, ONGKOS_HARI): J073 bulan ini + 2 bulan sebelumnya (satu job), ORDB019 bulan ini dan bulan lalu,
   plus dua bulan lalu sekali lagi setelah bulan itu tutup.
 - rentang pilihan (paling panjang 3 bulan): --ongkos-dari / --ongkos-sampai / --ongkos-dist.
-- isi data lama: --isi-ulang 2025-01 [--ongkos-dist ...], per bulan untuk semua distributor bersamaan, dicatat di
+- isi data lama: --isi-ulang 2026-01 [--ongkos-dist ...] (ongkos kirim dilacak mulai Januari 2026, ONGKOS_MULAI), per bulan untuk semua distributor bersamaan, dicatat di
   isi_ulang_ongkos.json; kalau terhenti jalankan lagi, yang sudah masuk dilewati.
 Supaya tidak mengunduh berulang:
 1. Salinan lokal (ONGKOS_FOLDER, bawaan D:\\Nazam\\Template\\Auto Task File\\J073|ORDB019\\<kode>\\...) yang masih segar
@@ -47,8 +47,8 @@ Supaya tidak mengunduh berulang:
    Submit yang ditolak ERP (pop-up antrian penuh / gagal) juga dicoba lagi 1 menit kemudian.
 Antrian ERP paling banyak MAKS_ANTRIAN (2) job + laporan sekaligus, termasuk yang belum muncul di View.
     python j028_harian.py --bagian ONGKOS
-    python j028_harian.py --isi-ulang 2025-01
-    python j028_harian.py --ongkos-dari 2025-08-01 --ongkos-sampai 2025-10-31 --ongkos-dist 9575,4403
+    python j028_harian.py --isi-ulang 2026-01
+    python j028_harian.py --ongkos-dari 2026-08-01 --ongkos-sampai 2026-10-31 --ongkos-dist 9575,4403
 
 Harga Loco (perkiraan nilai Outstanding DO): ERP Order Process -> Other Inquiry -> Price & Promo Simulation
 (SLS_Price_Promo_Simulation.aspx), per PT (HARGA_DIST, bawaan 13 distributor) x produk CMT / RJW / CWC (HARGA_PRODUK).
@@ -90,7 +90,7 @@ from pathlib import Path
 
 from playwright.sync_api import Error as PWError, Page, TimeoutError as PWTimeout, sync_playwright
 
-VERSI = "2026.11.20.5"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
+VERSI = "2026.11.20.6"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
 ERP = os.environ.get("ERP_URL", "https://www.bangunsukses.com").rstrip("/")   # ERP_URL hanya untuk uji
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
@@ -113,6 +113,7 @@ DAFTAR_DIST = [("4094", "INSA"), ("9575", "PKB"), ("6980", "BKP"), ("6984", "BMM
                ("1001K", "KTP"), ("1001P", "PTK"), ("4403", "NC"), ("4403B", "NCB"), ("6987", "NSA"), ("6981", "PM")]
 ONGKOS_DIST_BAWAAN = ",".join(k for k, _ in DAFTAR_DIST)
 FOLDER_FILE_BAWAAN = r"D:\Nazam\Template\Auto Task File"     # salinan J073 / ORDB019 yang sudah diunduh (ONGKOS_FOLDER)
+ONGKOS_MULAI = date(2026, 1, 1)                                 # ongkos kirim dilacak mulai 2026; sebelum itu tidak diambil
 ONGKOS_HARI = int(os.environ.get("ONGKOS_HARI", "7"))          # dari jadwal: ongkos kirim diperbarui paling sering sekali seminggu
 KELOMPOK_ISI_ULANG = int(os.environ.get("KELOMPOK_ISI_ULANG", "8"))
 COBA_KIRIM = int(os.environ.get("COBA_KIRIM", "3"))            # submit gagal / ditolak ERP: dicoba lagi sampai sekian kali, jeda JEDA_COBA_DETIK
@@ -1036,8 +1037,10 @@ def kiriman_ongkos(hari: date, dists: list[str], mulai: date | None = None) -> l
     """Daftar job / laporan Ongkos Kirim. Bawaan: J073 bulan ini + 2 bulan sebelumnya (satu job, batas 3 bulan ERP) dan
     ORDB019 bulan lalu + bulan ini. Isi ulang (mulai): J073 per 3 bulan dan ORDB019 per bulan sejak `mulai`."""
     hasil = []
+    if mulai:
+        mulai = max(mulai, ONGKOS_MULAI)
     for d in dists:
-        jendela = jendela_3bulan(mulai, hari) if mulai else [(awal_bulan(hari, 2), hari)]
+        jendela = jendela_3bulan(mulai, hari) if mulai else [(max(awal_bulan(hari, 2), ONGKOS_MULAI), hari)]
         for a, b in jendela:
             hasil.append({"jenis": "J073", "dist": d, "dari": a, "sampai": b, "kunci": f"J073|{d}|{a}|{b if mulai is None or b < awal_bulan(hari) else 'kini'}"})
         bulan = []
@@ -1051,6 +1054,7 @@ def kiriman_ongkos(hari: date, dists: list[str], mulai: date | None = None) -> l
             bulan = [awal_bulan(hari, 1), awal_bulan(hari)]
             if not file_ordb_lokal(d, awal_bulan(hari, 2), hari):
                 bulan.insert(0, awal_bulan(hari, 2))
+            bulan = [m for m in bulan if m >= ONGKOS_MULAI]
         for m in bulan:
             hasil.append({"jenis": "ORDB", "dist": d, "bulan": m, "kunci": f"ORDB|{d}|{m:%Y-%m}"})
     # urut per bulan lalu per distributor: semua distributor maju bersama, bukan satu distributor sampai habis dulu
@@ -1069,6 +1073,8 @@ def cek_rentang_ongkos(dari: date, sampai: date | None, dist: str | None) -> tup
         raise ValueError(f"Ongkos kirim: paling panjang 3 bulan (dari {dari} paling jauh s.d. {batas}).")
     if dari > hari:
         raise ValueError("Ongkos kirim: tanggal awal setelah hari ini.")
+    if dari < ONGKOS_MULAI:
+        raise ValueError(f"Ongkos kirim dilacak mulai {ONGKOS_MULAI:%d-%m-%Y}; pilih tanggal awal sejak itu.")
     dists = [k.strip().upper() for k in (dist or "").split(",") if k.strip()] or ongkos_dist()
     return min(sampai, hari), [d for d in dists if d != "4094E"] or ["4094"]
 

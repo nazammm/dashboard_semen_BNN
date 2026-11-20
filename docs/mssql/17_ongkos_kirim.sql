@@ -143,7 +143,7 @@ GO
 
 ALTER TABLE sementrack.kelola_log DROP CONSTRAINT IF EXISTS CK_kelola_log_dataset_check;
 ALTER TABLE sementrack.kelola_log ADD CONSTRAINT CK_kelola_log_dataset_check
-  CHECK (dataset IN (N'transaksi', N'sellin', N'dofas', N'erp', N'j073', N'target', N'outstanding', N'tabel', N'stock', N'ongkos'));
+  CHECK (dataset IN (N'transaksi', N'sellin', N'dofas', N'erp', N'j073', N'target', N'outstanding', N'tabel', N'stock', N'ongkos', N'harga'));
 GO
 
 /* Baris: [dist_code, periode (YYYY-MM-01), kirim_date, do_no, foad, segmen, transporter, truk, asal, tujuan, zona, harga_ritase,
@@ -179,6 +179,8 @@ BEGIN
   IF @b IS NOT NULL BEGIN SET @msg = CONCAT(N'Teks terlalu panjang (baris ', @b, N')'); THROW 52023, @msg, 1; END
   IF EXISTS (SELECT 1 FROM #o WHERE periode > DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1))
     THROW 52023, N'Periode ORDB019 setelah bulan ini', 1;
+  IF EXISTS (SELECT 1 FROM #o WHERE periode < DATEFROMPARTS(2026, 1, 1))
+    THROW 52023, N'Ongkos kirim dilacak mulai Januari 2026, ORDB019 sebelum itu tidak disimpan', 1;
 
   BEGIN TRAN;
   EXEC sp_getapplock @Resource = N'ongkos_kirim', @LockMode = N'Exclusive', @LockOwner = N'Transaction';
@@ -259,7 +261,7 @@ SELECT t.dist_code, d.kode, d.nama, t.periode, COUNT(*) AS trip, SUM(t.ton) AS t
        SUM(CASE WHEN t.biaya > 0 THEN t.ton ELSE 0 END) AS ton_berbiaya, SUM(t.biaya) AS biaya,
        (SELECT MAX(do_date) FROM sementrack.sellout_j073 j WHERE j.dist_code = t.dist_code) AS j073_sampai
 FROM sementrack.v_ongkos_trip t JOIN sementrack.v_ongkos_dist d ON d.dist_code = t.dist_code
-WHERE t.ton > 0
+WHERE t.ton > 0 AND t.periode >= '20260101'          -- ongkos kirim dilacak mulai 2026 (19_ongkos_mulai_2026.sql)
 GROUP BY t.dist_code, d.kode, d.nama, t.periode;
 GO
 

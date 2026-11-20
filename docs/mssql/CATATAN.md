@@ -23,6 +23,7 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 16_toko_sales_baru.sql | Kelola Data → Toko & sales baru: view toko yang baru order dan salesman baru / tanpa target | query cek di akhir skrip |
 | 17_ongkos_kirim.sql | Ongkos Kirim: J073 dengan kolom pengiriman (semua distributor, retail + proyek), tabel ORDB019, view per perjalanan / DO, hak halaman | `SELECT * FROM sementrack.v_ongkos_info` |
 | 18_harga_loco.sql | Harga Loco Net (ERP Price & Promo Simulation) per PT x produk x masa berlaku; v_outstanding_do_harga + nilai di v_outstanding_do_ringkas. Jalankan lagi setiap kali 02_sellin.sql dijalankan ulang | `SELECT * FROM sementrack.v_harga_loco_info` |
+| 19_ongkos_mulai_2026.sql | Ongkos Kirim dilacak mulai 2026: hapus ORDB019 dan J073 khusus ongkos sebelum 2026 (J073 RETAIL INSA/PKB tetap), tolak upload ORDB019 sebelum 2026 | `SELECT MIN(periode) FROM sementrack.ongkos_kirim` |
 
 ## Untuk tahap 5 (backend)
 
