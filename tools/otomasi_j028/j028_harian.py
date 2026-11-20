@@ -90,7 +90,7 @@ from pathlib import Path
 
 from playwright.sync_api import Error as PWError, Page, TimeoutError as PWTimeout, sync_playwright
 
-VERSI = "2026.11.20.4"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
+VERSI = "2026.11.20.5"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
 ERP = os.environ.get("ERP_URL", "https://www.bangunsukses.com").rstrip("/")   # ERP_URL hanya untuk uji
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
@@ -1560,6 +1560,10 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
 # Harga Loco (Price & Promo Simulation) untuk perkiraan nilai Outstanding DO
 # ---------------------------------------------------------------------------
 HARGA_PAKAI_BACK = True
+HARGA_TANGGAL_OK = False                      # sudah ada hasil simulasi yang tanggalnya terbaca benar di jalan ini
+HARGA_CATATAN = ""                            # alasan simulasi terakhir tidak menghasilkan harga LOCO
+HARGA_JEJAK: set[tuple[str, str]] = set()     # PT x produk yang halamannya sudah disimpan (unduhan/harga_kosong_...)
+HARGA_MIN = 1000                              # Loco Net di bawah ini dianggap isian / dummy
 HARGA_STATUS = DASAR / "harga_loco.json"      # masa berlaku terakhir yang sudah terunggah per "PT|produk"
 KOLOM_HARGA = ["dist_code", "product_code", "product_name", "warehouse", "delivery_type", "price", "net_price",
                "effective_date", "expired_date", "diambil"]
@@ -1691,14 +1695,30 @@ def baca_harga(page: Page, dist: str, kode: str, d: date) -> list[dict]:
         baru = " ".join(PESAN_ERP[n_pesan:])
         raise SystemExit(f"Next tidak membuka hasil simulasi {dist} {kode} {d}" + (f" (pesan ERP: {baru})" if baru else "")
                          + f".\nHalaman: {jejak(page, 'harga_next')}")
+    global HARGA_CATATAN, HARGA_TANGGAL_OK
+    HARGA_CATATAN = ""
     data = page.evaluate(JS_TABEL_HARGA)
     isi = page.locator("body").inner_text()
-    if not data:
-        if re.search(r"Basic and Additional Price", isi, re.I):
-            return []                                  # tabel ada tapi kosong
-        raise SystemExit(f"Hasil Price & Promo Simulation {dist} {kode} {d} tidak terbaca.\nHalaman: {jejak(page, 'harga_hasil')}")
     m = re.search(r"Tanggal\s+Simulasi\s*:?\s*([0-9]{1,2}[\s\-/][A-Za-z0-9]{2,9}[\s\-/][0-9]{4})", isi, re.I)
     tgl = tanggal_teks(m.group(1)) if m else None
+    if not data:
+        # ERP tidak menampilkan tabel harga: produk ini belum / tidak punya harga pada tanggal itu (halaman kosong, pesan, atau
+        # halaman galat ERP). Diterima sebagai "tidak ada harga" kalau halaman hasilnya untuk tanggal yang benar, atau kalau
+        # tanggal sudah terbukti terbaca di simulasi lain pada jalan ini (jadi salah format tanggal tetap ketahuan).
+        if page.locator("#username").count() and page.locator("#username").first.is_visible():
+            raise SystemExit(f"Sesi ERP habis (kembali ke halaman login) saat simulasi {dist} {kode} {d}.")
+        if tgl == d or re.search(r"Basic and Additional Price", isi, re.I) or HARGA_TANGGAL_OK:
+            pesan_erp = " ".join(PESAN_ERP[n_pesan:]) or next(
+                (t for t in page.locator("[id*='lbl' i], [id*='msg' i], .error, .alert").all_inner_texts() if t.strip()), "")
+            if not pesan_erp.strip():
+                judul = page.title() or ""
+                pesan_erp = judul if re.search(r"error|galat|exception", judul, re.I) else ""
+            HARGA_CATATAN = "ERP tidak menampilkan tabel harga" + (f" ({' '.join(pesan_erp.split())[:120]})" if pesan_erp.strip() else "")
+            if (dist, kode) not in HARGA_JEJAK:
+                HARGA_JEJAK.add((dist, kode))
+                jejak(page, f"harga_kosong_{dist}_{kode}")
+            return []
+        raise SystemExit(f"Hasil Price & Promo Simulation {dist} {kode} {d} tidak terbaca.\nHalaman: {jejak(page, 'harga_hasil')}")
     if tgl != d:
         raise SystemExit(f"Tanggal simulasi di ERP ({m.group(1) if m else 'tidak terbaca'}) tidak sama dengan {d}: format tanggal "
                          f"kolom Periode berbeda.\nHalaman: {jejak(page, 'harga_tanggal')}")
@@ -1711,15 +1731,25 @@ def baca_harga(page: Page, dist: str, kode: str, d: date) -> list[dict]:
                                                   kol("effective date"), kol("expired date"))
     if min(i_tipe, i_net, i_eff, i_exp) < 0:
         raise SystemExit(f"Kolom tabel harga berbeda dari yang dikenal: {data['header']}\nHalaman: {jejak(page, 'harga_kolom')}")
-    hasil = []
+    HARGA_TANGGAL_OK = True
+    hasil, tipe_lain, murah = [], set(), []
     for r in data["rows"]:
-        if len(r) <= max(i_tipe, i_net, i_eff, i_exp) or "LOCO" not in r[i_tipe].upper():
+        if len(r) <= max(i_tipe, i_net, i_eff, i_exp):
+            continue
+        if "LOCO" not in r[i_tipe].upper():
+            tipe_lain.add(r[i_tipe].strip().upper())
             continue
         net, eff = angka_teks(r[i_net]), tanggal_teks(r[i_eff])
         if net is None or eff is None:
             continue
+        if net < HARGA_MIN:                        # harga isian / dummy (mis. Rp1) tidak dipakai
+            murah.append(f"{net:,.0f}")
+            continue
         hasil.append({"warehouse": r[i_wh] if i_wh >= 0 else "", "delivery_type": r[i_tipe], "price": angka_teks(r[i_price]) if i_price >= 0 else None,
                       "net_price": net, "effective_date": eff, "expired_date": tanggal_teks(r[i_exp])})
+    if not hasil:
+        HARGA_CATATAN = ("baris LOCO harganya tidak wajar (" + ", ".join(murah) + ")" if murah else
+                         "tidak ada baris LOCO" + (f" (yang ada: {', '.join(sorted(tipe_lain)[:4])})" if tipe_lain else ", tabel kosong"))
     # kembali ke formulir lewat tombol Back (distributor biasanya tetap terpilih); kalau tidak berhasil, berikutnya buka ulang halaman
     global HARGA_PAKAI_BACK
     if HARGA_PAKAI_BACK:
@@ -1735,16 +1765,35 @@ def baca_harga(page: Page, dist: str, kode: str, d: date) -> list[dict]:
     return hasil
 
 
-def lompat_harga(page: Page, dist: str, kode: str, nama: str, mulai: date, sampai: date) -> list[dict]:
+def lompat_harga(page: Page, dist: str, kode: str, nama: str, mulai: date, sampai: date) -> tuple[list[dict], str]:
     """Masa berlaku harga Loco dari tanggal mulai: baca, lompat ke Expired + 1 hari, berhenti saat Expired kosong
-    (masih berlaku) atau sudah lewat tanggal sampai. Tanggal tanpa harga: lompat ke awal bulan berikutnya."""
+    (masih berlaku) atau sudah lewat tanggal sampai.
+    Tanggal tanpa harga: sekali dicek tanggal sampai (hari ini). Hari ini juga tanpa harga -> berhenti (tidak dicek per bulan);
+    hari ini ada harga yang mulai berlaku tanggal E -> lanjut per awal bulan, paling jauh sampai E.
+    Kembali: (baris harga, catatan kenapa berhenti tanpa harga)."""
     d, hasil, n = mulai, [], 0
+    cek_akhir: date | None = None          # Effective Date harga yang berlaku pada tanggal sampai (None = belum dicek)
+    catatan = ""
     while d <= sampai and n < HARGA_MAKS_LOMPAT:
         n += 1
         baris = baca_harga(page, dist, kode, d)
         if not baris:
-            d = bulan_tambah(d.replace(day=1), 1)
+            catatan = f"{HARGA_CATATAN or 'tidak ada harga LOCO'} pada {d}"
+            if cek_akhir is None and d < sampai:
+                n += 1
+                akhir = baca_harga(page, dist, kode, sampai)
+                if not akhir:
+                    catatan += f" dan {sampai}"
+                    break
+                for b in akhir:
+                    b.update(dist_code=dist, product_code=kode, product_name=nama, diambil=date.today())
+                cek_akhir = min(b["effective_date"] for b in akhir)
+                if cek_akhir <= d:                 # ERP tidak konsisten: pakai saja harga hari ini
+                    hasil += akhir
+                    break
+            d = min(bulan_tambah(d.replace(day=1), 1), cek_akhir) if cek_akhir else bulan_tambah(d.replace(day=1), 1)
             continue
+        catatan = ""
         for b in baris:
             b.update(dist_code=dist, product_code=kode, product_name=nama, diambil=date.today())
         hasil += baris
@@ -1752,7 +1801,7 @@ def lompat_harga(page: Page, dist: str, kode: str, nama: str, mulai: date, sampa
         if any(e is None for e in exp):
             break
         d = max(min(exp) + timedelta(days=1), d + timedelta(days=1))
-    return hasil
+    return hasil, catatan
 
 
 def ambil_harga(pw, tampil: bool, dists: list[str], dari: date | None) -> tuple[Path | None, dict[str, str], str, list[str]]:
@@ -1779,7 +1828,7 @@ def ambil_harga(pw, tampil: bool, dists: list[str], dari: date | None) -> tuple[
                 k = f"{dist}|{kode}"
                 mulai = date.fromisoformat(status[k]) if k in status else awal
                 try:
-                    baris = lompat_harga(page, dist, kode, nama, mulai, date.today())
+                    baris, catatan = lompat_harga(page, dist, kode, nama, mulai, date.today())
                 except (SystemExit, PWTimeout, PWError) as e:
                     gagal.append(f"{dist} {kode}: {pesan(e).splitlines()[0]}")
                     print(f"  {dist} {kode} GAGAL: {pesan(e).splitlines()[0]}")
@@ -1790,7 +1839,7 @@ def ambil_harga(pw, tampil: bool, dists: list[str], dari: date | None) -> tuple[
                     continue
                 kunci_segarkan()
                 if not baris:
-                    print(f"  {dist} {kode} {nama}: tidak ada harga LOCO sejak {mulai}")
+                    print(f"  {dist} {kode} {nama}: tidak ada harga LOCO sejak {mulai} ({catatan})")
                     continue
                 semua += baris
                 akhir = max(b["effective_date"] for b in baris)
@@ -1801,7 +1850,8 @@ def ambil_harga(pw, tampil: bool, dists: list[str], dari: date | None) -> tuple[
                     per_gudang[x["warehouse"] or "-"] = x
                 teks = ", ".join(f"{g} {x['net_price']:,.0f} sejak {x['effective_date']}" + (f" s.d. {x['expired_date']}" if x["expired_date"] else "")
                                  for g, x in per_gudang.items())
-                print(f"  {dist} {kode} {nama}: {len({(b['warehouse'], b['effective_date']) for b in baris})} masa berlaku; Loco Net terakhir {teks}")
+                print(f"  {dist} {kode} {nama}: {len({(b['warehouse'], b['effective_date']) for b in baris})} masa berlaku; Loco Net terakhir {teks}"
+                      + (f"; sesudahnya {catatan}" if catatan else ""))
     finally:
         browser.close()
     if gagal and not semua:
