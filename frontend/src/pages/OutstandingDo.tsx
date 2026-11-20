@@ -20,8 +20,8 @@ import { JALUR_DARAT, JALUR_FAS, OPEN_STATUS, REGION_ORDER, UNMAPPED, key, outRe
    Outstanding = sisa order Verified (belum dikirim) + Partially Delivered (terkirim sebagian).
    Not Verified dihitung terpisah karena belum disetujui.
    Tabel utama mengikuti laporan outstanding: per daerah x jalur (FAS Kapal = Sunda Kelapa, FAS Container = CCY & Tanjung Priok)
-   x tipe semen, untuk semua order dan untuk order pada rentang tanggal terpilih (default bulan order terakhir).
-   Filter rentang tanggal order juga membatasi KPI, tabel per distributor, grafik, daftar order, dan unduhan.
+   x tipe semen + perkiraan nilai, mengikuti filter rentang tanggal order (bawaan semua order). Rentang tanggal juga
+   membatasi KPI, tabel per distributor, grafik, daftar order, dan unduhan.
    Terminal & pabrik (ITP Lampung/Palembang/Pontianak Terminal, ITP-Citeureup) di tabel terpisah.
    Lewat estimasi = estimasi tanggal pengiriman sudah lewat dari posisi data.
    Perkiraan nilai = sisa zak x harga Loco Net yang berlaku pada tanggal order, per PT dan produk
@@ -111,8 +111,6 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
   const presets = useMemo(() => (last ? presetsFor(last) : []), [last]);
   const [range, setRange] = useState<DateRange>(EMPTY_RANGE);
   const rng = isISO(range.from) && isISO(range.to) ? range : null;
-  // kolom kanan tabel daerah: rentang terpilih, atau bulan order terakhir kalau rentang kosong
-  const kanan: DateRange = rng || (last ? { from: startOfMonth(last), to: last } : EMPTY_RANGE);
   const opts = useMemo(() => {
     const regions = new Map<string, number>(), dists = new Map<string, { nama: string; ton: number }>();
     recs.forEach(r => {
@@ -132,16 +130,15 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
 
   const v = useMemo(() => {
     const wanted = new Set(statusList(status));
-    // base: semua tanggal order (untuk kolom "Semua order" tabel daerah); cur: base dalam rentang tanggal
     const base = recs.filter(r => (region === 'all' || r.region === region) && (dist === 'all' || r.distributor === dist) && (semen === 'all' || r.semen === semen) && wanted.has(r.status));
     const cur = rng ? base.filter(r => inRange(r.tanggal_order, rng)) : base;
     const of = (jalurs: string[]) => cur.filter(r => jalurs.includes(r.jalur));
     const byDist = new Map<string, { label: string; recs: OutRec[] }>();
     cur.forEach(r => { const x = byDist.get(r.distributor) || { label: r.dist_nama, recs: [] }; x.recs.push(r); byDist.set(r.distributor, x); });
     return {
-      base, cur, sum: outSummary(cur), fas: outSummary(of(JALUR_FAS)), kapal: outSummary(of(['FAS Kapal'])), container: outSummary(of(['FAS Container'])),
+      cur, sum: outSummary(cur), fas: outSummary(of(JALUR_FAS)), kapal: outSummary(of(['FAS Kapal'])), container: outSummary(of(['FAS Container'])),
       darat: outSummary(of(JALUR_DARAT)),
-      regions: sortRegions([...base.reduce((m, r) => m.set(r.region, (m.get(r.region) || 0) + r.ton), new Map<string, number>()).entries()]),
+      regions: sortRegions([...cur.reduce((m, r) => m.set(r.region, (m.get(r.region) || 0) + r.ton), new Map<string, number>()).entries()]),
       dists: [...byDist.entries()].map(([k, x]) => ({ key: k, label: x.label, ...outSummary(x.recs) })).sort((a, b) => b.ton - a.ton),
     };
   }, [recs, region, dist, semen, status, rng?.from, rng?.to]);
@@ -194,7 +191,6 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
   const s = v.sum;
   const statusLabel = STATUS_OPTS.find(o => o.value === status)!.label;
   const scope = [dist !== 'all' ? opts.dists.find(o => o.value === dist)?.label : region !== 'all' && region, semen !== 'all' && semen, rng && `order ${fmtRange(rng)}`].filter(Boolean).join(' · ') || 'Semua';
-  const kananLabel = kanan.from ? `Order ${fmtRange(kanan)}` : '';
 
   return (
     <>
@@ -228,10 +224,10 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
       </div>
 
       <h2 className="section-title">Outstanding FAS per daerah <span className="n">ton · {statusLabel.toLowerCase()} · {scope}</span></h2>
-      <JalurTable recs={v.base} jalurs={JALUR_FAS} kanan={kanan} kananLabel={kananLabel} regions={v.regions} caption="Outstanding FAS Kapal dan FAS Container per daerah dan tipe semen" />
+      <JalurTable recs={v.cur} jalurs={JALUR_FAS} regions={v.regions} caption="Outstanding FAS Kapal dan FAS Container per daerah dan tipe semen" />
 
       <h2 className="section-title">Outstanding terminal & pabrik per daerah <span className="n">ton · ITP Terminal (Lampung, Palembang, Pontianak) dan ITP-Citeureup</span></h2>
-      <JalurTable recs={v.base} jalurs={JALUR_DARAT} kanan={kanan} kananLabel={kananLabel} regions={v.regions} caption="Outstanding dari terminal dan pabrik per daerah dan tipe semen" />
+      <JalurTable recs={v.cur} jalurs={JALUR_DARAT} regions={v.regions} caption="Outstanding dari terminal dan pabrik per daerah dan tipe semen" />
 
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-[1100px]:grid-cols-1 gap-4 mt-9">
         <Card title={`Order per bulan tanggal order · ${scope}`}>
@@ -364,60 +360,71 @@ function sortRegions(entries: [string, number][]) {
 
 const SEMEN_ORDER = ['STR', 'RJW', 'CWC'];
 /**
- * Tabel laporan outstanding: baris = daerah, kolom = [semua order | order pada rentang tanggal] x jalur x tipe semen.
+ * Tabel laporan outstanding: baris = daerah, kolom = jalur x tipe semen, Total ton, lalu perkiraan nilai (Loco Net x sisa zak).
+ * Isinya mengikuti filter (termasuk rentang tanggal order; bawaan semua order).
  * Kolom tipe semen hanya yang ada isinya (CWC biasanya hanya dari pabrik).
  */
-function JalurTable({ recs, jalurs, kanan, kananLabel, caption, regions }: { recs: OutRec[]; jalurs: string[]; kanan: DateRange; kananLabel: string; caption: string; regions: string[] }) {
+function JalurTable({ recs, jalurs, caption, regions }: { recs: OutRec[]; jalurs: string[]; caption: string; regions: string[] }) {
   const t = useMemo(() => {
     const rows = recs.filter(r => jalurs.includes(r.jalur));
     const usedJalur = jalurs.filter(j => rows.some(r => r.jalur === j));
     const semenOf = (j: string) => SEMEN_ORDER.filter(sm => rows.some(r => r.jalur === j && r.semen === sm));
     const cols = usedJalur.flatMap(j => semenOf(j).map(sm => ({ j, sm })));
     const cell = new Map<string, number>();
-    const add = (k: string, ton: number) => cell.set(k, (cell.get(k) || 0) + ton);
+    const add = (k: string, x: number) => cell.set(k, (cell.get(k) || 0) + x);
     rows.forEach(r => {
-      const inBulan = !!kanan.from && inRange(r.tanggal_order, kanan);
       for (const reg of [r.region, '__total']) {
-        add(`a|${reg}|${r.jalur}|${r.semen}`, r.ton); add(`a|${reg}|sum`, r.ton);
-        if (inBulan) { add(`b|${reg}|${r.jalur}|${r.semen}`, r.ton); add(`b|${reg}|sum`, r.ton); }
+        add(`${reg}|${r.jalur}|${r.semen}`, r.ton); add(`${reg}|sum`, r.ton);
+        add(`${reg}|nilai`, r.nilai || 0); add(`${reg}|tanpa`, r.tanpaHarga);
       }
     });
-    return { usedJalur, semenOf, cols, get: (k: string) => cell.get(k) || 0 };
-  }, [recs, jalurs, kanan.from, kanan.to]);
+    return { usedJalur, semenOf, cols, adaNilai: rows.some(r => r.nilai != null), get: (k: string) => cell.get(k) || 0 };
+  }, [recs, jalurs]);
 
   if (!t.cols.length) return <div className="card text-faint text-[13px]">Tidak ada outstanding pada filter ini.</div>;
   const num = (x: number) => (x ? fmtTon(x) : '–');
-  const blocks: { id: 'a' | 'b'; label: string }[] = [{ id: 'a', label: 'Semua order' }, { id: 'b', label: kananLabel }];
-  const line = (reg: string, strong?: boolean) => blocks.flatMap(b => [
-    ...t.cols.map(c => <td key={`${b.id}${c.j}${c.sm}`} className={cx('num font-mono', b.id === 'b' && c === t.cols[0] && 'otb-sep')}>{num(t.get(`${b.id}|${reg}|${c.j}|${c.sm}`))}</td>),
-    <td key={`${b.id}sum`} className={cx('num font-mono', strong !== false && 'font-semibold')}>{num(t.get(`${b.id}|${reg}|sum`))}</td>,
-  ]);
+  const nilaiSel = (reg: string, strong?: boolean) => {
+    const ton = t.get(`${reg}|sum`), tanpa = t.get(`${reg}|tanpa`), n = t.get(`${reg}|nilai`);
+    const sebagian = tanpa > 0.05 && tanpa < ton - 0.05;
+    return (
+      <td key="nilai" className={cx('num font-mono whitespace-nowrap otb-sep', strong && 'font-semibold')}
+        title={tanpa > 0.05 ? `${fmtTon(tanpa)} ton belum ada harga Loco, tidak ikut dihitung` : undefined}>
+        {ton && tanpa < ton - 0.05 ? fmtIDRCompact(n) : '–'}{sebagian && <span className="text-amber">*</span>}
+      </td>
+    );
+  };
+  const line = (reg: string, strong?: boolean) => [
+    ...t.cols.map(c => <td key={`${c.j}${c.sm}`} className="num font-mono">{num(t.get(`${reg}|${c.j}|${c.sm}`))}</td>),
+    <td key="sum" className={cx('num font-mono', strong !== false && 'font-semibold')}>{num(t.get(`${reg}|sum`))}</td>,
+    ...(t.adaNilai ? [nilaiSel(reg, strong !== false)] : []),
+  ];
   return (
-    <TableWrap>
-      <table className="tbl-dense otb">
-        <caption className="sr-only">{caption}</caption>
-        <thead>
-          <tr>
-            <th rowSpan={3} className="align-bottom">Daerah</th>
-            {blocks.map(b => <th key={b.id} colSpan={t.cols.length + 1} className={cx('!text-center', b.id === 'b' && 'otb-sep')}>{b.label}</th>)}
-          </tr>
-          <tr>
-            {blocks.flatMap(b => [
-              ...t.usedJalur.map((j, i) => <th key={b.id + j} colSpan={t.semenOf(j).length} className={cx('!text-center', b.id === 'b' && i === 0 && 'otb-sep')}>{j}</th>),
-              <th key={b.id + 'tot'} rowSpan={2} className="num align-bottom">Total</th>,
-            ])}
-          </tr>
-          <tr>
-            {blocks.flatMap(b => t.cols.map((c, i) => <th key={`${b.id}${c.j}${c.sm}`} className={cx('num', b.id === 'b' && i === 0 && 'otb-sep')}>{c.sm}</th>))}
-          </tr>
-        </thead>
-        <tbody>
-          {regions.map(reg => <tr key={reg}><td className="font-medium">{reg}</td>{line(reg, false)}</tr>)}
-        </tbody>
-        <tfoot>
-          <tr><td>Total</td>{line('__total')}</tr>
-        </tfoot>
-      </table>
-    </TableWrap>
+    <>
+      <TableWrap>
+        <table className="tbl-dense otb">
+          <caption className="sr-only">{caption}</caption>
+          <thead>
+            <tr>
+              <th rowSpan={2} className="align-bottom">Daerah</th>
+              {t.usedJalur.map(j => <th key={j} colSpan={t.semenOf(j).length} className="!text-center">{j}</th>)}
+              <th rowSpan={2} className="num align-bottom">Total (ton)</th>
+              {t.adaNilai && <th rowSpan={2} className="num align-bottom otb-sep" title="Perkiraan nilai: sisa zak x harga Loco Net pada tanggal order">Est. nilai</th>}
+            </tr>
+            <tr>
+              {t.cols.map(c => <th key={`${c.j}${c.sm}`} className="num">{c.sm}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {regions.map(reg => <tr key={reg}><td className="font-medium">{reg}</td>{line(reg, false)}</tr>)}
+          </tbody>
+          <tfoot>
+            <tr><td>Total</td>{line('__total')}</tr>
+          </tfoot>
+        </table>
+      </TableWrap>
+      {t.adaNilai && t.get('__total|tanpa') > 0.05 && (
+        <p className="text-faint text-[12px] mt-1.5">Est. nilai = sisa zak x Loco Net. {fmtTon(t.get('__total|tanpa'))} ton belum ada harga Loco dan tidak ikut dihitung (* = sebagian).</p>
+      )}
+    </>
   );
 }
