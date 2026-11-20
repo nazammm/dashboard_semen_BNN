@@ -79,7 +79,7 @@ from pathlib import Path
 
 from playwright.sync_api import Error as PWError, Page, TimeoutError as PWTimeout, sync_playwright
 
-VERSI = "2026.11.20"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
+VERSI = "2026.11.20.2"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
 ERP = os.environ.get("ERP_URL", "https://www.bangunsukses.com").rstrip("/")   # ERP_URL hanya untuk uji
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
@@ -278,10 +278,11 @@ def _meta_laporan(sel: list[str]) -> dict:
     """Kolom Parameters View Report: DIST="4094" ,TRANSPORTER="0" ,PERIODE="JUN 2025"; Start Run: 19 Nov 2026-13:44:27."""
     teks = " ".join(sel)
     meta: dict = {}
-    m = re.search(r'DIST(?:RIBUTOR)?(?:[ _]?CODE)?\s*[=:]\s*"?\s*([0-9A-Z]+)', teks, re.I)
+    # tanda kutip di ERP bisa " atau '' atau kutip miring: semua yang bukan huruf/angka di antara = dan nilainya dilewati
+    m = re.search(r'DIST(?:RIBUTOR)?(?:[ _]?CODE)?\s*[=:][^0-9A-Za-z]*([0-9A-Z]+)', teks, re.I)
     if m:
         meta["dist"] = m.group(1).upper()
-    m = re.search(r'PERIODE\s*=\s*"?\s*([A-Za-z]{3})[A-Za-z]*[\s-]*(\d{4})', teks, re.I)
+    m = re.search(r'PERIODE\s*[=:][^0-9A-Za-z]*([A-Za-z]{3})[A-Za-z]*[^0-9A-Za-z]*(\d{4})', teks, re.I)
     if m and m.group(1).capitalize() in BULAN_EN:
         meta["bulan"] = date(int(m.group(2)), BULAN_EN.index(m.group(1).capitalize()) + 1, 1)
     m = re.search(r"(\d{1,2}) ([A-Za-z]{3}) (\d{4})[- ](\d{2}):(\d{2})", teks)
@@ -347,14 +348,23 @@ VIEW_REPORT_CARA: list[str] = []     # "menu" kalau menu Report → View Report 
 
 def daftar_laporan(page: Page) -> dict[str, tuple[str, str]]:
     """Isi View Report (halaman 1, laporan terbaru di atas): {Report ID: (kode laporan, Status)}.
-    Dibuka ulang setiap kali seperti klik manual (bukan refresh / F5): lewat menu Report → View Report kalau bisa,
-    kalau tidak lewat alamatnya (di ERP: SYS_Report_View.aspx). Halaman dianggap benar kalau ada kolom "Report ID"."""
+    Selalu dibuka dengan MENGKLIK tautan View Report di menu ERP (seperti manual, bukan refresh / F5). Kalau tautannya
+    tidak ada di halaman ini, lewat menu Report (#mmlink6), terakhir alamatnya (SYS_Report_View.aspx)."""
     def baca() -> dict[str, tuple[str, str]]:
         try:
             page.wait_for_load_state("networkidle", timeout=60_000)
         except PWTimeout:
             pass
-        return baca_antrian(page, r"R\d{5,}")
+        hasil = baca_antrian(page, r"R\d{5,}")
+        if hasil and not VIEW_REPORT_JEJAK:              # sekali per jalan: contoh baris yang terbaca, untuk dicek di log
+            VIEW_REPORT_JEJAK.append(True)
+            jejak(page, "view_report")
+            j = max(hasil)
+            m = LAPORAN_META.get(j, {})
+            print(f"  View Report terbaca: {len(hasil)} laporan; terbaru {j} {hasil[j][0]} {hasil[j][1]} · "
+                  f"DIST {m.get('dist', '?')} · PERIODE {m['bulan']:%b %Y}" if "bulan" in m else
+                  f"  View Report terbaca: {len(hasil)} laporan; terbaru {j}, tapi DIST / PERIODE tidak terbaca (lihat unduhan/view_report.html)")
+        return hasil
 
     def ada_tabel() -> bool:
         try:
@@ -362,6 +372,20 @@ def daftar_laporan(page: Page) -> dict[str, tuple[str, str]]:
             return page.locator("th, td").filter(has_text=re.compile(r"Report\s*ID", re.I)).count() > 0
         except PWError:
             return False
+
+    cari_js = """() => [...document.querySelectorAll('a')].find(a => /Report_View|View_Report/i.test(a.getAttribute('href') || '')
+                  || /^\\s*(View\\s*Report|Report\\s*View)\\s*$/i.test(a.textContent || ''))"""
+
+    def klik() -> bool:
+        """Klik tautan View Report yang ada di halaman (juga yang tersembunyi di menu)."""
+        try:
+            if not page.evaluate(f"() => !!({cari_js})()"):
+                return False
+            with page.expect_navigation(timeout=30_000):
+                page.evaluate(f"() => ({cari_js})().click()")
+        except (PWTimeout, PWError):
+            return False
+        return ada_tabel()
 
     menu = lambda: _buka_menu(page, "#mmlink6", r"^\s*(View\s*Report|Report\s*View)\s*$") and ada_tabel()
 
@@ -372,25 +396,21 @@ def daftar_laporan(page: Page) -> dict[str, tuple[str, str]]:
             return False
         return ada_tabel()
 
-    if VIEW_REPORT_CARA:
-        cara = VIEW_REPORT_CARA[0]
-        if (menu() if cara == "menu" else alamat(cara)):
-            return baca()
-        VIEW_REPORT_CARA.clear()                    # cara lama gagal: cari lagi
+    if klik():
+        return baca()
+    if VIEW_REPORT_CARA and VIEW_REPORT_CARA[0] != "menu" and alamat(VIEW_REPORT_CARA[0]):
+        # dari halaman tanpa menu (mis. form laporan): buka sekali lewat alamat, lalu klik tautan View Report di sana
+        return baca() if not klik() else baca()
     if menu():
-        VIEW_REPORT_CARA.append("menu")
-    else:
-        for u in (f"{ERP}/SYS_Report_View.aspx", f"{ERP}/SYS_View_Report.aspx"):
-            if alamat(u):
-                VIEW_REPORT_CARA.append(page.url)
-                break
-    if not VIEW_REPORT_JEJAK:                       # sekali per jalan: simpan tampilan View Report untuk dicek
-        VIEW_REPORT_JEJAK.append(True)
-        jejak(page, "view_report")
-    if not VIEW_REPORT_CARA:
-        raise SystemExit(f"Halaman View Report tidak ketemu (menu Report → View Report maupun SYS_Report_View.aspx).\nHalaman: {jejak(page, 'view_report_gagal')}")
-    print(f"  View Report dibuka lewat {'menu' if VIEW_REPORT_CARA[0] == 'menu' else VIEW_REPORT_CARA[0]}")
-    return baca()
+        VIEW_REPORT_CARA[:] = ["menu"]
+        return baca()
+    for u in (f"{ERP}/SYS_Report_View.aspx", f"{ERP}/SYS_View_Report.aspx"):
+        if alamat(u):
+            VIEW_REPORT_CARA[:] = [page.url]
+            klik()                                       # muat ulang lewat klik, bukan dari alamat
+            print(f"  View Report: {page.url}")
+            return baca()
+    raise SystemExit(f"Halaman View Report tidak ketemu (tautan View Report, menu Report, maupun SYS_Report_View.aspx).\nHalaman: {jejak(page, 'view_report_gagal')}")
 
 
 MAKS_HALAMAN_VIEW = int(os.environ.get("MAKS_HALAMAN_VIEW", "20"))   # pindai View Report paling banyak sekian halaman
@@ -623,6 +643,11 @@ def buka_browser(pw, tampil: bool):
     ctx = browser.new_context(accept_downloads=True)
     page = ctx.new_page()
     page.on("dialog", _dialog)
+    try:
+        # tanpa cache browser: View Job / View Report selalu diambil baru dari server
+        ctx.new_cdp_session(page).send("Network.setCacheDisabled", {"cacheDisabled": True})
+    except Exception:  # noqa: BLE001 - bukan Chromium / Edge
+        pass
     return browser, ctx, page
 
 
