@@ -130,11 +130,13 @@ export const DataSource = {
   ongkosDo: (dists: string[] | null, dari: string, sampai: string) => getData(`ongkos:do:${dists?.join(',') || '*'}:${dari}:${sampai}`, () =>
     apiGetAll('v_ongkos_do', `?select=*&periode=gte.${dari}&periode=lte.${sampai}${dists ? `&dist_code=in.(${dists.map(enc).join(',')})` : ''}&order=dist_code.asc,periode.asc,do_no.asc`)),
   /** Daftar order outstanding sesuai filter. limit = null: semua (untuk unduhan). */
-  outstandingList: (f: { regions?: string[]; distributor?: string; semen?: string; status: string[] }, limit: number | null) => {
+  outstandingList: (f: { regions?: string[]; distributor?: string; semen?: string; status: string[]; dari?: string; sampai?: string }, limit: number | null) => {
     const q = [`status=in.(${f.status.map(enc).join(',')})`];
     if (f.regions) q.push(`region=in.(${f.regions.map(enc).join(',') || '-'})`);
     if (f.distributor) q.push(`distributor=eq.${enc(f.distributor)}`);
     if (f.semen) q.push(`semen=eq.${enc(f.semen)}`);
+    if (f.dari) q.push(`tanggal_order=gte.${enc(f.dari)}`);
+    if (f.sampai) q.push(`tanggal_order=lte.${enc(f.sampai)}`);
     const qs = `?select=*&${q.join('&')}&order=tanggal_order.asc,distributor.asc,order_no.asc,produk.asc`;
     return limit == null ? apiGetAll('v_outstanding_do', qs) : apiGet<Row[]>(`v_outstanding_do${qs}&limit=${limit}`);
   },
