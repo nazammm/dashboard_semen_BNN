@@ -122,8 +122,10 @@ FROM (
 LEFT JOIN sementrack.ongkos_transporter ot ON ot.kode = t.transporter_kode;
 GO
 
--- Satu baris per DO ke toko (tanpa angkutan ke gudang). tagih = ongkir dibayar toko, tagih_sumber:
--- rincian (kolom Delivery J073) / harga (Product Price - Loco Net) / lg (ambil sendiri) / kosong (tidak bisa dihitung).
+-- Satu baris per DO ke toko (tanpa angkutan ke gudang). tagih = ongkir + bongkar yang dibayar toko (di atas harga ambil sendiri),
+-- tagih_sumber: rincian (Delivery Price - Delivery Discount + Delivery Add + Handling Cost, J073) / harga (Product Price - harga Loco
+-- kolom Price, gudang sama) / lg (ambil sendiri = 0) / kosong (belum bisa dihitung, NULL). Diskon / promo / cash back tidak dihitung:
+-- itu potongan harga semen per toko, bukan potongan ongkir. tagih_dari_harga = cara harga untuk semua DO (untuk cek silang).
 CREATE OR ALTER VIEW sementrack.v_ongkos_do AS
 SELECT k.dist_code, k.periode, k.do_no, k.biaya, k.ton_kirim, k.trip, k.trip_tanpa_biaya, k.trip_luar_erp, k.trip_truk_toko, k.truk, k.transporter, k.zona, k.segmen, k.tujuan,
        j.do_date, j.customer_code, j.customer_name, j.delivery_type,
@@ -136,6 +138,7 @@ SELECT k.dist_code, k.periode, k.do_no, k.biaya, k.ton_kirim, k.trip, k.trip_tan
        CASE WHEN j.delivery_type IS NULL THEN NULL WHEN j.ada_rincian = 1 THEN N'rincian' WHEN j.delivery_type LIKE N'LG%' THEN N'lg'
             WHEN j.tagih_harga IS NOT NULL THEN N'harga' ELSE N'kosong' END AS tagih_sumber,
        CASE WHEN j.ton_do > 0 AND j.delivery_type IS NOT NULL THEN j.handling * k.ton_kirim / j.ton_do END AS handling,
+       CASE WHEN j.ton_do > 0 AND j.delivery_type IS NOT NULL THEN j.tagih_harga * k.ton_kirim / j.ton_do END AS tagih_dari_harga,
        CASE WHEN j.ton_loco > 0 THEN j.nilai_loco / j.ton_loco END AS loco_per_ton,
        CASE WHEN j.ton_harga > 0 THEN j.nilai_harga / j.ton_harga END AS harga_per_ton
 FROM (
@@ -154,19 +157,28 @@ OUTER APPLY (
          MAX(s.delivery_type) AS delivery_type, MAX(s.zona_kirim) AS zona_kirim, MAX(s.kecamatan) AS kecamatan, MAX(s.kabupaten) AS kabupaten,
          SUM(x.ton) AS ton_do, SUM(s.net_amount) AS net,
          MAX(CASE WHEN ISNULL(s.harga_kirim, 0) <> 0 OR ISNULL(s.diskon_kirim, 0) <> 0 OR ISNULL(s.tambah_kirim, 0) <> 0 THEN 1 ELSE 0 END) AS ada_rincian,
-         SUM((ISNULL(s.harga_kirim, 0) - ISNULL(s.diskon_kirim, 0) + ISNULL(s.tambah_kirim, 0)) * s.order_qty) AS tagih_rincian,
-         SUM(CASE WHEN s.harga_produk IS NOT NULL AND hl.net_price IS NOT NULL
-                  THEN (CASE WHEN s.harga_produk > hl.net_price THEN s.harga_produk - hl.net_price ELSE 0 END) * s.order_qty END) AS tagih_harga,
+         SUM((ISNULL(s.harga_kirim, 0) - ISNULL(s.diskon_kirim, 0) + ISNULL(s.tambah_kirim, 0) + ISNULL(s.handling, 0)) * s.order_qty) AS tagih_rincian,   -- ongkir + bongkar
+         SUM(CASE WHEN s.harga_produk IS NOT NULL AND hl.loco IS NOT NULL
+                  THEN (CASE WHEN s.harga_produk > hl.loco THEN s.harga_produk - hl.loco ELSE 0 END) * s.order_qty END) AS tagih_harga,
          SUM(ISNULL(s.handling, 0) * s.order_qty) AS handling,
-         SUM(CASE WHEN hl.net_price IS NOT NULL THEN hl.net_price * s.order_qty END) AS nilai_loco,
-         SUM(CASE WHEN hl.net_price IS NOT NULL THEN x.ton END) AS ton_loco,
+         SUM(CASE WHEN hl.loco IS NOT NULL THEN hl.loco * s.order_qty END) AS nilai_loco,
+         SUM(CASE WHEN hl.loco IS NOT NULL THEN x.ton END) AS ton_loco,
          SUM(CASE WHEN s.harga_produk IS NOT NULL THEN s.harga_produk * s.order_qty END) AS nilai_harga,
          SUM(CASE WHEN s.harga_produk IS NOT NULL THEN x.ton END) AS ton_harga
   FROM sementrack.sellout_j073 s
   CROSS APPLY (SELECT sementrack.j073_ton(s.product_code, s.product_name, s.order_qty) AS ton) x
-  OUTER APPLY (SELECT TOP (1) h.net_price FROM sementrack.harga_loco h
+  -- Harga Loco pembanding: kolom Price (sebelum promo), karena Product Price J073 juga sebelum diskon.
+  -- Gudang harus sama (nama gudang J073 mengandung / dikandung gudang harga); gudang lain hanya boleh kalau distributor itu
+  -- cuma punya satu gudang harga untuk produk dan tanggal tsb. Tanpa pembanding yang cocok: ongkir belum bisa dihitung.
+  OUTER APPLY (SELECT TOP (1) ISNULL(h.price, h.net_price) AS loco FROM sementrack.harga_loco h
                WHERE h.dist_code = s.dist_code AND h.product_code = s.product_code
                  AND s.do_date >= h.berlaku_dari AND (h.berlaku_sampai IS NULL OR s.do_date <= h.berlaku_sampai)
+                 AND (h.warehouse = ISNULL(s.warehouse, N'')
+                      OR (h.warehouse <> N'' AND ISNULL(s.warehouse, N'') LIKE N'%' + h.warehouse + N'%')
+                      OR (ISNULL(s.warehouse, N'') <> N'' AND h.warehouse LIKE N'%' + s.warehouse + N'%')
+                      OR NOT EXISTS (SELECT 1 FROM sementrack.harga_loco h2
+                                     WHERE h2.dist_code = h.dist_code AND h2.product_code = h.product_code AND h2.warehouse <> h.warehouse
+                                       AND s.do_date >= h2.berlaku_dari AND (h2.berlaku_sampai IS NULL OR s.do_date <= h2.berlaku_sampai)))
                ORDER BY CASE WHEN h.warehouse = ISNULL(s.warehouse, N'') THEN 0 ELSE 1 END, h.berlaku_dari DESC) hl
   WHERE s.dist_code = k.dist_code AND s.do_no = k.do_no
 ) j;
@@ -198,5 +210,11 @@ GO
 
 -- Cek: ongkir dibayar toko per sumber, dan transporter yang statusnya bukan normal
 SELECT tagih_sumber, COUNT(*) AS do_count, CAST(SUM(ton_kirim) AS decimal(20,1)) AS ton FROM sementrack.v_ongkos_do GROUP BY tagih_sumber;
+-- Cek silang: DO yang kolom Delivery-nya diisi, dibanding cara harga (Product Price - Loco). Kalau harga Loco benar, "sama" mendekati 100%.
+SELECT dist_code, COUNT(*) AS do_count,
+       SUM(CASE WHEN ABS(tagih - tagih_dari_harga) <= ton_kirim * 200 THEN 1 ELSE 0 END) AS sama,
+       CAST(SUM(tagih) / NULLIF(SUM(ton_kirim), 0) / 20 AS decimal(12,0)) AS rincian_per_zak50,
+       CAST(SUM(tagih_dari_harga) / NULLIF(SUM(ton_kirim), 0) / 20 AS decimal(12,0)) AS harga_per_zak50
+FROM sementrack.v_ongkos_do WHERE tagih_sumber = N'rincian' AND tagih_dari_harga IS NOT NULL GROUP BY dist_code ORDER BY dist_code;
 SELECT transporter_kode, MAX(transporter) AS transporter, status_transporter, COUNT(*) AS trip, SUM(CASE WHEN biaya = 0 THEN 1 ELSE 0 END) AS trip_tanpa_biaya
 FROM sementrack.v_ongkos_trip WHERE status_transporter <> N'normal' GROUP BY transporter_kode, status_transporter ORDER BY transporter_kode;
