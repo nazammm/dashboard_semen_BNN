@@ -81,6 +81,7 @@ function Body({ info }: { info: Row[] }) {
   const [dari, sampai] = bulanOk === '3' ? [periodes[Math.min(2, periodes.length - 1)], periodes[0]] : [bulanOk, bulanOk];
   const [tipe, setTipe] = useState('all');
   const [trans, setTrans] = useState('all');
+  const [zonaBuka, setZonaBuka] = useState<Set<string>>(() => new Set());
 
   const load = useAsync(async () => {
     const d = dist === 'all' ? null : [dist];
@@ -129,6 +130,9 @@ function Body({ info }: { info: Row[] }) {
         { name: 'Per zona', header: ['Zona', 'Ton', 'Ongkos real (Rp)', 'Real per ton', 'Ditagih (Rp)', 'Ditagih per ton', 'Ditanggung distributor (Rp)', 'Ongkos % omzet'],
           rows: v.zona.map(z => [z.nama, z.ton, z.biaya, perTon(z.biaya, z.ton), z.tagih, perTon(z.tagih, z.tonTagih), z.tanggung, z.omzet ? z.biayaOmzet / z.omzet : null]),
           widths: [24, 10, 16, 13, 14, 14, 20, 14] },
+        { name: 'Per zona x transporter', header: ['Zona', 'Transporter', 'Ton', 'Ongkos real (Rp)', 'Real per ton', 'Ditagih (Rp)', 'Ditagih per ton', 'Ditanggung distributor (Rp)', 'Ongkos % omzet'],
+          rows: v.zona.flatMap(z => z.transporter.map(t => [z.nama, t.nama, t.ton, t.biaya, perTon(t.biaya, t.ton), t.tagih, perTon(t.tagih, t.tonTagih), t.tanggung, t.omzet ? t.biayaOmzet / t.omzet : null])),
+          widths: [24, 30, 10, 16, 13, 14, 14, 20, 14] },
         { name: 'Per transporter', header: ['Transporter', 'Perjalanan', 'Perjalanan ada biaya', 'Ton', 'Ton DO lengkap', 'Ongkos real (Rp)', 'Real per ton', 'Ditagih (Rp)', 'Ditagih per ton', 'Ditanggung distributor (Rp)', 'Ongkos % omzet'],
           rows: v.perTransporter.map(t => [t.nama, t.trips, t.tripsBiaya, t.ton, t.tonL, t.biaya, perTon(t.biaya, t.tonL), t.tagih, perTon(t.tagih, t.tonTagih), t.tanggung, t.omzet ? t.biayaOmzet / t.omzet : null]),
           widths: [32, 10, 12, 10, 12, 16, 12, 14, 13, 20, 14] },
@@ -183,7 +187,7 @@ function Body({ info }: { info: Row[] }) {
 
           <Tren info={infoScope} />
 
-          <div className="grid gap-4 mt-4 grid-cols-2 max-[1100px]:grid-cols-1">
+          <div className="grid gap-4 mt-4 grid-cols-3 max-[1400px]:grid-cols-2 max-[1100px]:grid-cols-1">
             <Card title={`Ongkos real per ton menurut tipe truk${tipeOk !== 'all' ? ' · semua tipe kirim' : ''}`}>
               <p className="text-faint text-[12px] -mt-1 mb-3">Perjalanan yang sudah ada biayanya. Isi truk = muatan semen dibanding kapasitas di nama tipe truk.</p>
               <BarList rows={v.truk.map(t => ({ key: t.truk, label: namaTruk(t.truk), sub: `${fmt(t.trips)} perjalanan · ${fmtTon(t.ton)} ton`, value: t.rpTon, side: t.isi == null ? '–' : fmtPct(t.isi, 0), sideTone: t.isi != null && t.isi < 0.8 ? 'warn' : undefined }))}
@@ -195,6 +199,16 @@ function Body({ info }: { info: Row[] }) {
                 <span className="inline-flex items-center gap-1.5"><i className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: COLORS.sub }} />Ditagih ke toko</span>
               </div>
               <TipeBars rows={v.tipe} />
+            </Card>
+            <Card title="Ongkos real per ton menurut transporter">
+              <p className="text-faint text-[12px] -mt-1 mb-3">DO yang biayanya lengkap. Ada biaya = perjalanan yang sudah ada ongkosnya di ORDB019.</p>
+              <BarList rows={v.perTransporter.filter(t => t.tonL > 0).map(t => {
+                const pct = t.trips ? t.tripsBiaya / t.trips : 0;
+                return { key: t.nama, label: t.nama, sub: `${fmt(t.trips)} perjalanan · ${fmtTon(t.ton)} ton`, value: perTon(t.biaya, t.tonL) ?? 0, side: fmtPct(pct, 0), sideTone: pct < 0.5 ? 'warn' as const : undefined };
+              }).sort((a, b) => a.value - b.value)} sideTitle="Ada biaya" />
+              {v.perTransporter.some(t => t.tonL === 0) && (
+                <p className="text-faint text-[12px] mt-3">Belum ada biaya sama sekali: {v.perTransporter.filter(t => t.tonL === 0).map(t => `${t.nama} (${fmtTon(t.ton)} ton)`).join(', ')}.</p>
+              )}
             </Card>
           </div>
 
@@ -210,55 +224,43 @@ function Body({ info }: { info: Row[] }) {
               <thead><tr><th>Zona</th><th className="num">Ton</th><th className="num">Real /ton</th><th className="num">Ditagih /ton</th><th className="num">Ditanggung distributor</th><th className="num">Ongkos % omzet</th></tr></thead>
               <tbody>
                 {!v.zona.length && <tr><td colSpan={6} className="!text-center !text-faint !p-5">Belum ada DO dengan biaya lengkap pada filter ini.</td></tr>}
-                {v.zona.map(z => (
-                  <tr key={z.nama}>
-                    <td>{z.nama}</td>
-                    <td className="num font-mono">{fmtTon(z.ton)}</td>
-                    <td className="num font-mono">{fmtRpTon(perTon(z.biaya, z.ton))}</td>
-                    <td className="num font-mono">{z.tonTagih ? fmtRpTon(perTon(z.tagih, z.tonTagih)) : '–'}</td>
-                    <td className="num font-mono">{z.tonTagih ? fmtIDR(z.tanggung) : '–'}</td>
-                    <td className="num font-mono">{z.omzet ? fmtPct(z.biayaOmzet / z.omzet) : '–'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </TableWrap>
-
-          <h2 className="section-title mt-[38px]">Ongkos per transporter <span className="n">{distLabel} · {periodeLabel}{tipeOk !== 'all' ? ` · ${tipeLabel(tipeOk)}` : ''}</span></h2>
-          <TableWrap>
-            <table>
-              <caption className="sr-only">Rangkuman ongkos kirim per transporter</caption>
-              <thead><tr>
-                <th>Transporter</th><th className="num">Perjalanan</th><th className="num">Ton</th><th className="num">Ada biaya</th>
-                <th className="num">Real /ton</th><th className="num">Ditagih /ton</th><th className="num">Ditanggung distributor</th><th className="num">Ongkos % omzet</th>
-              </tr></thead>
-              <tbody>
-                {!v.perTransporter.length && <tr><td colSpan={8} className="!text-center !text-faint !p-5">Belum ada perjalanan pada filter ini.</td></tr>}
-                {v.perTransporter.map(t => {
-                  const pct = t.trips ? t.tripsBiaya / t.trips : 0;
-                  return (
-                    <tr key={t.nama} className={cx(transOk === t.nama && 'bg-[#eef4f1]')}>
+                {/* klik zona: rincian per transporter di zona itu */}
+                {v.zona.map(z => {
+                  const buka = zonaBuka.has(z.nama);
+                  const sel = (x: typeof z | (typeof z.transporter)[number], anak?: boolean) => {
+                    const rt = perTon(x.biaya, x.ton), rz = perTon(z.biaya, z.ton);
+                    const mahal = anak && rt != null && rz != null && z.transporter.length > 1 && rt > rz * 1.1;
+                    return <>
+                      <td className="num font-mono">{fmtTon(x.ton)}</td>
+                      <td className={cx('num font-mono', mahal && 'text-red font-semibold')} title={mahal ? 'Lebih dari 10% di atas rata-rata zona ini' : undefined}>{fmtRpTon(rt)}</td>
+                      <td className="num font-mono">{x.tonTagih ? fmtRpTon(perTon(x.tagih, x.tonTagih)) : '–'}</td>
+                      <td className="num font-mono">{x.tonTagih ? fmtIDR(x.tanggung) : '–'}</td>
+                      <td className="num font-mono">{x.omzet ? fmtPct(x.biayaOmzet / x.omzet) : '–'}</td>
+                    </>;
+                  };
+                  return [
+                    <tr key={z.nama} className={cx(buka && 'bg-[#f3f7f5]')}>
                       <td>
-                        <button type="button" className="link-btn !no-underline font-medium text-left" title="Tampilkan transporter ini saja"
-                          onClick={() => setTrans(transOk === t.nama ? 'all' : t.nama)}>{t.nama}</button>
+                        <button type="button" className="link-btn !no-underline text-left inline-flex items-center gap-1.5" aria-expanded={buka}
+                          onClick={() => setZonaBuka(s => { const n = new Set(s); if (n.has(z.nama)) n.delete(z.nama); else n.add(z.nama); return n; })}>
+                          <span aria-hidden="true" className={cx('inline-block text-[10px] text-faint transition-transform', buka && 'rotate-90')}>▶</span>
+                          <span className="text-ink">{z.nama}</span>
+                          <span className="text-faint text-[12px]">· {fmt(z.transporter.length)} transporter</span>
+                        </button>
                       </td>
-                      <td className="num font-mono">{fmt(t.trips)}</td>
-                      <td className="num font-mono">{fmtTon(t.ton)}</td>
-                      <td className={cx('num font-mono', pct < 0.5 && 'text-amber')}>{fmtPct(pct, 0)}</td>
-                      <td className="num font-mono">{t.tonL ? fmtRpTon(perTon(t.biaya, t.tonL)) : '–'}</td>
-                      <td className="num font-mono">{t.tonTagih ? fmtRpTon(perTon(t.tagih, t.tonTagih)) : '–'}</td>
-                      <td className="num font-mono">{t.tonTagih ? fmtIDR(t.tanggung) : '–'}</td>
-                      <td className="num font-mono">{t.omzet ? fmtPct(t.biayaOmzet / t.omzet) : '–'}</td>
-                    </tr>
-                  );
+                      {sel(z)}
+                    </tr>,
+                    ...(buka ? z.transporter.map(t => (
+                      <tr key={z.nama + '|' + t.nama} className="bg-[#f8faf9]">
+                        <td className="!pl-9 text-[12.5px] text-soft">{t.nama}</td>
+                        {sel(t, true)}
+                      </tr>
+                    )) : []),
+                  ];
                 })}
               </tbody>
             </table>
           </TableWrap>
-          <p className="text-faint text-[12px] mt-1.5">
-            Ada biaya = perjalanan yang sudah ada ongkosnya di ORDB019. Per ton, ditagih, dan ditanggung hanya dari DO yang biayanya lengkap (sama dengan tabel zona).
-            Klik nama transporter untuk menampilkan transporter itu saja; klik lagi untuk kembali.
-          </p>
 
           <div className="grid gap-4 mt-6 grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] max-[1100px]:grid-cols-1">
             <Card title="Tagihan transporter vs harga ritase">
@@ -362,15 +364,22 @@ function hitung(tripsAll: Trip[], dosAll: DoRow[], tipe: string, trans: string) 
   const tipeRows = [...tp.values()].sort((a, b) => b.ton - a.ton);
 
   // per zona
-  const zm = new Map<string, { nama: string; ton: number; biaya: number; tagih: number; tonTagih: number; tanggung: number; omzet: number; biayaOmzet: number }>();
-  lengkap.forEach(d => {
-    const x = zm.get(d.zona) || { nama: d.zona, ton: 0, biaya: 0, tagih: 0, tonTagih: 0, tanggung: 0, omzet: 0, biayaOmzet: 0 };
+  type Agg = { nama: string; ton: number; biaya: number; tagih: number; tonTagih: number; tanggung: number; omzet: number; biayaOmzet: number };
+  const baru = (nama: string): Agg => ({ nama, ton: 0, biaya: 0, tagih: 0, tonTagih: 0, tanggung: 0, omzet: 0, biayaOmzet: 0 });
+  const tambah = (x: Agg, d: DoRow) => {
     x.ton += d.ton; x.biaya += d.biaya;
     if (d.tagih != null) { x.tagih += d.tagih; x.tonTagih += d.ton; x.tanggung += d.biaya - d.tagih; }
     if (d.omzet) { x.omzet += d.omzet; x.biayaOmzet += d.biaya; }
+  };
+  // per zona, dengan rincian per transporter di zona itu (jarak sama, jadi Rp/ton antar transporter sebanding)
+  const zm = new Map<string, Agg & { per: Map<string, Agg> }>();
+  lengkap.forEach(d => {
+    const x = zm.get(d.zona) || { ...baru(d.zona), per: new Map<string, Agg>() };
+    tambah(x, d);
+    const t = x.per.get(d.transporter) || baru(d.transporter); tambah(t, d); x.per.set(d.transporter, t);
     zm.set(d.zona, x);
   });
-  const zona = [...zm.values()].sort((a, b) => b.ton - a.ton);
+  const zona = [...zm.values()].map(z => ({ ...z, transporter: [...z.per.values()].sort((a, b) => b.ton - a.ton) })).sort((a, b) => b.ton - a.ton);
 
   // per transporter vs ritase
   const trm = new Map<string, { nama: string; trips: number; ton: number; biaya: number; biayaR: number; ritase: number }>();
