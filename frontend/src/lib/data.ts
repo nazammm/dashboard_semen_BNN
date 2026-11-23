@@ -124,6 +124,8 @@ export const DataSource = {
   stockTanggal: (tanggal: string[]) => getData(`stock:tgl:${tanggal.join(',')}`, () =>
     apiGetAll('v_stock_semen', `?select=*&tanggal=in.(${tanggal.map(enc).join(',')})&order=urutan.asc,daerah.asc,produk.asc`)),
   /** Ongkos kirim ke toko (ORDB019 + J073): bulan x distributor yang tersedia, perjalanan, dan DO pada filter. */
+  /** OS DO toko: DO J073 yang belum dikirim (Qty Remains) + harga sekarang (21_os_do_toko.sql). */
+  osDoToko: () => getData('osdotoko', () => apiGetAll('v_os_do_toko', '?select=*&order=dist_code.asc,do_date.asc')),
   ongkosInfo: () => getData('ongkos:info', () => apiGetAll('v_ongkos_info', '?select=*&order=periode.desc,dist_code.asc')),
   ongkosTrip: (dists: string[] | null, dari: string, sampai: string) => getData(`ongkos:trip:${dists?.join(',') || '*'}:${dari}:${sampai}`, () =>
     apiGetAll('v_ongkos_trip', `?select=*&periode=gte.${dari}&periode=lte.${sampai}${dists ? `&dist_code=in.(${dists.map(enc).join(',')})` : ''}&order=dist_code.asc,periode.asc,foad.asc`)),

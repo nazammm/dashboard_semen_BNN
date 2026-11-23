@@ -9,7 +9,9 @@ alter table sementrack.sellout_j073
   add column if not exists harga_kirim numeric, add column if not exists diskon_kirim numeric, add column if not exists tambah_kirim numeric,
   add column if not exists handling numeric, add column if not exists qty_kirim numeric,
   add column if not exists kecamatan text, add column if not exists kabupaten text, add column if not exists cust_group text,
-  add column if not exists harga_produk numeric;
+  add column if not exists harga_produk numeric,
+  add column if not exists qty_sisa numeric,
+  add column if not exists data_per date;
 create index if not exists sellout_j073_dist_do_idx on sementrack.sellout_j073 (dist_code, do_no);
 
 drop function if exists sementrack.sellout_j073_simpan(json, text, text);
@@ -33,7 +35,7 @@ begin
          nullif(r.val ->> 14, '')::numeric as tambah_kirim, nullif(r.val ->> 15, '')::numeric as handling,
          nullif(r.val ->> 16, '')::numeric as qty_kirim,
          nullif(upper(btrim(r.val ->> 17)), '') as kecamatan, nullif(upper(btrim(r.val ->> 18)), '') as kabupaten, nullif(upper(btrim(r.val ->> 19)), '') as cust_group,
-         nullif(r.val ->> 20, '')::numeric as harga_produk
+         nullif(r.val ->> 20, '')::numeric as harga_produk, nullif(r.val ->> 21, '')::numeric as qty_sisa
   from json_array_elements(p_rows) with ordinality as r(val, ord);
   if exists (select 1 from _j073 where coalesce(dist_code, '') = '' or do_date is null or coalesce(do_no, '') = ''
                                      or coalesce(customer_code, '') = '' or coalesce(product_code, '') = '' or order_qty is null) then
@@ -48,10 +50,10 @@ begin
        d as (delete from sementrack.sellout_j073 j using r where j.dist_code = r.dist_code and j.do_date between r.a and r.b returning 1)
   select count(*) into v_old from d;
   insert into sementrack.sellout_j073 (dist_code, do_date, do_no, customer_code, customer_name, product_code, product_name, order_qty, net_amount, warehouse,
-                                       delivery_type, zona_kirim, harga_kirim, diskon_kirim, tambah_kirim, handling, qty_kirim, kecamatan, kabupaten, cust_group, harga_produk)
+                                       delivery_type, zona_kirim, harga_kirim, diskon_kirim, tambah_kirim, handling, qty_kirim, kecamatan, kabupaten, cust_group, harga_produk, qty_sisa, data_per)
   select x.dist_code, x.do_date, x.do_no, x.customer_code, x.customer_name, x.product_code, x.product_name, x.order_qty, x.net_amount, x.warehouse,
          x.delivery_type, x.zona_kirim, x.harga_kirim, x.diskon_kirim, x.tambah_kirim, x.handling, x.qty_kirim, x.kecamatan, x.kabupaten,
-         nullif(x.cust_group, 'RETAIL'), x.harga_produk from _j073 x;
+         nullif(x.cust_group, 'RETAIL'), x.harga_produk, x.qty_sisa, current_date from _j073 x;
   select count(*), coalesce(sum(sementrack.j073_ton(x.product_code, x.product_name, x.order_qty)), 0), min(x.do_date), max(x.do_date),
          array_agg(distinct x.dist_code order by x.dist_code)
     into v_new, v_ton, v_from, v_to, v_dists from _j073 x;

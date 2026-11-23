@@ -406,13 +406,13 @@ function hitung(tripsSemua: Trip[], dosAll: DoRow[], tipe: string, trans: string
 
   // perjalanan yang belum ada biayanya, per transporter (di luar laporan yang kosong sama sekali).
   // Hanya transporter normal; armada sendiri = biaya di luar ERP (dicatat terpisah), truk toko memang tanpa biaya.
-  const belum = new Map<string, { ton: number; trips: number; ritase: number }>();
+  const belum = new Map<string, { ton: number; trips: number; ritase: number; bulan: Set<string>; dist: Set<string> }>();
   const luar = new Map<string, { ton: number; trips: number }>();
   trips.filter(t => t.biaya === 0 && !kunciKosong.has(`${t.dist}|${t.periode}`)).forEach(t => {
     if (t.status === 'armada_sendiri') { const y = luar.get(t.transporter) || { ton: 0, trips: 0 }; y.ton += t.ton; y.trips++; luar.set(t.transporter, y); return; }
     if (t.status !== 'normal') return;
-    const x = belum.get(t.transporter) || { ton: 0, trips: 0, ritase: 0 };
-    x.ton += t.ton; x.trips++; if (t.ritase > 0) x.ritase++; belum.set(t.transporter, x);
+    const x = belum.get(t.transporter) || { ton: 0, trips: 0, ritase: 0, bulan: new Set<string>(), dist: new Set<string>() };
+    x.ton += t.ton; x.trips++; if (t.ritase > 0) x.ritase++; x.bulan.add(t.periode.slice(0, 7)); x.dist.add(t.dist); belum.set(t.transporter, x);
   });
   const tonLuar = sum(dos.filter(d => d.luarErp && !d.lengkap && !kunciKosong.has(`${d.dist}|${d.periode}`)), d => d.ton);
 
@@ -603,6 +603,28 @@ function Kelengkapan({ v, periodeLabel, namaDist }: { v: Hasil; periodeLabel: st
         {luarTeks}
         {v.kosong.length > 0 && <> ORDB019 tanpa biaya sama sekali (Harga Ritase dan Total 0 di ERP): {ringkasKosong}, {fmtTon(v.tonKosong)} ton.</>}
         {' '}Angka per ton, omzet, dan margin di bawah hanya memakai DO yang biayanya sudah lengkap.
+        {v.belum.length > 0 && (
+          <details className="mt-2 group">
+            <summary className="cursor-pointer text-[#0B6BCB] select-none">Tagihan belum masuk per transporter ({fmt(v.belum.length)})</summary>
+            <div className="mt-2 border border-line rounded overflow-x-auto bg-surface text-ink">
+              <table className="tbl-dense !min-w-0">
+                <thead><tr><th>Transporter</th><th className="num">Perjalanan</th><th className="num">Ton</th><th className="num" title="Perjalanan yang Harga Ritase-nya sudah ada tapi Total masih 0">Sudah ada ritase</th><th>Bulan</th></tr></thead>
+                <tbody>
+                  {v.belum.map(t => (
+                    <tr key={t.nama}>
+                      <td className="text-[12.5px]">{t.nama}</td>
+                      <td className="num font-mono">{fmt(t.trips)}</td>
+                      <td className="num font-mono">{fmtTon(t.ton)}</td>
+                      <td className="num font-mono">{t.ritase ? fmt(t.ritase) : '–'}</td>
+                      <td className="text-[12px] whitespace-nowrap">{[...t.bulan].sort().map(b => `${MONTHS_FULL[Number(b.slice(5))].slice(0, 3)} ${b.slice(2, 4)}`).join(', ')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-faint text-[11.5px] mt-1.5">Transporter berstatus normal yang perjalanannya belum ada biaya di ORDB019: tagihannya perlu dikejar atau diinput. Armada sendiri dan truk toko tidak masuk daftar ini.</p>
+          </details>
+        )}
       </div>
     </div>
   );
