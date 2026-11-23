@@ -16,8 +16,9 @@ import { exportRowsToExcel } from '../lib/xlsx';
    Ongkos Kirim: ongkos kirim dari gudang distributor ke toko.
    - Ongkos real  : yang dibayar ke transporter, dari laporan ORDB019 (per perjalanan / No Foad, per DO).
    - Ongkir dibayar toko (ditagih): bagian harga DO di atas harga ambil sendiri. J073: Product Price = harga Loco + Delivery Price
-     − Delivery Discount + Delivery Add + Handling Cost. Kolom Delivery diisi -> (DP − DDP + DAP + Handling) × qty;
-     kosong pada DO kirim -> (Product Price − harga Loco kolom Price, gudang sama) × qty. Diskon / promo / cash back = potongan
+     − Delivery Discount + Delivery Add + Handling Cost. Urutan: kolom Delivery diisi -> (DP − DDP + DAP + Handling) × qty;
+     kosong pada DO kirim -> tarif resmi ERP per tipe kirim x zona (Net Price − (Price − Discount)) × qty; belum ada tarifnya ->
+     (Product Price − harga Loco kolom Price, gudang sama) × qty. Diskon / promo / cash back = potongan
      harga semen per toko, tidak dihitung sebagai potongan ongkir.
    - Margin       : ongkir dibayar toko − bayar truk, dari DO yang sama. Plus = untung (hijau), minus = rugi / ditanggung distributor.
    Angkutan ke gudang (baris ORDB019 tanpa No DO) dipisah dan tidak masuk hitungan ke toko.
@@ -53,7 +54,7 @@ const namaTransporter = (s: unknown) => judul(String(s ?? '').replace(/^[A-Z0-9]
 const namaTruk = (s: unknown) => judul(String(s ?? '').replace(/\s*\(([^)]*)\)/, ' $1').replace(/ TON\b/i, ' t').replace('FIT', 'ft')) || 'Tanpa tipe';
 const bulanLabel = (iso: string) => `${MONTHS_FULL[Number(iso.slice(5, 7))]} ${iso.slice(0, 4)}`;
 
-const SUMBER: Record<string, string> = { rincian: 'kolom Delivery J073', harga: 'harga DO − Loco', lg: 'ambil sendiri', kosong: 'belum bisa dihitung' };
+const SUMBER: Record<string, string> = { rincian: 'kolom Delivery J073', tarif: 'tarif resmi per zona', harga: 'harga DO − Loco', lg: 'ambil sendiri', kosong: 'belum bisa dihitung' };
 interface DoRow {
   dist: string; periode: string; doNo: string; biaya: number; ton: number; tanpaBiaya: number; luarErp: boolean;
   sumber: string | null; locoTon: number | null; hargaTon: number | null;
@@ -359,7 +360,8 @@ function Body({ info }: { info: Row[] }) {
 
           <p className="text-faint text-[12px] mt-4 leading-relaxed max-w-[900px]">
             Bayar truk dari ORDB019, dibagi ke DO sesuai baris laporan (bulan = bulan kirim); baris tanpa No DO (angkutan ke gudang) dipisah. Ongkir dibayar toko = (Delivery Price − Delivery Discount Price + Delivery Add Price + Handling Cost) × qty dari J073;
-            kalau kolom Delivery kosong pada DO kirim, dihitung dari harga: (Product Price − harga Loco kolom Price, gudang yang sama, pada tanggal DO) × qty, minimal 0.
+            kalau kolom Delivery kosong pada DO kirim, dipakai tarif resmi ERP untuk tipe kirim dan zona itu pada tanggal DO (Transport + Subsidi + Handling, halaman Price & Promo Simulation);
+            kalau tarifnya belum ada, dihitung dari harga: (Product Price − harga Loco kolom Price, gudang yang sama, pada tanggal DO) × qty, minimal 0.
             Diskon / promo / cash back tidak dihitung, karena itu potongan harga semen per toko (toko yang ambil sendiri juga dapat), bukan potongan ongkir. Per ton / per zak, omzet, dan margin hanya memakai DO yang semua perjalanannya sudah ada biayanya.
             Truk toko (Eks. Toko) memang tanpa biaya; armada sendiri (mis. LAM) biayanya di luar ERP dan tidak dihitung.
             Margin = ongkir dibayar toko − bayar truk, dari DO yang sama: plus (hijau) = untung, minus (merah) = rugi / ditanggung distributor. Per zak = per ton x berat zak (50 kg = 1/20 ton, 40 kg = 1/25 ton).
@@ -430,7 +432,7 @@ function hitung(tripsSemua: Trip[], dosAll: DoRow[], tipe: string, trans: string
 
   // DO kirim yang tokonya tidak membayar ongkir (rincian 0, atau harga DO tidak di atas Loco); "kosong" = belum bisa dicek
   const tk = new Map<string, { cust: string; toko: string; zonaTon: Map<string, number>; jumlahDo: number; ton: number; biaya: number; dicek: number; belumDicek: number }>();
-  dos.filter(d => d.tipe !== 'LG' && d.tipe !== '?' && d.tagih === 0 && (d.sumber === 'rincian' || d.sumber === 'harga')).forEach(d => {
+  dos.filter(d => d.tipe !== 'LG' && d.tipe !== '?' && d.tagih === 0 && (d.sumber === 'rincian' || d.sumber === 'tarif' || d.sumber === 'harga')).forEach(d => {
     const k = d.cust || `DO ${d.doNo}`;
     const x = tk.get(k) || { cust: d.cust, toko: d.toko, zonaTon: new Map(), jumlahDo: 0, ton: 0, biaya: 0, dicek: 0, belumDicek: 0 };
     x.jumlahDo++; x.ton += d.ton; x.biaya += d.biaya; x.zonaTon.set(d.zona, (x.zonaTon.get(d.zona) || 0) + d.ton);
@@ -617,9 +619,9 @@ function BelumHitung({ v }: { v: Hasil }) {
       <div className="text-[13px] leading-relaxed">
         <b>Ongkir dari toko belum bisa dihitung untuk {fmtTon(b.ton)} ton ({fmtPct(pct, 0)})</b>
         {b.zona.length > 0 && <>, terutama {b.zona.slice(0, 4).map(z => `${z.nama} ${fmtTon(z.ton)} t`).join(', ')}</>}.
-        {' '}Kolom Delivery di J073 kosong, padahal ongkirnya biasanya sudah ada di harga DO; untuk menghitungnya perlu Product Price J073 dan harga Loco di gudang yang sama.
-        DO ini <b>tidak ikut</b> margin (tidak dianggap ongkir 0). Supaya terhitung: jalankan "Upload ulang salinan J073" di Nazam Auto Task,
-        dan pastikan Harga Loco distributornya sudah ada.
+        {' '}Kolom Delivery di J073 kosong, padahal ongkirnya biasanya sudah ada di harga DO, dan tarif resmi untuk tipe kirim dan zona itu belum tersimpan.
+        DO ini <b>tidak ikut</b> margin (tidak dianggap ongkir 0). Supaya terhitung: di Nazam Auto Task jalankan "Baca ulang harga sejak 1 Januari" (tarif per zona),
+        lalu "Upload ulang salinan J073". Kalau masih tersisa, kode tipe kirimnya belum dipasangkan di harga_tipe_map.
       </div>
     </div>
   );
@@ -637,7 +639,7 @@ function CaraBaca() {
         <ul className="mt-1.5 ml-4 list-disc">
           <li>Toko yang <b>ambil sendiri</b> di gudang bayar <b>69.950</b>. Ini harga semen saja (Loco).</li>
           <li>Toko yang <b>dikirim</b> bayar <b>71.350</b> (Product Price J073). Selisih <b>1.400</b> itu <b>ongkir yang dibayar toko</b>, sudah termasuk di harga DO.
-            Di J073 kadang ditulis rinciannya (Delivery Price 1.950 − Delivery Discount 550 + Handling Cost bongkar), kadang kosong; kalau kosong, halaman ini menghitungnya dari harga DO − harga Loco gudang yang sama.</li>
+            Di J073 kadang ditulis rinciannya (Delivery Price 1.950 − Delivery Discount 550 + Handling Cost bongkar), kadang kosong; kalau kosong, halaman ini memakai tarif resmi ERP untuk zona itu (Transport + Subsidi + Handling).</li>
           <li>Diskon / promo / cash back toko <b>tidak</b> mengurangi ongkir: itu potongan harga semen, toko yang ambil sendiri juga dapat.</li>
           <li>Distributor membayar truk (ORDB019), misalnya <b>2.960</b> per zak.</li>
           <li><b>Margin</b> = ongkir dibayar toko − bayar truk = 1.400 − 2.960 = <b className="text-red">−1.560</b> per zak: rugi, selisihnya ditanggung distributor.
@@ -662,7 +664,7 @@ function SatuZak({ v, S }: { v: Hasil; S: Satuan }) {
     </div>
   );
   const total = [...v.sumberTon.values()].reduce((a, b) => a + b, 0) || 1;
-  const pecah = ['rincian', 'harga', 'lg', 'kosong'].filter(k => v.sumberTon.get(k)).map(k => `${SUMBER[k]} ${fmtPct((v.sumberTon.get(k) || 0) / total, 0)}`);
+  const pecah = ['rincian', 'tarif', 'harga', 'lg', 'kosong'].filter(k => v.sumberTon.get(k)).map(k => `${SUMBER[k]} ${fmtPct((v.sumberTon.get(k) || 0) / total, 0)}`);
   return (
     <section className="card mt-4 grid gap-6 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-[880px]:grid-cols-1">
       <div>
@@ -720,7 +722,7 @@ function TanpaOngkir({ v }: { v: Hasil }) {
         <h2 className="section-title !m-0">Dikirim tanpa ongkir <span className="n">{fmt(v.tanpaOngkir.length)} toko · {fmtTon(ton)} ton · bayar truk {fmtIDRCompact(biaya)}</span></h2>
       </div>
       <p className="text-soft text-[12.5px] -mt-2 mb-3 max-w-[900px]">
-        DO kirim yang tokonya tidak membayar ongkir: kolom Delivery di J073 bernilai 0 atau habis oleh potongan, atau harga DO tidak di atas harga Loco.
+        DO kirim yang tokonya tidak membayar ongkir: kolom Delivery di J073 bernilai 0 atau habis oleh potongan, tarif resmi zonanya 0, atau harga DO tidak di atas harga Loco.
         DO yang ongkirnya belum bisa dihitung tidak masuk daftar ini (lihat catatan di atas).
       </p>
       <TableWrap>

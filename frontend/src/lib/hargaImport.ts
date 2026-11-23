@@ -1,7 +1,9 @@
 /* ============================================================================
-   Import harga Loco Net (Nazam Auto Task, bagian Harga Loco) untuk perkiraan nilai Outstanding DO.
-   File CSV: satu baris = harga baris "LOCO GUDANG" di ERP Price & Promo Simulation untuk satu
-   distributor x produk x masa berlaku (Effective Date s.d. Expired Date; Expired kosong = masih berlaku).
+   Import harga ERP (Nazam Auto Task, bagian Harga ERP).
+   File CSV: satu baris = satu baris tabel Basic and Additional Price di ERP Price & Promo Simulation untuk
+   distributor x produk x tipe kirim x zona x gudang x masa berlaku (Effective Date s.d. Expired Date; kosong = masih berlaku).
+   LOCO GUDANG = harga ambil sendiri (perkiraan nilai Outstanding DO); tipe lain (FRANCO ..., LOCO KAPAL ...) = tarif kirim
+   per zona: ongkir = Net Price - (Price - Discount), dipakai halaman Ongkos Kirim. File lama tanpa kolom tipe = LOCO GUDANG.
    Produk dicocokkan ke Outstanding DO lewat tipe semen (CMT = STR, RJW, CWC), berat per zak, dan OPC.
    Murni (tanpa DOM) supaya bisa jalan di Web Worker dan diuji di Node.
    Urutan kolom yang dikirim = urutan argumen sementrack.harga_loco_simpan.
@@ -13,8 +15,9 @@ export interface HargaKombinasi {
   dist: string; produk: string; gudang: string; nama: string; semen: string; kg: number | null;
   masa: number; dari: string; sampai: string | null; hargaTerakhir: number; hargaMin: number; hargaMax: number;
 }
+export interface HargaTarif { dist: string; tipe: string; zona: number; baris: number; ongkirMin: number; ongkirMax: number }
 export interface HargaStats {
-  rowsRead: number; rowsUsed: number; skipped: number; invalid: number;
+  rowsRead: number; rowsUsed: number; skipped: number; invalid: number; loco: number; tarif: HargaTarif[];
   issues: { row: number; reason: string }[];
   kombinasi: HargaKombinasi[];
   dists: string[];
@@ -33,6 +36,12 @@ const COLS = [
   { key: 'eff', header: 'effective_date', alias: ['effectivedate', 'berlakudari'], required: true },
   { key: 'exp', header: 'expired_date', alias: ['expireddate', 'berlakusampai'], required: false },
   { key: 'ambil', header: 'diambil', alias: ['tanggalsimulasi'], required: false },
+  { key: 'zone', header: 'zone', alias: ['zona'], required: false },
+  { key: 'disc', header: 'discount', alias: [], required: false },
+  { key: 'tr', header: 'transport', alias: [], required: false },
+  { key: 'sub', header: 'subsidi', alias: [], required: false },
+  { key: 'hand', header: 'handling', alias: [], required: false },
+  { key: 'sub2', header: 'subsidi2', alias: [], required: false },
 ] as const;
 type Key = typeof COLS[number]['key'];
 
@@ -47,7 +56,7 @@ export const kgProduk = (name: string) => { const m = /(\d+(?:[.,]\d+)?)\s*KG/i.
 
 export function parseHargaText(text: string, fileName: string): HargaParseResult {
   const rows: HargaRow[] = [];
-  const st: HargaStats = { rowsRead: 0, rowsUsed: 0, skipped: 0, invalid: 0, issues: [], kombinasi: [], dists: [], dari: '', sampai: '' };
+  const st: HargaStats = { rowsRead: 0, rowsUsed: 0, skipped: 0, invalid: 0, loco: 0, tarif: [], issues: [], kombinasi: [], dists: [], dari: '', sampai: '' };
   let idx: Partial<Record<Key, number>> | null = null;
   let missing: string[] = [];
   parseDelimited(text, (cells, line) => {
@@ -65,8 +74,7 @@ export function parseHargaText(text: string, fileName: string): HargaParseResult
     if (cells.every(c => !String(c).trim())) return;
     st.rowsRead++;
     const get = (k: Key) => (idx![k] == null ? '' : String(cells[idx![k]!] ?? '').trim());
-    const tipe = get('tipe');
-    if (tipe && !/LOCO/i.test(tipe)) { st.skipped++; return; }
+    const tipe = get('tipe').replace(/\s+/g, ' ').toUpperCase() || 'LOCO GUDANG';
     const dist = get('dist').toUpperCase(), code = get('code').toUpperCase(), name = get('name');
     const net = toNumber(get('net')), price = toNumber(get('price'));
     const eff = toISODate(get('eff')), expRaw = get('exp'), exp = expRaw ? toISODate(expRaw) : null;
@@ -75,7 +83,9 @@ export function parseHargaText(text: string, fileName: string): HargaParseResult
       : !eff ? 'Effective Date tidak terbaca' : expRaw && !exp ? 'Expired Date tidak terbaca' : exp && exp < eff ? 'Expired sebelum Effective' : '';
     if (salah) { st.invalid++; if (st.issues.length < 50) st.issues.push({ row: line, reason: salah }); return; }
     const semen = semenProduk(code, name), kg = kgProduk(name || code);
-    rows.push([dist, code, name || null, semen, kg, /OPC/i.test(name) ? 1 : 0, get('wh').toUpperCase(), eff, exp, price, net, ambil]);
+    const n = (k: Key) => (get(k) === '' ? null : toNumber(get(k)));
+    rows.push([dist, code, name || null, semen, kg, /OPC/i.test(name) ? 1 : 0, get('wh').toUpperCase(), eff, exp, price, net, ambil,
+      tipe, get('zone').replace(/\s+/g, ' ').toUpperCase(), n('disc'), n('tr'), n('sub'), n('hand'), n('sub2')]);
     st.rowsUsed++;
   });
   if (!idx) return { ok: false, error: `${fileName}: baris judul kolom harga (dist_code, product_code, net_price, effective_date) tidak ditemukan.`, missing: COLS.filter(c => c.required).map(c => c.header), rows: [], stats: st };
@@ -83,9 +93,22 @@ export function parseHargaText(text: string, fileName: string): HargaParseResult
   return { ok: true, rows, stats: ringkas(rows, st) };
 }
 
+const isLoco = (r: HargaRow) => (r[12] ?? 'LOCO GUDANG') === 'LOCO GUDANG';
+/** Ongkir per zak baris tarif: Net Price - (Price - Discount); tanpa Price: jumlah komponen. */
+export const ongkirBaris = (r: HargaRow) => (r[9] != null ? Number(r[10]) - (Number(r[9]) - Number(r[14] ?? 0))
+  : [15, 16, 17, 18].reduce((a, i) => a + Number(r[i] ?? 0), 0));
+
 function ringkas(rows: HargaRow[], st: HargaStats): HargaStats {
   const by = new Map<string, HargaRow[]>();
-  rows.forEach(r => { const k = `${r[0]}|${r[1]}|${r[6]}`; (by.get(k) || by.set(k, []).get(k)!).push(r); });
+  rows.filter(isLoco).forEach(r => { const k = `${r[0]}|${r[1]}|${r[6]}`; (by.get(k) || by.set(k, []).get(k)!).push(r); });
+  st.loco = rows.filter(isLoco).length;
+  const tb = new Map<string, { zona: Set<string>; baris: number; o: number[] }>();
+  rows.filter(r => !isLoco(r)).forEach(r => {
+    const k = `${r[0]}|${r[12]}`, x = tb.get(k) || tb.set(k, { zona: new Set(), baris: 0, o: [] }).get(k)!;
+    x.zona.add(String(r[13] ?? '')); x.baris++; x.o.push(ongkirBaris(r));
+  });
+  st.tarif = [...tb.entries()].map(([k, x]) => ({ dist: k.split('|')[0], tipe: k.split('|')[1], zona: x.zona.size, baris: x.baris, ongkirMin: Math.min(...x.o), ongkirMax: Math.max(...x.o) }))
+    .sort((a, b) => a.dist.localeCompare(b.dist) || a.tipe.localeCompare(b.tipe));
   st.kombinasi = [...by.values()].map(rs => {
     rs.sort((a, b) => String(a[7]).localeCompare(String(b[7])));
     const last = rs[rs.length - 1], hs = rs.map(r => Number(r[10]));
@@ -105,7 +128,7 @@ function ringkas(rows: HargaRow[], st: HargaStats): HargaStats {
 export function gabungHarga(list: HargaParseResult[]): HargaParseResult {
   const rows = list.flatMap(r => r.rows);
   const st: HargaStats = {
-    rowsRead: list.reduce((a, r) => a + r.stats.rowsRead, 0), rowsUsed: rows.length, skipped: list.reduce((a, r) => a + r.stats.skipped, 0),
+    rowsRead: list.reduce((a, r) => a + r.stats.rowsRead, 0), rowsUsed: rows.length, skipped: list.reduce((a, r) => a + r.stats.skipped, 0), loco: 0, tarif: [],
     invalid: list.reduce((a, r) => a + r.stats.invalid, 0), issues: list.flatMap(r => r.stats.issues).slice(0, 50), kombinasi: [], dists: [], dari: '', sampai: '',
   };
   return { ok: true, rows, stats: ringkas(rows, st) };

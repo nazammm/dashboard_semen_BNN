@@ -31,8 +31,8 @@ BAGIAN = [("J028", "J028 + J028B", "Transaksi toko (Kelola Data → Transaksi)")
           ("DOFAS", "DO FAS", "Rekap DO harian (folder korin)"),
           ("STOCK", "Stock", "Stock semen bulan berjalan (folder b236)"),
           ("ONGKOS", "Ongkos kirim", "J073 + ORDB019 semua distributor, seminggu sekali"),
-          ("HARGA", "Harga Loco", "Loco Net per PT & produk untuk nilai OS DO, seminggu sekali")]
-NAMA_RIWAYAT = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS", "STOCK": "Stock", "ONGKOS": "Ongkos kirim", "HARGA": "Harga Loco"}
+          ("HARGA", "Harga ERP", "Harga Loco & tarif kirim per zona (OS DO, ongkos kirim), seminggu sekali")]
+NAMA_RIWAYAT = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS", "STOCK": "Stock", "ONGKOS": "Ongkos kirim", "HARGA": "Harga Loco"}   # nama bagian di riwayat.json (mesin)
 BAWAAN = {"jadwal_aktif": False, "tiap_jam": 4, "jam_mulai": "07:00", "bagian": ["J028", "J073", "SUBDIST"],
           "tampilkan_browser": False, "paksa_subdist": False}
 
@@ -772,16 +772,17 @@ def jalankan_aplikasi() -> None:
                      bg=C["card"], fg=C["muted"], font=self.f_kecil, wraplength=240, justify="left").grid(row=11, column=1, columnspan=2, sticky="w")
             self.tombol(f, "Ambil ongkos kirim…", self.dialog_ongkos, kecil=True).grid(row=12, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
-            f = bagian(kiri, "Harga Loco (nilai Outstanding DO)")
+            f = bagian(kiri, "Harga ERP (nilai OS DO, tarif ongkos kirim)")
             tk.Label(f, text="Distributor harga", bg=C["card"], fg=C["muted"]).grid(row=1, column=0, sticky="nw", padx=(0, 12))
             self.v_akun["HARGA_DIST"] = tk.StringVar(value=akun.get("HARGA_DIST", mesin.ONGKOS_DIST_BAWAAN) or mesin.ONGKOS_DIST_BAWAAN)
             kotak = PilihDist(f, self, self.v_akun["HARGA_DIST"].get().split(","), kolom=2)
             kotak.grid(row=1, column=1, columnspan=2, sticky="w")
             kotak.saat_berubah = lambda pilihan: self.v_akun["HARGA_DIST"].set(",".join(pilihan))
-            tk.Label(f, text="ERP Price & Promo Simulation, produk CMT / RJW / CWC, baris LOCO GUDANG kolom Net Price. "
-                             "Dibaca per masa berlaku (lompat ke Expired Date), bukan per hari; jalan berikutnya hanya memeriksa "
-                             "masa berlaku terakhir. Dari jadwal paling sering seminggu sekali.",
+            tk.Label(f, text="ERP Price & Promo Simulation, produk CMT / RJW / CWC: baris LOCO GUDANG (harga ambil sendiri) dan "
+                             "FRANCO per zona (Transport, Subsidi, Handling). Dibaca per masa berlaku (lompat ke Expired Date), bukan "
+                             "per hari. Dari jadwal paling sering seminggu sekali.",
                      bg=C["card"], fg=C["muted"], font=self.f_kecil, wraplength=240, justify="left").grid(row=2, column=1, columnspan=2, sticky="w", pady=(4, 0))
+            self.tombol(f, f"Baca ulang harga sejak 1 Januari {date.today().year}", self.harga_ulang, kecil=True).grid(row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
             f = bagian(kiri, "Lainnya")
             self.v_startup = tk.BooleanVar(value=self.startup_path().exists())
@@ -1033,6 +1034,15 @@ def jalankan_aplikasi() -> None:
             if self.v_pratinjau.get():
                 argumen = argumen + ["--tanpa-simpan"]
             self.jalankan(argumen=argumen)
+
+        def harga_ulang(self):
+            if self.proses:
+                messagebox.showinfo(APP, "Masih ada proses yang berjalan. Tunggu selesai atau Hentikan dulu.")
+                return
+            if not messagebox.askyesno(APP, f"Baca ulang semua harga ERP sejak 1 Januari {date.today().year} untuk distributor terpilih, "
+                                            "lalu upload? Perlu dijalankan sekali setelah versi ini (tarif kirim per zona belum ada sebelumnya)."):
+                return
+            self.jalankan_ongkos(["--bagian", "HARGA", "--harga-dari", f"{date.today().year}-01-01"])
 
         def uji_login(self):
             if self.proses:

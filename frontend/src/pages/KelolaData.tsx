@@ -43,7 +43,7 @@ const MENUS: Record<Exclude<Tab, 'riwayat'>, { id: string; label: string }[]> = 
   tabel: [],
   baru: [],
   transaksi: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'hapus', label: 'Hapus' }, { id: 'sinkron', label: 'Waktu pembaruan' }],
-  sellin: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'outstanding', label: 'Outstanding DO' }, { id: 'harga', label: 'Harga Loco' }, { id: 'hapus', label: 'Hapus' }],
+  sellin: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'outstanding', label: 'Outstanding DO' }, { id: 'harga', label: 'Harga ERP' }, { id: 'hapus', label: 'Hapus' }],
   sellout: [{ id: 'dofas', label: 'Tempel DO FAS' }, { id: 'erp', label: 'Tempel Sub ERP' }, { id: 'j073', label: 'Upload J073' }],
   stock: [{ id: 'upload', label: 'Upload file stok' }],
   ongkos: [{ id: 'ordb', label: 'Upload ORDB019' }, { id: 'j073', label: 'Upload J073' }],
@@ -147,7 +147,7 @@ function StatusStrip({ row }: { row: Row | null }) {
 /* ---------------------------------------------------------------------------
    Riwayat upload & hapus (Transaksi + Sell In BNN)
 --------------------------------------------------------------------------- */
-const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', target: 'Target', outstanding: 'Outstanding DO', tabel: 'Edit tabel', stock: 'Stock', ongkos: 'ORDB019', harga: 'Harga Loco' };
+const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', target: 'Target', outstanding: 'Outstanding DO', tabel: 'Edit tabel', stock: 'Stock', ongkos: 'ORDB019', harga: 'Harga ERP' };
 const inFilter = (f: string, ds: unknown) => f === 'all' || ds === f || (f === 'sellout' && (ds === 'dofas' || ds === 'erp' || ds === 'j073'))
   || (f === 'sellin' && (ds === 'outstanding' || ds === 'harga')) || (f === 'ongkos' && ds === 'j073');
 

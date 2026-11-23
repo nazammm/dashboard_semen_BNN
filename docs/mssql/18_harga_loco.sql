@@ -13,6 +13,12 @@
        2. nama gudang tertulis di Tujuan OS (mis. "Kuala Tanjung, Pelabuhan" -> KUALA TANJUNG);
        3. gudang utama distributor (baris '%' di harga_gudang_map, mis. 4094 -> INSA);
        4. kalau distributor itu hanya punya satu gudang LOCO, gudang itu. Selain itu: belum ada harga (tidak ditebak).
+   - sementrack.harga_kirim: baris lain dari tabel harga yang sama (FRANCO FLOOR, FRANCO TRUK, FRANCO TRUK 1 KONTAINER,
+     LOCO KAPAL/PELABUHAN, ...) per tipe kirim x zona x gudang x masa berlaku, dengan komponennya. ongkir = Net Price -
+     (Price - Discount) = Transport + Subsidi + Handling + Subsidi: tarif ongkir per zak yang dibayar toko (halaman Ongkos Kirim).
+     Hanya baris LOCO GUDANG yang masuk harga_loco (sebelum 2026-11-23 semua baris berisi "LOCO" ikut, mis. LOCO KAPAL yang
+     berdiskon; baca ulang harga sejak 1 Januari membersihkannya).
+   - sementrack.harga_tipe_map: kode tipe kirim J073 (kata pertama Delivery Type, mis. FF) -> Delivery Type di tabel harga.
    - v_outstanding_do_harga: Outstanding DO + harga Loco Net yang berlaku pada tanggal order,
      nilai = sisa zak x Loco Net. v_outstanding_do_ringkas dapat kolom nilai dan ton_tanpa_harga.
    Produk dicocokkan lewat tipe semen (STR = CMT / Tiga Roda, RJW = Rajawali, CWC = white cement),
@@ -73,14 +79,63 @@ IF NOT EXISTS (SELECT 1 FROM sementrack.harga_gudang_map WHERE dist_code = N'409
     (N'4094', N'%MALAHAYATI%', N'ACEH'), (N'4094', N'%MEULABOH%', N'ACEH');
 GO
 
+IF OBJECT_ID(N'sementrack.harga_kirim', N'U') IS NULL
+CREATE TABLE sementrack.harga_kirim (
+  dist_code nvarchar(20) NOT NULL,
+  product_code nvarchar(30) NOT NULL,
+  product_name nvarchar(200) NULL,
+  delivery_type nvarchar(60) NOT NULL,      -- FRANCO FLOOR, FRANCO TRUK, LOCO KAPAL/PELABUHAN, ...
+  zone nvarchar(100) NOT NULL CONSTRAINT DF_harga_kirim_zone DEFAULT N'',
+  warehouse nvarchar(50) NOT NULL CONSTRAINT DF_harga_kirim_wh DEFAULT N'',
+  berlaku_dari date NOT NULL,
+  berlaku_sampai date NULL,
+  price decimal(18,2) NULL,                 -- harga dasar pada tanggal dibaca (ikut harga Loco, bisa berubah tanpa baris ini berubah)
+  discount decimal(18,2) NULL,
+  transport decimal(18,2) NULL,
+  subsidi decimal(18,2) NULL,
+  handling decimal(18,2) NULL,
+  subsidi2 decimal(18,2) NULL,
+  net_price decimal(18,2) NOT NULL,
+  ongkir decimal(18,2) NOT NULL,            -- Net Price - (Price - Discount) per zak
+  diambil date NULL,
+  created_by nvarchar(200) NULL,
+  created_at datetimeoffset NOT NULL CONSTRAINT DF_harga_kirim_at DEFAULT SYSDATETIMEOFFSET(),
+  CONSTRAINT PK_harga_kirim PRIMARY KEY (dist_code, product_code, delivery_type, zone, warehouse, berlaku_dari)
+);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_harga_kirim_cari' AND object_id = OBJECT_ID(N'sementrack.harga_kirim'))
+  CREATE INDEX IX_harga_kirim_cari ON sementrack.harga_kirim (dist_code, product_code, zone, berlaku_dari) INCLUDE (delivery_type, warehouse, berlaku_sampai, ongkir);
+GO
+
+IF OBJECT_ID(N'sementrack.harga_tipe_map', N'U') IS NULL
+CREATE TABLE sementrack.harga_tipe_map (
+  kode nvarchar(20) NOT NULL CONSTRAINT PK_harga_tipe_map PRIMARY KEY,   -- kata pertama Delivery Type J073 (FF, FT, FTK1, LG, ...)
+  delivery_type nvarchar(60) NOT NULL,                                   -- Delivery Type di tabel harga ERP
+  catatan nvarchar(200) NULL
+);
+GO
+-- Pasangan yang sudah pasti. Kode lain (LK1, KL, trailer, ...) tambahkan di sini kalau sudah dipastikan.
+INSERT INTO sementrack.harga_tipe_map (kode, delivery_type, catatan)
+SELECT v.kode, v.tipe, v.catatan FROM (VALUES
+  (N'FF', N'FRANCO FLOOR', N'kirim dibongkar'),
+  (N'FT', N'FRANCO TRUK', N'kirim tanpa bongkar'),
+  (N'FTK1', N'FRANCO TRUK 1 KONTAINER', N'kirim tanpa bongkar, 1 kontainer'),
+  (N'LG', N'LOCO GUDANG', N'ambil di gudang'),
+  (N'LK', N'LOCO KAPAL/PELABUHAN', N'ambil sendiri di kapal / pelabuhan')
+) v (kode, tipe, catatan)
+WHERE NOT EXISTS (SELECT 1 FROM sementrack.harga_tipe_map m WHERE m.kode = v.kode);
+GO
+
 ALTER TABLE sementrack.kelola_log DROP CONSTRAINT IF EXISTS CK_kelola_log_dataset_check;
 ALTER TABLE sementrack.kelola_log ADD CONSTRAINT CK_kelola_log_dataset_check
   CHECK (dataset IN (N'transaksi', N'sellin', N'dofas', N'erp', N'j073', N'target', N'outstanding', N'tabel', N'stock', N'ongkos', N'harga'));
 GO
 
 /* ---------- 2. simpan ----------
-   Baris: [dist_code, product_code, product_name, semen, kg, opc (0/1), warehouse, berlaku_dari, berlaku_sampai, price, net_price, diambil].
-   Untuk tiap (distributor, produk) di file, masa berlaku yang mulai sejak berlaku_dari paling awal di file diganti seluruhnya. */
+   Baris: [dist_code, product_code, product_name, semen, kg, opc (0/1), warehouse, berlaku_dari, berlaku_sampai, price, net_price, diambil,
+           delivery_type, zone, discount, transport, subsidi, handling, subsidi2] (7 terakhir boleh tidak ada = LOCO GUDANG).
+   LOCO GUDANG -> harga_loco: untuk tiap (distributor, produk) di file, masa berlaku yang mulai sejak berlaku_dari paling awal
+   di file diganti seluruhnya. Tipe lain -> harga_kirim: per baris (tipe, zona, gudang, berlaku_dari) disisipkan atau diperbarui. */
 CREATE OR ALTER PROCEDURE sementrack.harga_loco_simpan @p_rows nvarchar(max), @p_user nvarchar(200), @p_file nvarchar(4000) = NULL
 AS
 BEGIN
@@ -96,19 +151,28 @@ BEGIN
          ISNULL(UPPER(TRIM(JSON_VALUE(r.[value], '$[6]'))), N'') AS warehouse,
          TRY_CONVERT(date, JSON_VALUE(r.[value], '$[7]'), 23) AS berlaku_dari, TRY_CONVERT(date, NULLIF(JSON_VALUE(r.[value], '$[8]'), N''), 23) AS berlaku_sampai,
          sementrack.angka(JSON_VALUE(r.[value], '$[9]')) AS price, sementrack.angka(JSON_VALUE(r.[value], '$[10]')) AS net_price,
-         TRY_CONVERT(date, NULLIF(JSON_VALUE(r.[value], '$[11]'), N''), 23) AS diambil
+         TRY_CONVERT(date, NULLIF(JSON_VALUE(r.[value], '$[11]'), N''), 23) AS diambil,
+         ISNULL(NULLIF(UPPER(TRIM(JSON_VALUE(r.[value], '$[12]'))), N''), N'LOCO GUDANG') AS delivery_type,
+         ISNULL(UPPER(TRIM(JSON_VALUE(r.[value], '$[13]'))), N'') AS zone,
+         sementrack.angka(JSON_VALUE(r.[value], '$[14]')) AS discount, sementrack.angka(JSON_VALUE(r.[value], '$[15]')) AS transport,
+         sementrack.angka(JSON_VALUE(r.[value], '$[16]')) AS subsidi, sementrack.angka(JSON_VALUE(r.[value], '$[17]')) AS handling,
+         sementrack.angka(JSON_VALUE(r.[value], '$[18]')) AS subsidi2
   INTO #h FROM OPENJSON(@p_rows) r;
 
   SELECT @b = MIN(baris) FROM #h
   WHERE ISNULL(dist_code, N'') = N'' OR ISNULL(product_code, N'') = N'' OR semen NOT IN (N'STR', N'RJW', N'CWC')
      OR berlaku_dari IS NULL OR net_price IS NULL OR net_price <= 0 OR (berlaku_sampai IS NOT NULL AND berlaku_sampai < berlaku_dari);
   IF @b IS NOT NULL BEGIN SET @msg = CONCAT(N'Baris harga tidak lengkap (baris ', @b, N')'); THROW 52024, @msg, 1; END
-  SELECT @b = MIN(baris) FROM #h WHERE LEN(dist_code) > 20 OR LEN(product_code) > 30 OR LEN(product_name) > 200 OR LEN(warehouse) > 50;
+  SELECT @b = MIN(baris) FROM #h WHERE LEN(dist_code) > 20 OR LEN(product_code) > 30 OR LEN(product_name) > 200 OR LEN(warehouse) > 50
+                                   OR LEN(delivery_type) > 60 OR LEN(zone) > 100;
   IF @b IS NOT NULL BEGIN SET @msg = CONCAT(N'Teks terlalu panjang (baris ', @b, N')'); THROW 52024, @msg, 1; END
 
   -- baris kembar (masa berlaku sama dibaca dari beberapa tanggal simulasi): ambil yang paling baru dibaca
-  ;WITH d AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY dist_code, product_code, warehouse, berlaku_dari ORDER BY diambil DESC, baris DESC) AS n FROM #h)
+  ;WITH d AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY dist_code, product_code, delivery_type, zone, warehouse, berlaku_dari ORDER BY diambil DESC, baris DESC) AS n FROM #h)
   DELETE FROM d WHERE n > 1;
+  SELECT * INTO #k FROM #h WHERE delivery_type <> N'LOCO GUDANG';
+  DELETE FROM #h WHERE delivery_type <> N'LOCO GUDANG';
+  DECLARE @kirim int = 0;
 
   BEGIN TRAN;
   EXEC sp_getapplock @Resource = N'harga_loco', @LockMode = N'Exclusive', @LockOwner = N'Transaction';
@@ -119,14 +183,28 @@ BEGIN
   INSERT INTO sementrack.harga_loco (dist_code, product_code, product_name, semen, kg, opc, warehouse, berlaku_dari, berlaku_sampai, price, net_price, diambil, created_by)
   SELECT dist_code, product_code, product_name, semen, kg, opc, warehouse, berlaku_dari, berlaku_sampai, price, net_price, diambil, @p_user FROM #h;
   SET @new = @@ROWCOUNT;
-  SELECT @from = MIN(berlaku_dari), @to = MAX(ISNULL(berlaku_sampai, diambil)) FROM #h;
+  -- tarif kirim / tipe lain: sisipkan atau perbarui per baris
+  MERGE sementrack.harga_kirim AS t
+  USING (SELECT *, CASE WHEN price IS NOT NULL THEN net_price - (price - ISNULL(discount, 0))
+                        ELSE ISNULL(transport, 0) + ISNULL(subsidi, 0) + ISNULL(handling, 0) + ISNULL(subsidi2, 0) END AS ongkir FROM #k) AS r
+    ON t.dist_code = r.dist_code AND t.product_code = r.product_code AND t.delivery_type = r.delivery_type
+   AND t.zone = r.zone AND t.warehouse = r.warehouse AND t.berlaku_dari = r.berlaku_dari
+  WHEN MATCHED THEN UPDATE SET product_name = r.product_name, berlaku_sampai = r.berlaku_sampai, price = r.price, discount = r.discount,
+       transport = r.transport, subsidi = r.subsidi, handling = r.handling, subsidi2 = r.subsidi2, net_price = r.net_price, ongkir = r.ongkir,
+       diambil = r.diambil, created_by = @p_user, created_at = SYSDATETIMEOFFSET()
+  WHEN NOT MATCHED THEN INSERT (dist_code, product_code, product_name, delivery_type, zone, warehouse, berlaku_dari, berlaku_sampai, price, discount,
+       transport, subsidi, handling, subsidi2, net_price, ongkir, diambil, created_by)
+       VALUES (r.dist_code, r.product_code, r.product_name, r.delivery_type, r.zone, r.warehouse, r.berlaku_dari, r.berlaku_sampai, r.price, r.discount,
+       r.transport, r.subsidi, r.handling, r.subsidi2, r.net_price, r.ongkir, r.diambil, @p_user);
+  SET @kirim = @@ROWCOUNT;
+  SELECT @from = MIN(berlaku_dari), @to = MAX(ISNULL(berlaku_sampai, diambil)) FROM (SELECT berlaku_dari, berlaku_sampai, diambil FROM #h UNION ALL SELECT berlaku_dari, berlaku_sampai, diambil FROM #k) x;
   SELECT @dists = N'[' + STRING_AGG(N'"' + STRING_ESCAPE(dist_code, 'json') + N'"', N',') WITHIN GROUP (ORDER BY dist_code) + N']'
-  FROM (SELECT DISTINCT dist_code FROM #h) x;
+  FROM (SELECT dist_code FROM #h UNION SELECT dist_code FROM #k) x;
   INSERT INTO sementrack.kelola_log (dataset, aksi, created_by, source, file_name, date_from, date_to, dist_codes, rows_read, rows_saved, rows_deleted, status, finished_at)
-  VALUES (N'harga', N'upload', @p_user, N'file', LEFT(@p_file, 200), @from, @to, @dists, @new, @new, @old, N'selesai', SYSDATETIMEOFFSET());
+  VALUES (N'harga', N'upload', @p_user, N'file', LEFT(@p_file, 200), @from, @to, @dists, @new + @kirim, @new + @kirim, @old, N'selesai', SYSDATETIMEOFFSET());
   COMMIT;
-  SELECT @new AS rows_saved, @old AS rows_deleted, @from AS date_from, @to AS date_to, @dists AS dist_codes,
-         (SELECT COUNT(DISTINCT CONCAT(dist_code, N'|', product_code)) FROM #h) AS kombinasi;
+  SELECT @new AS rows_saved, @old AS rows_deleted, @kirim AS tarif_kirim, @from AS date_from, @to AS date_to, @dists AS dist_codes,
+         (SELECT COUNT(*) FROM (SELECT dist_code, product_code FROM #h UNION SELECT dist_code, product_code FROM #k) x) AS kombinasi;
 END
 GO
 

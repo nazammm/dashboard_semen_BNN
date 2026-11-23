@@ -30,16 +30,34 @@ select * from (values ('4094', '%', 'INSA'), ('4094', '%KUALA TANJUNG%', 'KUALA 
                       ('4094', '%MEULABOH%', 'ACEH')) v(a, b, c)
 where not exists (select 1 from sementrack.harga_gudang_map where dist_code = '4094');
 
+create table if not exists sementrack.harga_kirim (
+  dist_code text not null, product_code text not null, product_name text, delivery_type text not null,
+  zone text not null default '', warehouse text not null default '', berlaku_dari date not null, berlaku_sampai date,
+  price numeric, discount numeric, transport numeric, subsidi numeric, handling numeric, subsidi2 numeric,
+  net_price numeric not null, ongkir numeric not null,            -- Net Price - (Price - Discount) per zak
+  diambil date, created_by text, created_at timestamptz not null default now(),
+  primary key (dist_code, product_code, delivery_type, zone, warehouse, berlaku_dari)
+);
+create index if not exists harga_kirim_cari_idx on sementrack.harga_kirim (dist_code, product_code, zone, berlaku_dari);
+create table if not exists sementrack.harga_tipe_map (kode text primary key, delivery_type text not null, catatan text);
+insert into sementrack.harga_tipe_map (kode, delivery_type, catatan)
+select * from (values ('FF', 'FRANCO FLOOR', 'kirim dibongkar'), ('FT', 'FRANCO TRUK', 'kirim tanpa bongkar'),
+                      ('FTK1', 'FRANCO TRUK 1 KONTAINER', 'kirim tanpa bongkar, 1 kontainer'), ('LG', 'LOCO GUDANG', 'ambil di gudang'),
+                      ('LK', 'LOCO KAPAL/PELABUHAN', 'ambil sendiri di kapal / pelabuhan')) v(a, b, c)
+where not exists (select 1 from sementrack.harga_tipe_map m where m.kode = v.a);
+grant select on sementrack.harga_kirim, sementrack.harga_tipe_map to public;
+
 alter table sementrack.kelola_log drop constraint if exists kelola_log_dataset_check;
 alter table sementrack.kelola_log add constraint kelola_log_dataset_check
   check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073', 'target', 'outstanding', 'tabel', 'stock', 'ongkos', 'harga'));
 
+drop function if exists sementrack.harga_loco_simpan(json, text, text);
 create or replace function sementrack.harga_loco_simpan(p_rows json, p_user text, p_file text default null)
-returns table(rows_saved integer, rows_deleted integer, date_from date, date_to date, dist_codes text[], kombinasi integer)
+returns table(rows_saved integer, rows_deleted integer, tarif_kirim integer, date_from date, date_to date, dist_codes text[], kombinasi integer)
 language plpgsql security definer
 set search_path to 'sementrack', 'public', 'pg_temp'
 as $$
-declare v_old integer; v_new integer; v_from date; v_to date; v_dists text[]; v_komb integer; v_b integer;
+declare v_old integer; v_new integer; v_kirim integer; v_from date; v_to date; v_dists text[]; v_komb integer; v_b integer;
 begin
   if json_typeof(p_rows) <> 'array' or json_array_length(p_rows) = 0 then raise exception 'Tidak ada baris harga' using errcode = '22023'; end if;
   perform pg_advisory_xact_lock(hashtext('harga_loco'));
@@ -48,7 +66,10 @@ begin
          nullif(btrim(r.val ->> 2), '') as product_name, upper(btrim(r.val ->> 3)) as semen, nullif(r.val ->> 4, '')::numeric as kg,
          coalesce(r.val ->> 5, '0') in ('1', 'true') as opc, coalesce(upper(btrim(r.val ->> 6)), '') as warehouse,
          nullif(r.val ->> 7, '')::date as berlaku_dari, nullif(r.val ->> 8, '')::date as berlaku_sampai,
-         nullif(r.val ->> 9, '')::numeric as price, nullif(r.val ->> 10, '')::numeric as net_price, nullif(r.val ->> 11, '')::date as diambil
+         nullif(r.val ->> 9, '')::numeric as price, nullif(r.val ->> 10, '')::numeric as net_price, nullif(r.val ->> 11, '')::date as diambil,
+         coalesce(nullif(upper(btrim(r.val ->> 12)), ''), 'LOCO GUDANG') as delivery_type, coalesce(upper(btrim(r.val ->> 13)), '') as zone,
+         nullif(r.val ->> 14, '')::numeric as discount, nullif(r.val ->> 15, '')::numeric as transport, nullif(r.val ->> 16, '')::numeric as subsidi,
+         nullif(r.val ->> 17, '')::numeric as handling, nullif(r.val ->> 18, '')::numeric as subsidi2
   from json_array_elements(p_rows) with ordinality as r(val, ord);
   select min(baris) into v_b from _h
   where coalesce(dist_code, '') = '' or coalesce(product_code, '') = '' or semen not in ('STR', 'RJW', 'CWC')
@@ -56,18 +77,34 @@ begin
   if v_b is not null then raise exception 'Baris harga tidak lengkap (baris %)', v_b using errcode = '22023'; end if;
   delete from _h a using _h b
   where a.dist_code = b.dist_code and a.product_code = b.product_code and a.warehouse = b.warehouse and a.berlaku_dari = b.berlaku_dari
+    and a.delivery_type = b.delivery_type and a.zone = b.zone
     and (coalesce(a.diambil, '1900-01-01') < coalesce(b.diambil, '1900-01-01') or (coalesce(a.diambil, '1900-01-01') = coalesce(b.diambil, '1900-01-01') and a.baris < b.baris));
+  create temp table _k on commit drop as select * from _h where delivery_type <> 'LOCO GUDANG';
+  delete from _h where delivery_type <> 'LOCO GUDANG';
   with d as (delete from sementrack.harga_loco h using (select dist_code, product_code, min(berlaku_dari) as mulai from _h group by 1, 2) r
              where h.dist_code = r.dist_code and h.product_code = r.product_code and h.berlaku_dari >= r.mulai returning 1)
   select count(*) into v_old from d;
   insert into sementrack.harga_loco (dist_code, product_code, product_name, semen, kg, opc, warehouse, berlaku_dari, berlaku_sampai, price, net_price, diambil, created_by)
   select dist_code, product_code, product_name, semen, kg, opc, warehouse, berlaku_dari, berlaku_sampai, price, net_price, diambil, p_user from _h;
   get diagnostics v_new = row_count;
+  insert into sementrack.harga_kirim as t (dist_code, product_code, product_name, delivery_type, zone, warehouse, berlaku_dari, berlaku_sampai,
+         price, discount, transport, subsidi, handling, subsidi2, net_price, ongkir, diambil, created_by)
+  select dist_code, product_code, product_name, delivery_type, zone, warehouse, berlaku_dari, berlaku_sampai, price, discount, transport, subsidi,
+         handling, subsidi2, net_price,
+         case when price is not null then net_price - (price - coalesce(discount, 0))
+              else coalesce(transport, 0) + coalesce(subsidi, 0) + coalesce(handling, 0) + coalesce(subsidi2, 0) end, diambil, p_user
+  from _k
+  on conflict (dist_code, product_code, delivery_type, zone, warehouse, berlaku_dari) do update set
+    product_name = excluded.product_name, berlaku_sampai = excluded.berlaku_sampai, price = excluded.price, discount = excluded.discount,
+    transport = excluded.transport, subsidi = excluded.subsidi, handling = excluded.handling, subsidi2 = excluded.subsidi2,
+    net_price = excluded.net_price, ongkir = excluded.ongkir, diambil = excluded.diambil, created_by = excluded.created_by, created_at = now();
+  get diagnostics v_kirim = row_count;
   select min(berlaku_dari), max(coalesce(berlaku_sampai, diambil)), array_agg(distinct dist_code order by dist_code), count(distinct (dist_code, product_code))
-    into v_from, v_to, v_dists, v_komb from _h;
+    into v_from, v_to, v_dists, v_komb from (select dist_code, product_code, berlaku_dari, berlaku_sampai, diambil from _h
+                                             union all select dist_code, product_code, berlaku_dari, berlaku_sampai, diambil from _k) x;
   insert into sementrack.kelola_log (dataset, aksi, created_by, source, file_name, date_from, date_to, dist_codes, rows_read, rows_saved, rows_deleted, status, finished_at)
-  values ('harga', 'upload', p_user, 'file', left(p_file, 200), v_from, v_to, v_dists, v_new, v_new, v_old, 'selesai', now());
-  return query select v_new, v_old, v_from, v_to, v_dists, v_komb;
+  values ('harga', 'upload', p_user, 'file', left(p_file, 200), v_from, v_to, v_dists, v_new + v_kirim, v_new + v_kirim, v_old, 'selesai', now());
+  return query select v_new, v_old, v_kirim, v_from, v_to, v_dists, v_komb;
 end $$;
 
 drop view if exists sementrack.v_outstanding_do_ringkas;

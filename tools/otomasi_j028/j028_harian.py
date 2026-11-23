@@ -54,9 +54,10 @@ Antrian ERP paling banyak MAKS_ANTRIAN (2) job + laporan sekaligus, termasuk yan
 
 Harga Loco (perkiraan nilai Outstanding DO): ERP Order Process -> Other Inquiry -> Price & Promo Simulation
 (SLS_Price_Promo_Simulation.aspx), per PT (HARGA_DIST, bawaan 13 distributor) x produk CMT / RJW / CWC (HARGA_PRODUK).
-Yang dipakai hanya baris LOCO GUDANG, kolom Net Price, berlaku Effective Date s.d. Expired Date. Tidak dicek per hari:
-dari tanggal awal (HARGA_DARI, bawaan 1 Januari) harga dibaca, lalu lompat ke Expired Date + 1 hari, sampai Expired kosong
-(= masih berlaku). Jalan berikutnya mulai dari masa berlaku terakhir yang sudah terunggah (harga_loco.json), jadi biasanya
+Semua baris tabel Basic and Additional Price disimpan dengan tipe kirim dan zonanya: LOCO GUDANG = harga ambil sendiri
+(perkiraan nilai OS DO), FRANCO ... = tarif ongkir per zona (Transport, Subsidi, Handling; dipakai halaman Ongkos Kirim).
+Berlaku Effective Date s.d. Expired Date. Tidak dicek per hari: dari tanggal awal (HARGA_DARI, bawaan 1 Januari) harga dibaca,
+lalu lompat ke Expired Date terdekat + 1 hari, sampai tidak ada lagi baris yang berakhir (= semua masih berlaku). Jalan berikutnya mulai dari masa berlaku terakhir yang sudah terunggah (harga_loco.json), jadi biasanya
 satu kali Next per PT x produk. Hasil: HARGA_LOCO_<waktu>.csv di folder salinan, diupload ke Kelola Data -> Sell In BNN ->
 Harga Loco. Dari jadwal: paling sering sekali seminggu (HARGA_HARI).
     python j028_harian.py --bagian HARGA
@@ -92,7 +93,7 @@ from pathlib import Path
 
 from playwright.sync_api import Error as PWError, Page, TimeoutError as PWTimeout, sync_playwright
 
-VERSI = "2026.11.20.7"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
+VERSI = "2026.11.23.1"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
 ERP = os.environ.get("ERP_URL", "https://www.bangunsukses.com").rstrip("/")   # ERP_URL hanya untuk uji
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
@@ -1597,7 +1598,7 @@ HARGA_JEJAK: set[tuple[str, str]] = set()     # PT x produk yang halamannya suda
 HARGA_MIN = 1000                              # Loco Net di bawah ini dianggap isian / dummy
 HARGA_STATUS = DASAR / "harga_loco.json"      # masa berlaku terakhir yang sudah terunggah per "PT|produk"
 KOLOM_HARGA = ["dist_code", "product_code", "product_name", "warehouse", "delivery_type", "price", "net_price",
-               "effective_date", "expired_date", "diambil"]
+               "effective_date", "expired_date", "diambil", "zone", "discount", "transport", "subsidi", "handling", "subsidi2"]
 
 
 def baca_harga_status() -> dict[str, str]:
@@ -1704,7 +1705,7 @@ def produk_harga(page: Page, dist: str) -> list[tuple[str, str]]:
 
 
 def baca_harga(page: Page, dist: str, kode: str, d: date) -> list[dict]:
-    """Satu kali Next: baris LOCO di tabel Basic and Additional Price pada tanggal simulasi d."""
+    """Satu kali Next: semua baris tabel Basic and Additional Price (LOCO dan FRANCO) pada tanggal simulasi d."""
     buka_form_harga(page, dist)
     prod = page.locator("#ContentPlaceHolder1_ddProductName")
     if (prod.evaluate("s => s.value") or "").strip().upper() != kode:
@@ -1760,6 +1761,10 @@ def baca_harga(page: Page, dist: str, kode: str, d: date) -> list[dict]:
         return h.index(nama) if nama in h else -1
     i_tipe, i_wh, i_price, i_net, i_eff, i_exp = (kol("delivery type"), kol("warehouse"), kol("price"), kol("net price"),
                                                   kol("effective date"), kol("expired date"))
+    i_zone, i_disc, i_tr, i_sub, i_hand = kol("zone"), kol("discount"), kol("transport"), kol("subsidi"), kol("handling")
+    i_sub2 = next((i for i in range(i_hand + 1, len(h)) if h[i] == "subsidi"), -1) if i_hand >= 0 else -1   # Subsidi kedua (setelah Handling)
+    def komponen(r: list, i: int):
+        return angka_teks(r[i]) if 0 <= i < len(r) else None
     if min(i_tipe, i_net, i_eff, i_exp) < 0:
         raise SystemExit(f"Kolom tabel harga berbeda dari yang dikenal: {data['header']}\nHalaman: {jejak(page, 'harga_kolom')}")
     HARGA_TANGGAL_OK = True
@@ -1767,17 +1772,24 @@ def baca_harga(page: Page, dist: str, kode: str, d: date) -> list[dict]:
     for r in data["rows"]:
         if len(r) <= max(i_tipe, i_net, i_eff, i_exp):
             continue
-        if "LOCO" not in r[i_tipe].upper():
-            tipe_lain.add(r[i_tipe].strip().upper())
+        tipe = " ".join(r[i_tipe].split()).upper()
+        if not tipe:
             continue
+        if tipe != "LOCO GUDANG":
+            tipe_lain.add(tipe)
         net, eff = angka_teks(r[i_net]), tanggal_teks(r[i_eff])
         if net is None or eff is None:
             continue
         if net < HARGA_MIN:                        # harga isian / dummy (mis. Rp1) tidak dipakai
             murah.append(f"{net:,.0f}")
             continue
-        hasil.append({"warehouse": r[i_wh] if i_wh >= 0 else "", "delivery_type": r[i_tipe], "price": angka_teks(r[i_price]) if i_price >= 0 else None,
-                      "net_price": net, "effective_date": eff, "expired_date": tanggal_teks(r[i_exp])})
+        hasil.append({"warehouse": r[i_wh] if i_wh >= 0 else "", "delivery_type": tipe, "price": komponen(r, i_price),
+                      "net_price": net, "effective_date": eff, "expired_date": tanggal_teks(r[i_exp]),
+                      "zone": " ".join(r[i_zone].split()).upper() if 0 <= i_zone < len(r) else "",
+                      "discount": komponen(r, i_disc), "transport": komponen(r, i_tr), "subsidi": komponen(r, i_sub),
+                      "handling": komponen(r, i_hand), "subsidi2": komponen(r, i_sub2)})
+    if not any(x["delivery_type"] == "LOCO GUDANG" for x in hasil) and hasil:
+        HARGA_CATATAN = "tidak ada baris LOCO GUDANG (yang ada: " + ", ".join(sorted(tipe_lain)[:4]) + ")"
     if not hasil:
         HARGA_CATATAN = ("baris LOCO harganya tidak wajar (" + ", ".join(murah) + ")" if murah else
                          "tidak ada baris LOCO" + (f" (yang ada: {', '.join(sorted(tipe_lain)[:4])})" if tipe_lain else ", tabel kosong"))
@@ -1828,8 +1840,9 @@ def lompat_harga(page: Page, dist: str, kode: str, nama: str, mulai: date, sampa
         for b in baris:
             b.update(dist_code=dist, product_code=kode, product_name=nama, diambil=date.today())
         hasil += baris
-        exp = [b["expired_date"] for b in baris]
-        if any(e is None for e in exp):
+        # lompat ke Expired Date terdekat (baris LOCO maupun FRANCO); tanpa Expired = masih berlaku sampai hari ini
+        exp = [b["expired_date"] for b in baris if b["expired_date"]]
+        if not exp:
             break
         d = max(min(exp) + timedelta(days=1), d + timedelta(days=1))
     return hasil, catatan
@@ -1875,13 +1888,14 @@ def ambil_harga(pw, tampil: bool, dists: list[str], dari: date | None) -> tuple[
                 semua += baris
                 akhir = max(b["effective_date"] for b in baris)
                 terakhir[k] = akhir.isoformat()
-                # harga terakhir per gudang (INSA punya beberapa gudang LOCO: INSA, KUALA TANJUNG, ACEH)
+                # harga ambil sendiri terakhir per gudang (INSA punya beberapa gudang LOCO: INSA, KUALA TANJUNG, ACEH)
                 per_gudang: dict[str, dict] = {}
-                for x in sorted(baris, key=lambda x: x["effective_date"]):
+                for x in sorted((b for b in baris if b["delivery_type"] == "LOCO GUDANG"), key=lambda x: x["effective_date"]):
                     per_gudang[x["warehouse"] or "-"] = x
+                n_kirim = len({(b["delivery_type"], b["zone"], b["warehouse"], b["effective_date"]) for b in baris if b["delivery_type"] != "LOCO GUDANG"})
                 teks = ", ".join(f"{g} {x['net_price']:,.0f} sejak {x['effective_date']}" + (f" s.d. {x['expired_date']}" if x["expired_date"] else "")
                                  for g, x in per_gudang.items())
-                print(f"  {dist} {kode} {nama}: {len({(b['warehouse'], b['effective_date']) for b in baris})} masa berlaku; Loco Net terakhir {teks}"
+                print(f"  {dist} {kode} {nama}: Loco Net terakhir {teks or '(tidak ada LOCO GUDANG)'}; {n_kirim} tarif kirim / tipe lain"
                       + (f"; sesudahnya {catatan}" if catatan else ""))
     finally:
         browser.close()
@@ -1897,11 +1911,18 @@ def ambil_harga(pw, tampil: bool, dists: list[str], dari: date | None) -> tuple[
     with f.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(KOLOM_HARGA)
+        # baris yang sama terbaca di beberapa tanggal simulasi: simpan sekali (bacaan terakhir)
+        unik = {(b["dist_code"], b["product_code"], b["delivery_type"], b.get("zone", ""), b["warehouse"], b["effective_date"]): b for b in semua}
+        semua = list(unik.values())
         for b in semua:
+            uang = lambda v: "" if v is None else f"{v:.2f}"
             w.writerow([b["dist_code"], b["product_code"], b["product_name"], b["warehouse"], b["delivery_type"],
-                        "" if b["price"] is None else f"{b['price']:.2f}", f"{b['net_price']:.2f}", b["effective_date"].isoformat(),
-                        b["expired_date"].isoformat() if b["expired_date"] else "", b["diambil"].isoformat()])
-    ringkas = f"{len(terakhir)} PT x produk, {len(semua)} baris harga"
+                        uang(b["price"]), f"{b['net_price']:.2f}", b["effective_date"].isoformat(),
+                        b["expired_date"].isoformat() if b["expired_date"] else "", b["diambil"].isoformat(),
+                        b.get("zone", ""), uang(b.get("discount")), uang(b.get("transport")), uang(b.get("subsidi")),
+                        uang(b.get("handling")), uang(b.get("subsidi2"))])
+    n_loco = sum(1 for b in semua if b["delivery_type"] == "LOCO GUDANG")
+    ringkas = f"{len(terakhir)} PT x produk, {n_loco} harga Loco + {len(semua) - n_loco} tarif kirim"
     print(f"  Harga Loco: {ringkas} -> {f}")
     return f, terakhir, ringkas, gagal
 

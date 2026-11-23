@@ -5,11 +5,12 @@
    - Angkutan ke gudang (baris ORDB019 tanpa No DO, "-": WAYLUNIK, SUKAJAYA, ...) dipisah dari ongkos ke toko.
    - Status transporter (sementrack.ongkos_transporter, bisa diubah di SSMS):
        normal         : ongkos seharusnya tercatat di ORDB019
-       armada_sendiri : biaya di luar ERP (bawaan: nama berisi LINTAS ABADI MAKMUR); perjalanan tanpa biaya bukan "tagihan belum masuk"
+       armada_sendiri : biaya di luar ERP (bawaan: nama berisi LINTAS ABADI MAKMUR, plus ISA001 truk INSA sendiri dan ISA066 mobil
+                        internal BNN Group); perjalanan tanpa biaya bukan "tagihan belum masuk"
        truk_toko      : truk milik toko (bawaan: nama berisi EKS. TOKO); memang tanpa biaya, dihitung lengkap dengan biaya 0
-   - Ongkir dibayar toko per DO: rincian Delivery di J073 kalau diisi; kalau kosong pada DO kirim, dari harga:
-     Product Price - harga Loco Net (18_harga_loco.sql) pada tanggal DO, minimal 0.
-   Jalankan di SSMS, database MARKETING_ANALIS, setelah 17, 18, dan 19. Kalau 17_ongkos_kirim.sql dijalankan ulang,
+   - Ongkir dibayar toko per DO: rincian Delivery di J073 kalau diisi; kalau kosong pada DO kirim, tarif resmi per tipe kirim x zona
+     (harga_kirim, 18_harga_loco.sql); kalau belum ada, Product Price - harga Loco (kolom Price) pada tanggal DO, minimal 0.
+   Jalankan di SSMS, database MARKETING_ANALIS, setelah 17, 18, dan 19 (18 versi 2026-11-23: tabel harga_kirim). Kalau 17_ongkos_kirim.sql dijalankan ulang,
    jalankan file ini lagi sesudahnya. Aman dijalankan ulang.
 ============================================================================ */
 
@@ -23,6 +24,10 @@ CREATE TABLE sementrack.ongkos_transporter (
   status nvarchar(20) NOT NULL CONSTRAINT CK_ongkos_transporter_status CHECK (status IN (N'normal', N'armada_sendiri', N'truk_toko')),
   catatan nvarchar(400) NULL
 );
+GO
+INSERT INTO sementrack.ongkos_transporter (kode, status, catatan)
+SELECT v.kode, N'armada_sendiri', v.catatan FROM (VALUES (N'ISA001', N'truk INSA sendiri'), (N'ISA066', N'mobil internal BNN Group')) v (kode, catatan)
+WHERE NOT EXISTS (SELECT 1 FROM sementrack.ongkos_transporter t WHERE t.kode = v.kode);
 GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_harga_loco_produk' AND object_id = OBJECT_ID(N'sementrack.harga_loco'))
   CREATE INDEX IX_harga_loco_produk ON sementrack.harga_loco (dist_code, product_code, berlaku_dari) INCLUDE (berlaku_sampai, net_price, warehouse);
@@ -123,9 +128,14 @@ LEFT JOIN sementrack.ongkos_transporter ot ON ot.kode = t.transporter_kode;
 GO
 
 -- Satu baris per DO ke toko (tanpa angkutan ke gudang). tagih = ongkir + bongkar yang dibayar toko (di atas harga ambil sendiri),
--- tagih_sumber: rincian (Delivery Price - Delivery Discount + Delivery Add + Handling Cost, J073) / harga (Product Price - harga Loco
--- kolom Price, gudang sama) / lg (ambil sendiri = 0) / kosong (belum bisa dihitung, NULL). Diskon / promo / cash back tidak dihitung:
--- itu potongan harga semen per toko, bukan potongan ongkir. tagih_dari_harga = cara harga untuk semua DO (untuk cek silang).
+-- tagih_sumber, urut dipakai:
+--   rincian = Delivery Price - Delivery Discount + Delivery Add + Handling Cost dari J073 (yang benar-benar tertulis di DO itu);
+--   lg      = ambil sendiri (LG, atau kode yang di harga_tipe_map dipasangkan ke tipe LOCO ...) = 0;
+--   tarif   = tarif resmi di harga_kirim (18_harga_loco.sql): tipe kirim (harga_tipe_map) + zona J073 + gudang + tanggal DO;
+--   harga   = Product Price - harga Loco kolom Price, gudang sama;
+--   kosong  = belum bisa dihitung (NULL).
+-- Diskon / promo / cash back tidak dihitung: itu potongan harga semen per toko, bukan potongan ongkir.
+-- tagih_dari_harga / tagih_dari_tarif = hasil cara itu untuk semua DO (untuk cek silang).
 CREATE OR ALTER VIEW sementrack.v_ongkos_do AS
 SELECT k.dist_code, k.periode, k.do_no, k.biaya, k.ton_kirim, k.trip, k.trip_tanpa_biaya, k.trip_luar_erp, k.trip_truk_toko, k.truk, k.transporter, k.zona, k.segmen, k.tujuan,
        j.do_date, j.customer_code, j.customer_name, j.delivery_type,
@@ -133,12 +143,14 @@ SELECT k.dist_code, k.periode, k.do_no, k.biaya, k.ton_kirim, k.trip, k.trip_tan
        j.zona_kirim, j.kecamatan, j.kabupaten, j.ton_do,
        CASE WHEN j.ton_do > 0 THEN j.net * k.ton_kirim / j.ton_do END AS omzet,
        CASE WHEN j.ton_do > 0 AND j.delivery_type IS NOT NULL THEN
-         (CASE WHEN j.ada_rincian = 1 THEN j.tagih_rincian WHEN j.delivery_type LIKE N'LG%' THEN 0
+         (CASE WHEN j.ada_rincian = 1 THEN j.tagih_rincian WHEN j.delivery_type LIKE N'LG%' OR j.tipe_loco = 1 THEN 0
+               WHEN j.baris_tanpa_tarif = 0 THEN j.tagih_tarif
                WHEN j.tagih_harga IS NOT NULL THEN j.tagih_harga END) * k.ton_kirim / j.ton_do END AS tagih,   -- kosong = belum bisa dihitung (NULL), bukan 0
-       CASE WHEN j.delivery_type IS NULL THEN NULL WHEN j.ada_rincian = 1 THEN N'rincian' WHEN j.delivery_type LIKE N'LG%' THEN N'lg'
-            WHEN j.tagih_harga IS NOT NULL THEN N'harga' ELSE N'kosong' END AS tagih_sumber,
+       CASE WHEN j.delivery_type IS NULL THEN NULL WHEN j.ada_rincian = 1 THEN N'rincian' WHEN j.delivery_type LIKE N'LG%' OR j.tipe_loco = 1 THEN N'lg'
+            WHEN j.baris_tanpa_tarif = 0 THEN N'tarif' WHEN j.tagih_harga IS NOT NULL THEN N'harga' ELSE N'kosong' END AS tagih_sumber,
        CASE WHEN j.ton_do > 0 AND j.delivery_type IS NOT NULL THEN j.handling * k.ton_kirim / j.ton_do END AS handling,
        CASE WHEN j.ton_do > 0 AND j.delivery_type IS NOT NULL THEN j.tagih_harga * k.ton_kirim / j.ton_do END AS tagih_dari_harga,
+       CASE WHEN j.ton_do > 0 AND j.delivery_type IS NOT NULL AND j.baris_tanpa_tarif = 0 THEN j.tagih_tarif * k.ton_kirim / j.ton_do END AS tagih_dari_tarif,
        CASE WHEN j.ton_loco > 0 THEN j.nilai_loco / j.ton_loco END AS loco_per_ton,
        CASE WHEN j.ton_harga > 0 THEN j.nilai_harga / j.ton_harga END AS harga_per_ton
 FROM (
@@ -161,6 +173,9 @@ OUTER APPLY (
          SUM(CASE WHEN s.harga_produk IS NOT NULL AND hl.loco IS NOT NULL
                   THEN (CASE WHEN s.harga_produk > hl.loco THEN s.harga_produk - hl.loco ELSE 0 END) * s.order_qty END) AS tagih_harga,
          SUM(ISNULL(s.handling, 0) * s.order_qty) AS handling,
+         SUM(tk.ongkir * s.order_qty) AS tagih_tarif,
+         SUM(CASE WHEN tk.ongkir IS NULL THEN 1 ELSE 0 END) AS baris_tanpa_tarif,
+         MAX(CASE WHEN tm.delivery_type LIKE N'LOCO%' THEN 1 ELSE 0 END) AS tipe_loco,
          SUM(CASE WHEN hl.loco IS NOT NULL THEN hl.loco * s.order_qty END) AS nilai_loco,
          SUM(CASE WHEN hl.loco IS NOT NULL THEN x.ton END) AS ton_loco,
          SUM(CASE WHEN s.harga_produk IS NOT NULL THEN s.harga_produk * s.order_qty END) AS nilai_harga,
@@ -180,6 +195,21 @@ OUTER APPLY (
                                      WHERE h2.dist_code = h.dist_code AND h2.product_code = h.product_code AND h2.warehouse <> h.warehouse
                                        AND s.do_date >= h2.berlaku_dari AND (h2.berlaku_sampai IS NULL OR s.do_date <= h2.berlaku_sampai)))
                ORDER BY CASE WHEN h.warehouse = ISNULL(s.warehouse, N'') THEN 0 ELSE 1 END, h.berlaku_dari DESC) hl
+  -- tarif resmi: kode tipe J073 (kata pertama Delivery Type) -> tipe di tabel harga, zona J073 = Zone harga, gudang seperti harga Loco
+  OUTER APPLY (SELECT TOP (1) m.delivery_type FROM sementrack.harga_tipe_map m
+               WHERE m.kode = UPPER(LEFT(LTRIM(s.delivery_type), CHARINDEX(N' ', LTRIM(s.delivery_type) + N' ') - 1))) tm
+  OUTER APPLY (SELECT TOP (1) hk.ongkir FROM sementrack.harga_kirim hk
+               WHERE tm.delivery_type NOT LIKE N'LOCO%' AND hk.dist_code = s.dist_code AND hk.product_code = s.product_code
+                 AND hk.delivery_type = tm.delivery_type AND hk.zone = UPPER(TRIM(ISNULL(s.zona_kirim, N'')))
+                 AND s.do_date >= hk.berlaku_dari AND (hk.berlaku_sampai IS NULL OR s.do_date <= hk.berlaku_sampai)
+                 AND (hk.warehouse = ISNULL(s.warehouse, N'')
+                      OR (hk.warehouse <> N'' AND ISNULL(s.warehouse, N'') LIKE N'%' + hk.warehouse + N'%')
+                      OR (ISNULL(s.warehouse, N'') <> N'' AND hk.warehouse LIKE N'%' + s.warehouse + N'%')
+                      OR NOT EXISTS (SELECT 1 FROM sementrack.harga_kirim k2
+                                     WHERE k2.dist_code = hk.dist_code AND k2.product_code = hk.product_code AND k2.delivery_type = hk.delivery_type
+                                       AND k2.zone = hk.zone AND k2.warehouse <> hk.warehouse
+                                       AND s.do_date >= k2.berlaku_dari AND (k2.berlaku_sampai IS NULL OR s.do_date <= k2.berlaku_sampai)))
+               ORDER BY CASE WHEN hk.warehouse = ISNULL(s.warehouse, N'') THEN 0 ELSE 1 END, hk.berlaku_dari DESC) tk
   WHERE s.dist_code = k.dist_code AND s.do_no = k.do_no
 ) j;
 GO
@@ -216,5 +246,17 @@ SELECT dist_code, COUNT(*) AS do_count,
        CAST(SUM(tagih) / NULLIF(SUM(ton_kirim), 0) / 20 AS decimal(12,0)) AS rincian_per_zak50,
        CAST(SUM(tagih_dari_harga) / NULLIF(SUM(ton_kirim), 0) / 20 AS decimal(12,0)) AS harga_per_zak50
 FROM sementrack.v_ongkos_do WHERE tagih_sumber = N'rincian' AND tagih_dari_harga IS NOT NULL GROUP BY dist_code ORDER BY dist_code;
+-- Cek silang tarif resmi (harga_kirim) vs rincian J073 pada DO yang sama. "sama" mendekati jumlah DO = pasangan tipe kirim dan zona sudah benar.
+SELECT dist_code, COUNT(*) AS do_count,
+       SUM(CASE WHEN ABS(tagih - tagih_dari_tarif) <= ton_kirim * 200 THEN 1 ELSE 0 END) AS sama,
+       CAST(SUM(tagih) / NULLIF(SUM(ton_kirim), 0) / 20 AS decimal(12,0)) AS rincian_per_zak50,
+       CAST(SUM(tagih_dari_tarif) / NULLIF(SUM(ton_kirim), 0) / 20 AS decimal(12,0)) AS tarif_per_zak50
+FROM sementrack.v_ongkos_do WHERE tagih_sumber = N'rincian' AND tagih_dari_tarif IS NOT NULL GROUP BY dist_code ORDER BY dist_code;
+-- Kode tipe kirim J073 yang belum punya pasangan di harga_tipe_map (tambahkan kalau sudah pasti)
+SELECT UPPER(LEFT(LTRIM(delivery_type), CHARINDEX(N' ', LTRIM(delivery_type) + N' ') - 1)) AS kode, MAX(delivery_type) AS contoh, COUNT(*) AS baris
+FROM sementrack.sellout_j073 s
+WHERE delivery_type IS NOT NULL AND NOT EXISTS (SELECT 1 FROM sementrack.harga_tipe_map m
+                                                WHERE m.kode = UPPER(LEFT(LTRIM(s.delivery_type), CHARINDEX(N' ', LTRIM(s.delivery_type) + N' ') - 1)))
+GROUP BY UPPER(LEFT(LTRIM(delivery_type), CHARINDEX(N' ', LTRIM(delivery_type) + N' ') - 1)) ORDER BY baris DESC;
 SELECT transporter_kode, MAX(transporter) AS transporter, status_transporter, COUNT(*) AS trip, SUM(CASE WHEN biaya = 0 THEN 1 ELSE 0 END) AS trip_tanpa_biaya
 FROM sementrack.v_ongkos_trip WHERE status_transporter <> N'normal' GROUP BY transporter_kode, status_transporter ORDER BY transporter_kode;

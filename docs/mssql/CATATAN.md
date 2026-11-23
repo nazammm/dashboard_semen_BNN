@@ -22,9 +22,9 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 15_salesman_tanpa_target.sql | Tim Sales: salesman yang ada di transaksi tapi belum punya target ikut tampil (status Tanpa target) | query cek di akhir skrip |
 | 16_toko_sales_baru.sql | Kelola Data → Toko & sales baru: view toko yang baru order dan salesman baru / tanpa target | query cek di akhir skrip |
 | 17_ongkos_kirim.sql | Ongkos Kirim: J073 dengan kolom pengiriman (semua distributor, retail + proyek), tabel ORDB019, view per perjalanan / DO, hak halaman | `SELECT * FROM sementrack.v_ongkos_info` |
-| 18_harga_loco.sql | Harga Loco Net (ERP Price & Promo Simulation) per PT x produk x masa berlaku; v_outstanding_do_harga + nilai di v_outstanding_do_ringkas. Jalankan lagi setiap kali 02_sellin.sql dijalankan ulang | `SELECT * FROM sementrack.v_harga_loco_info` |
+| 18_harga_loco.sql | Harga ERP (Price & Promo Simulation) per PT x produk x masa berlaku: LOCO GUDANG di harga_loco, FRANCO dan tipe lain (tarif ongkir per zona) di harga_kirim, pasangan kode tipe J073 di harga_tipe_map; v_outstanding_do_harga + nilai di v_outstanding_do_ringkas. Jalankan lagi setiap kali 02_sellin.sql dijalankan ulang, lalu 20 | `SELECT * FROM sementrack.v_harga_loco_info` |
 | 19_ongkos_mulai_2026.sql | Ongkos Kirim dilacak mulai 2026: hapus ORDB019 dan J073 khusus ongkos sebelum 2026 (J073 RETAIL INSA/PKB tetap), tolak upload ORDB019 sebelum 2026 | `SELECT MIN(periode) FROM sementrack.ongkos_kirim` |
-| 20_ongkos_insight.sql | Ongkos Kirim: angkutan ke gudang dipisah, status transporter (armada sendiri / truk toko), J073 Product Price, ongkir dibayar toko dari harga (Product Price − Loco Net). Jalankan lagi kalau 17 dijalankan ulang | `SELECT tagih_sumber, COUNT(*) FROM sementrack.v_ongkos_do GROUP BY tagih_sumber` |
+| 20_ongkos_insight.sql | Ongkos Kirim: angkutan ke gudang dipisah, status transporter (armada sendiri / truk toko), J073 Product Price, ongkir dibayar toko: rincian J073, lalu tarif resmi per zona (harga_kirim), lalu Product Price − Loco. Jalankan setelah 18; jalankan lagi kalau 17 atau 18 dijalankan ulang | `SELECT tagih_sumber, COUNT(*) FROM sementrack.v_ongkos_do GROUP BY tagih_sumber` |
 
 ## Untuk tahap 5 (backend)
 
