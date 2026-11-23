@@ -257,7 +257,7 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
           <div className="max-h-[360px] overflow-auto border-t border-line">
             <table className="tbl-dense !min-w-0">
               <caption className="sr-only">Outstanding per distributor</caption>
-              <thead><tr><th>Distributor</th><th className="num">Order</th><th className="num">Ton</th><th className="num" title="Ton yang estimasi kirimnya sudah lewat">Lewat est.</th>{s.nilai != null && <th className="num" title="Perkiraan nilai: sisa zak x Loco Net">Nilai</th>}</tr></thead>
+              <thead><tr><th>Distributor</th><th className="num">Order</th><th className="num">Ton</th><th className="num" title="Ton yang estimasi kirimnya sudah lewat">Lewat est.</th>{s.nilai != null && <th className="num" title="Nilai jual OS (perkiraan): sisa zak pesanan ke pabrik x harga jual Loco Net. Bukan kerugian.">Nilai</th>}</tr></thead>
               <tbody>
                 {v.dists.length === 0 && <tr><td colSpan={5} className="!text-center !text-faint !p-5">Tidak ada order pada filter ini.</td></tr>}
                 {v.dists.map(d => (
@@ -336,19 +336,19 @@ function Body({ rows, info, bulanan, parentOf }: { rows: Row[]; info: Row; bulan
 /** KPI perkiraan nilai: sisa zak x Loco Net pada tanggal order. */
 function NilaiKpi({ s }: { s: OutSummary }) {
   const { pageAllowed } = useAuth();
-  if (s.nilai == null) return <Kpi title="Perkiraan nilai" value="–" delta="Harga Loco belum disiapkan di database (18_harga_loco.sql)" />;
+  if (s.nilai == null) return <Kpi title="Nilai jual OS (perkiraan)" value="–" delta="Harga Loco belum disiapkan di database (18_harga_loco.sql)" />;
   const berharga = s.ton - s.tanpaHarga;
   if (berharga <= 0.05) {
     return (
-      <Kpi title="Perkiraan nilai" value="–"
+      <Kpi title="Nilai jual OS (perkiraan)" value="–"
         delta={<>Belum ada harga Loco untuk order ini{pageAllowed('kelola-data') && <> · <Link to="/kelola-data?data=sellin&menu=harga" className="underline">upload harga</Link></>}</>} />
     );
   }
   return (
-    <Kpi title="Perkiraan nilai" value={fmtIDRCompact(s.nilai)}
+    <Kpi title="Nilai jual OS (perkiraan)" value={fmtIDRCompact(s.nilai)}
       delta={s.tanpaHarga > 0.05
-        ? <span>Loco Net x sisa zak · <span className="text-amber">{fmtTon(s.tanpaHarga)} ton ({share(s.tanpaHarga, s.ton)}) belum ada harga</span></span>
-        : 'Loco Net x sisa zak, harga pada tanggal order'} />
+        ? <span>Sisa pesanan ke pabrik x harga jual Loco · <span className="text-amber">{fmtTon(s.tanpaHarga)} ton ({share(s.tanpaHarga, s.ton)}) belum ada harga</span></span>
+        : 'Sisa pesanan ke pabrik x harga jual Loco pada tanggal order; bukan kerugian'} />
   );
 }
 
@@ -408,7 +408,7 @@ function JalurTable({ recs, jalurs, caption, regions }: { recs: OutRec[]; jalurs
               <th rowSpan={2} className="align-bottom">Daerah</th>
               {t.usedJalur.map(j => <th key={j} colSpan={t.semenOf(j).length} className="!text-center">{j}</th>)}
               <th rowSpan={2} className="num align-bottom">Total (ton)</th>
-              {t.adaNilai && <th rowSpan={2} className="num align-bottom otb-sep" title="Perkiraan nilai: sisa zak x harga Loco Net pada tanggal order">Est. nilai</th>}
+              {t.adaNilai && <th rowSpan={2} className="num align-bottom otb-sep" title="Nilai jual OS (perkiraan): sisa zak pesanan ke pabrik x harga jual Loco Net pada tanggal order. Bukan kerugian.">Est. nilai</th>}
             </tr>
             <tr>
               {t.cols.map(c => <th key={`${c.j}${c.sm}`} className="num">{c.sm}</th>)}
