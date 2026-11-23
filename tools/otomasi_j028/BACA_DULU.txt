@@ -34,9 +34,9 @@ Ongkos kirim (halaman Ongkos Kirim di SEMENTRACK)
     * Rentang tanggal lewat kalender, paling panjang 3 bulan; atau
     * Isi data lama sejak bulan tertentu sampai hari ini (dikerjakan per bulan untuk semua distributor terpilih, bisa
       dilanjutkan kalau terhenti; tercatat di isi_ulang_ongkos.json).
-    * Upload ulang salinan J073 di folder (2026 ke atas), tanpa membuka ERP. Pakai SEKALI setelah versi 2026.11.20.7
-      (dan 20_ongkos_insight.sql di SSMS): kolom Product Price ikut tersimpan, jadi "ongkir dibayar toko" untuk DO yang
-      kolom Delivery-nya kosong bisa dihitung dari harga DO - harga Loco. Bulan yang belum punya salinan J073 (mis.
+    * Upload ulang salinan J073 di folder (2026 ke atas), tanpa membuka ERP. Pakai SEKALI setelah web versi 23 Nov 2026
+      (dan 20_ongkos_insight.sql + 21_os_do_toko.sql di SSMS): kolom Product Price dan Qty Remains ikut tersimpan, untuk
+      ongkir dibayar toko (halaman Ongkos Kirim) dan DO toko yang belum dikirim (halaman OS DO Toko). Bulan yang belum punya salinan J073 (mis.
       April-Juni 2026 untuk beberapa distributor) ambil dulu lewat rentang tanggal.
 - Semua J073 / ORDB019 yang terunduh disalin ke folder salinan (Pengaturan -> Folder salinan, bawaan
   D:\Nazam\Template\Auto Task File). Yang sudah ada di sana tidak diunduh lagi. Bulan ini dan bulan lalu hanya dipakai

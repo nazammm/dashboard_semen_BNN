@@ -36,6 +36,7 @@ const COLS = [
   { key: 'cust_group', header: 'Cust Group', required: true },
   // harga per zak di DO (Product Price), sudah termasuk ongkir untuk DO kirim; opsional (file lama)
   { key: 'harga_produk', header: 'Product Price', alias: ['tdProductPrice'] },
+  { key: 'qty_sisa', header: 'Qty Remains', alias: ['tdQtyRemains'] },   // DO yang belum dikirim (OS DO toko)
   // hanya untuk saringan, tidak dikirim
   { key: 'category', header: 'Product Category', required: true },
   { key: 'dist_name', header: 'Distributor Name' },
@@ -140,6 +141,8 @@ export class J073Collector implements RowCollector<J073ParseResult> {
     out.push(grup || null);
     const hp = get('harga_produk');
     out.push(hp == null || ['', '-'].includes(String(hp).trim()) ? null : this.angka(hp));
+    const qs = get('qty_sisa');
+    out.push(qs == null || ['', '-'].includes(String(qs).trim()) ? null : this.angka(qs));
     if (grup !== 'RETAIL') st.proyek++;
     this.rows.push(out);
     this.tons.push(j073Ton(qty!, name));

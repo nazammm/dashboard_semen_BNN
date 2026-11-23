@@ -31,7 +31,7 @@ import { sellinGeo } from '../lib/ringkasan';
 
 type Semen = 'STR' | 'RJW' | 'CWC';
 type Unit = 'hari' | 'minggu' | 'bulan';
-interface Rec { tanggal: string; sub: string; produk: string; semen: Semen; ton: number; kirim: number }
+interface Rec { tanggal: string; sub: string; produk: string; semen: Semen; ton: number; kirim: number; langsung: boolean }   // langsung = pesanan Toko/Project (tidak lewat gudang)
 
 const UNMAPPED = 'Belum dipetakan';
 const key = (s: unknown) => String(s ?? '').trim().toUpperCase();
@@ -123,7 +123,8 @@ function Body({ rows, info, last, delivery, Y }: { rows: Row[]; info: Row; last:
 
   const recs = useMemo<Rec[]>(() => rows.map(r => {
     const produk = String(r.produk || '–');
-    return { tanggal: String(r.tanggal).slice(0, 10), sub: key(r.region || UNMAPPED), produk, semen: semenOf(produk), ton: Number(r.ton || 0), kirim: Number(r.pengiriman || 0) };
+    return { tanggal: String(r.tanggal).slice(0, 10), sub: key(r.region || UNMAPPED), produk, semen: semenOf(produk), ton: Number(r.ton || 0), kirim: Number(r.pengiriman || 0),
+      langsung: !!r.tipe_pesanan && String(r.tipe_pesanan).toLowerCase() !== 'gudang' };
   }), [rows]);
 
   /* ---------- filter ---------- */
@@ -171,6 +172,7 @@ function Body({ rows, info, last, delivery, Y }: { rows: Row[]; info: Row; last:
     const geoMatch = (s: string) => (region === 'all' || geo.parentOf(s) === region) && (sub === 'all' || s === sub);
     const cur = recs.filter(r => geoMatch(r.sub) && semenMatch(semen, r.semen) && (produk === 'all' || r.produk === produk) && inRange(r.tanggal));
     const ton = cur.reduce((a, r) => a + r.ton, 0), kirim = cur.reduce((a, r) => a + r.kirim, 0);
+    const langsung = cur.reduce((a, r) => a + (r.langsung ? r.ton : 0), 0);
 
     // target & tahun lalu per bulan (indeks 1..12)
     const tArr = new Array(13).fill(0), pArr = new Array(13).fill(0);
@@ -237,7 +239,7 @@ function Body({ rows, info, last, delivery, Y }: { rows: Row[]; info: Row; last:
       return [...s.entries()].map(([g, val]) => ({ label: groupName(g), value: val })).filter(x => x.value > 0).sort((a, b) => b.value - a.value);
     };
 
-    return { ton, kirim, targetFull, prev, prevRange, months, partial, monthLabel, trend, showCompare, monthRows, drillGroups };
+    return { ton, kirim, langsung, targetFull, prev, prevRange, months, partial, monthLabel, trend, showCompare, monthRows, drillGroups };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recs, delivery, range.from, range.to, region, sub, semen, produk, comparable, groupBy, unit, Y, P, kTgt, kPrev]);
 
@@ -317,7 +319,11 @@ function Body({ rows, info, last, delivery, Y }: { rows: Row[]; info: Row; last:
       <div className="grid-kpi">
         <Kpi title={`Target ${monthsLabel}`} value={comparable ? fmtTon(v.targetFull) : '–'} unit={comparable ? 'ton' : undefined} />
         <Kpi title={`Realisasi ${Y}`} value={fmtTon(v.ton)} unit="ton"
-          delta={comparable ? <Capaian actual={v.ton} target={v.targetFull} /> : undefined} />
+          delta={comparable || v.langsung > 0.05 ? <>
+            {comparable && <Capaian actual={v.ton} target={v.targetFull} />}
+            {v.langsung > 0.05 && <span className="block text-faint text-[11.5px] mt-0.5" title="Pesanan Toko / Project PT Permata Multi Niaga dari ITP-Palembang Terminal: dikirim langsung ke toko, tidak lewat gudang">
+              termasuk {fmtTon(v.langsung)} ton langsung ke toko (PMN, Terminal Palembang)</span>}
+          </> : undefined} />
         <Kpi title={`Pertumbuhan vs ${P}`}
           value={<span className={growth == null ? '' : growth >= 0 ? 'text-green' : 'text-red'}>{fmtPct(growth)}</span>} />
         <Kpi title={`Realisasi ${P} Tanggal Sama`} value={comparable ? fmtTon(v.prev) : '–'} unit={comparable ? 'ton' : undefined} />

@@ -28,6 +28,7 @@ export const NAV_GROUPS = [
   { label: 'Sell Out', items: [
     { id: 'beranda', label: 'Penjualan Toko', icon: ICONS.daftar },
     { id: 'sell-out-bnn', label: 'Sell Out BNN', icon: ICONS.sellout },
+    { id: 'os-do-toko', label: 'OS DO Toko', icon: ICONS.outstanding },
     { id: 'rekap-harian', label: 'Rekap Harian', icon: ICONS.rekap },
     { id: 'tim-sales', label: 'Tim Sales', icon: ICONS.timsales },
   ] },
