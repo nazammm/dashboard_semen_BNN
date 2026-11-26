@@ -523,7 +523,7 @@ async function handleKelola(req, res, url, p, m) {
     }
     if (m === 'GET' && p === '/admin/data/distributor') return send(res, 200, await q('select dist_code, dist_name, kode_erp from public.distributor order by dist_code'));
     if (m !== 'POST') return err(res, 404, 'not found');
-    const b = await readBody(req, p === '/admin/transaksi/stage' || p === '/admin/data/sellout' || p === '/admin/data/target' || p === '/admin/data/stock' || p === '/admin/data/ongkos' || p === '/admin/data/harga' ? 12 * 1024 * 1024 : 256 * 1024);
+    const b = await readBody(req, p === '/admin/transaksi/stage' || p === '/admin/data/sellout' || p === '/admin/data/target' || p === '/admin/data/stock' || p === '/admin/data/ongkos' || p === '/admin/data/harga' ? 12 * 1024 * 1024 : p === '/admin/data/logistik' ? 24 * 1024 * 1024 : 256 * 1024);
     if (b.__tooBig) return err(res, 413, 'paket terlalu besar');
     const dists = strArr(b.dist_codes);
     switch (p) {
@@ -566,6 +566,12 @@ async function handleKelola(req, res, url, p, m) {
         // 17_ongkos_kirim.sql: baris ORDB019; isi per (distributor, bulan) di file diganti seluruhnya
         if (!Array.isArray(b.rows)) return err(res, 400, 'baris tidak valid');
         const r = await one('select * from sementrack.ongkos_simpan($1::json, $2, $3)', [JSON.stringify(b.rows), s.username, scalar(b.file_name) || null]);
+        cache.clear(); return send(res, 200, r);
+      }
+      case '/admin/data/logistik': {
+        // logistik.sql: rekap logistik distributor; per distributor, rentang tanggal di file diganti
+        if (!Array.isArray(b.rows)) return err(res, 400, 'baris tidak valid');
+        const r = await one('select * from sementrack.logistik_simpan($1::json, $2, $3)', [JSON.stringify(b.rows), s.username, scalar(b.file_name) || null]);
         cache.clear(); return send(res, 200, r);
       }
       case '/admin/data/harga': {

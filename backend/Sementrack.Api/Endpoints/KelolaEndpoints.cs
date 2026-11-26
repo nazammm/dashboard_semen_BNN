@@ -179,6 +179,23 @@ internal static class KelolaEndpoints
             });
         });
 
+        // Rekap logistik distributor (logistik.sql): per distributor, rentang tanggal di file diganti.
+        d.MapPost("/logistik", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) =>
+        {
+            var limit = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (limit is { IsReadOnly: false }) limit.MaxRequestBodySize = 2 * StageMaxBody;
+            return SellinEndpoints.Run(ctx, auth, log, "logistik simpan", async s =>
+            {
+                var b = await Helpers.ReadBodyAsync(ctx.Request);
+                var rowsEl = b.Get("rows");
+                if (rowsEl is not { ValueKind: JsonValueKind.Array }) return Helpers.Error(400, "baris tidak valid");
+                var rows = await db.QueryAsync("select * from sementrack.logistik_simpan($1::json, $2, $3)",
+                    new object?[] { rowsEl.Value.GetRawText(), s.Username, b.GetString("file_name") }, timeoutSeconds: LongQuery);
+                db.ClearCache();
+                return Helpers.Json(rows[0]);
+            });
+        });
+
         // Target per tahun (target_tahunan.sql): ringkasan, isi satu jenis x tahun (untuk diunduh), dan simpan tempelan.
         d.MapGet("/target-ringkas", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) => SellinEndpoints.Run(ctx, auth, log, "target ringkas", async _ =>
             Helpers.Json(await db.QueryAsync("select * from sementrack.v_target_ringkas order by jenis, tahun desc, metrik"))));

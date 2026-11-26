@@ -12,9 +12,10 @@ import { gabungJ028, isRawJ028, type DistMaster } from './j028Raw';
 import { parseStockSheets, parseStockText, type StockParseResult, type StockSheetIn } from './stockImport';
 import { gabungOrdb, parseOrdbSheet, type OrdbParseResult } from './ordbImport';
 import { gabungHarga, parseHargaText, type HargaParseResult } from './hargaImport';
+import { gabungLogistik, parseLogistikSheet, type LogistikParseResult } from './logistikImport';
 
-export type Dataset = 'sellin' | 'transaksi' | 'j073' | 'target' | 'outstanding' | 'stock' | 'ongkos' | 'harga';
-export type ImportResult = SellinParseResult | TrxParseResult | J073ParseResult | TargetParseResult | PoParseResult | StockParseResult | OrdbParseResult | HargaParseResult;
+export type Dataset = 'sellin' | 'transaksi' | 'j073' | 'target' | 'outstanding' | 'stock' | 'ongkos' | 'harga' | 'logistik';
+export type ImportResult = SellinParseResult | TrxParseResult | J073ParseResult | TargetParseResult | PoParseResult | StockParseResult | OrdbParseResult | HargaParseResult | LogistikParseResult;
 /** kind 'files' = beberapa file sekaligus (hanya transaksi: file mentah J028 + J028B). distributor = master untuk mencocokkan kode ERP. */
 export type ImportWorkerIn = { dataset: Dataset; dateOrder?: DateOrder | null; distributor?: DistMaster[] }
   & ({ kind: 'file'; file: File } | { kind: 'files'; files: File[] } | { kind: 'text'; text: string });
@@ -60,6 +61,13 @@ async function bacaOrdb(file: File): Promise<OrdbParseResult> {
   const aoa = ws ? XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: null, blankrows: true }) : [];
   return parseOrdbSheet(aoa, file.name);
 }
+/** Rekap logistik distributor (.xlsx): sheet pertama. */
+async function bacaLogistik(file: File): Promise<LogistikParseResult> {
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const aoa = ws ? XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: null, blankrows: false }) : [];
+  return parseLogistikSheet(aoa);
+}
 const tsvKeAoa = (t: string) => t.split(/\r?\n/).map(l => l.split('\t'));
 
 self.onmessage = async (e: MessageEvent<ImportWorkerIn>) => {
@@ -77,6 +85,20 @@ self.onmessage = async (e: MessageEvent<ImportWorkerIn>) => {
         post({ type: 'progress', p: (i + 1) / fs.length });
       }
       post({ type: 'done', res: gabungOrdb(out) });
+      return;
+    }
+    if (msg.dataset === 'logistik') {
+      if (msg.kind === 'text') { post({ type: 'done', res: parseLogistikSheet(tsvKeAoa(msg.text)) }); return; }
+      const fs = msg.kind === 'files' ? msg.files : [msg.file];
+      const out: LogistikParseResult[] = [];
+      for (let i = 0; i < fs.length; i++) {
+        if (!/\.(xls|xlsx)$/i.test(fs[i].name)) throw new Error(`${fs[i].name}: pilih file rekap logistik (.xlsx).`);
+        const r = await bacaLogistik(fs[i]);
+        if (!r.ok) throw new Error(`${fs[i].name}: ${r.error}${r.missing?.length ? ' (' + r.missing.join(', ') + ')' : ''}`);
+        out.push(r);
+        post({ type: 'progress', p: (i + 1) / fs.length });
+      }
+      post({ type: 'done', res: gabungLogistik(out) });
       return;
     }
     if (msg.dataset === 'harga') {
