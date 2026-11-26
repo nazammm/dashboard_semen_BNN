@@ -93,7 +93,7 @@ from pathlib import Path
 
 from playwright.sync_api import Error as PWError, Page, TimeoutError as PWTimeout, sync_playwright
 
-VERSI = "2026.11.23.1"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
+VERSI = "2026.11.26.1"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
 ERP = os.environ.get("ERP_URL", "https://www.bangunsukses.com").rstrip("/")   # ERP_URL hanya untuk uji
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
@@ -1024,7 +1024,8 @@ class Hasil:
         self.tiro: dict[str, Path] = {}
         self.dofas: dict[int, str] = {}
         self.stock: list[Path] = []
-        self.harga: Path | None = None               # CSV harga Loco
+        self.harga: Path | None = None               # CSV harga ERP (Loco + tarif kirim)
+        self.harga_penuh = False                     # dibaca ulang sejak 1 Januari (tarif kirim lengkap setahun)
         self.harga_status: dict[str, str] = {}
         self.harga_ringkas = ""       # masa berlaku terakhir per PT|produk (disimpan setelah upload berhasil)
         self.subdist: dict[int, str] = {}
@@ -1608,11 +1609,19 @@ def baca_harga_status() -> dict[str, str]:
         return {}
 
 
-def simpan_harga_status(baru: dict[str, str]) -> None:
+def harga_kirim_siap() -> bool:
+    """Sudah pernah membaca ulang harga sejak 1 Januari dengan versi yang menyimpan tarif kirim (FRANCO) per zona."""
+    try:
+        return bool(json.loads(HARGA_STATUS.read_text(encoding="utf-8")).get("kirim"))
+    except (OSError, ValueError):
+        return False
+
+
+def simpan_harga_status(baru: dict[str, str], kirim: bool = False) -> None:
     st = baca_harga_status()
     st.update(baru)
-    HARGA_STATUS.write_text(json.dumps({"diperbarui": datetime.now().isoformat(timespec="seconds"), "terakhir": st},
-                                       ensure_ascii=False, indent=1), encoding="utf-8")
+    HARGA_STATUS.write_text(json.dumps({"diperbarui": datetime.now().isoformat(timespec="seconds"), "terakhir": st,
+                                        "kirim": kirim or harga_kirim_siap()}, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 def harga_terakhir() -> datetime | None:
@@ -1923,7 +1932,7 @@ def ambil_harga(pw, tampil: bool, dists: list[str], dari: date | None) -> tuple[
                         uang(b.get("handling")), uang(b.get("subsidi2"))])
     n_loco = sum(1 for b in semua if b["delivery_type"] == "LOCO GUDANG")
     ringkas = f"{len(terakhir)} PT x produk, {n_loco} harga Loco + {len(semua) - n_loco} tarif kirim"
-    print(f"  Harga Loco: {ringkas} -> {f}")
+    print(f"  Harga ERP: {ringkas} -> {f}")
     return f, terakhir, ringkas, gagal
 
 
@@ -2134,10 +2143,14 @@ def main() -> None:
                 return
     if a.harga_dari or a.harga_dist:
         bagian.add("HARGA")
+    if "HARGA" in bagian and not a.harga_dari and not harga_kirim_siap():
+        # versi sebelum 2026.11.23 hanya menyimpan LOCO: baca ulang sekali sejak 1 Januari supaya tarif kirim per zona lengkap
+        a.harga_dari = date(date.today().year, 1, 1)
+        print(f"Harga ERP: tarif kirim per zona belum pernah dibaca, baca ulang sejak {a.harga_dari} (sekali saja).")
     if "HARGA" in bagian and a.jadwal and not a.harga_dari:
         t = harga_terakhir()
         if t and datetime.now() - t < timedelta(days=HARGA_HARI) - timedelta(hours=2):
-            print(f"Harga Loco terakhir diperbarui {t:%Y-%m-%d %H:%M}; jadwal berikutnya {(t + timedelta(days=HARGA_HARI)):%Y-%m-%d}.")
+            print(f"Harga ERP terakhir diperbarui {t:%Y-%m-%d %H:%M}; jadwal berikutnya {(t + timedelta(days=HARGA_HARI)):%Y-%m-%d}.")
             bagian.discard("HARGA")
             if not bagian:
                 return
@@ -2219,9 +2232,10 @@ def jalankan(a, bagian: set[str], daftar_bulan: list[date], h: "Hasil") -> None:
                 h.berhasil["J073"] = "ikut file J073 Ongkos kirim"
         if "HARGA" in bagian:
             dists = [d.strip().upper() for d in (a.harga_dist or "").split(",") if d.strip()] or harga_dist()
-            print("Harga Loco: " + ", ".join(dists) + (f", baca ulang sejak {a.harga_dari}" if a.harga_dari else ""))
+            print("Harga ERP (Loco + tarif kirim per zona): " + ", ".join(dists) + (f", baca ulang sejak {a.harga_dari}" if a.harga_dari else ""))
             try:
                 h.harga, h.harga_status, ringkas, gagal = ambil_harga(pw, not a.tanpa_layar, dists, a.harga_dari)
+                h.harga_penuh = bool(a.harga_dari and a.harga_dari <= date(date.today().year, 1, 1) and not a.harga_dist and not gagal)
                 h.harga_ringkas = ringkas
                 if not h.harga:
                     h.berhasil["Harga Loco"] = ringkas
@@ -2281,7 +2295,7 @@ def unggah_harga(page: Page, url: str, h: Hasil, simpan: bool) -> str:
     hasil = unggah_berkas(page, url, "/kelola-data?data=sellin&menu=harga", [h.harga], h.harga.stem, simpan, True)
     if not simpan:
         return hasil
-    simpan_harga_status(h.harga_status)
+    simpan_harga_status(h.harga_status, kirim=h.harga_penuh)
     return h.harga_ringkas or hasil
 
 
