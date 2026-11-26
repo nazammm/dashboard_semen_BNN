@@ -355,3 +355,22 @@ GROUP BY t.dist_code, t.periode ORDER BY t.dist_code, t.periode;
 SELECT t.dist_code, COUNT(*) AS foad, SUM(CASE WHEN ABS(t.biaya_erp - t.biaya_logistik) <= 0.01 * t.biaya_erp THEN 1 ELSE 0 END) AS sama,
        CAST(SUM(t.biaya_erp) AS decimal(20,0)) AS biaya_ordb, CAST(SUM(t.biaya_logistik) AS decimal(20,0)) AS biaya_rekap
 FROM sementrack.v_ongkos_trip t WHERE t.biaya_erp > 0 AND t.biaya_logistik > 0 GROUP BY t.dist_code ORDER BY t.dist_code;
+-- Cek rekap logistik vs J073 (DO ke toko, semen): berapa ton rekap yang No. DO + produknya ketemu di J073.
+-- pct_ketemu rendah = J073 bulan DO itu belum diunggah (DO lama yang baru dikirim) atau nomor DO beda.
+-- qty_lebih_dari_do > 0 = rekap mengirim lebih banyak dari Order Qty di DO (perlu dicek).
+WITH r AS (
+  SELECT l.dist_code, l.periode, l.do_no, l.product_code, SUM(l.qty) AS qty_rekap, SUM(l.ton) AS ton
+  FROM sementrack.logistik_kirim l
+  WHERE l.ton > 0 AND l.jalur IN (N'gudang_toko', N'pelabuhan_toko') AND l.do_no IS NOT NULL
+  GROUP BY l.dist_code, l.periode, l.do_no, l.product_code
+), j AS (
+  SELECT dist_code, do_no, product_code, SUM(order_qty) AS qty_do, MAX(delivery_type) AS tipe
+  FROM sementrack.sellout_j073 GROUP BY dist_code, do_no, product_code
+)
+SELECT r.dist_code, r.periode, CAST(SUM(r.ton) AS decimal(12,1)) AS ton_rekap,
+       CAST(SUM(CASE WHEN j.do_no IS NOT NULL THEN r.ton ELSE 0 END) AS decimal(12,1)) AS ton_ketemu_j073,
+       CAST(100.0 * SUM(CASE WHEN j.do_no IS NOT NULL THEN r.ton ELSE 0 END) / NULLIF(SUM(r.ton), 0) AS decimal(5,1)) AS pct_ketemu,
+       SUM(CASE WHEN r.qty_rekap > j.qty_do THEN 1 ELSE 0 END) AS qty_lebih_dari_do,
+       SUM(CASE WHEN j.tipe LIKE N'LG%' THEN 1 ELSE 0 END) AS do_ambil_sendiri_tapi_dikirim
+FROM r LEFT JOIN j ON j.dist_code = r.dist_code AND j.do_no = r.do_no AND j.product_code = r.product_code
+GROUP BY r.dist_code, r.periode ORDER BY r.dist_code, r.periode;
