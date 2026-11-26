@@ -23,6 +23,7 @@ import { TabelPanel } from './kelola/TabelPanel';
 import { StockUpload } from './kelola/StockPanel';
 import { BaruPanel } from './kelola/BaruPanel';
 import { OngkosUpload } from './kelola/OngkosPanel';
+import { LogistikUpload } from './kelola/LogistikPanel';
 import { HargaUpload } from './kelola/HargaPanel';
 import { JENIS_LABEL } from '../lib/targetImport';
 
@@ -46,7 +47,7 @@ const MENUS: Record<Exclude<Tab, 'riwayat'>, { id: string; label: string }[]> = 
   sellin: [{ id: 'upload', label: 'Upload / ganti' }, { id: 'outstanding', label: 'Outstanding DO' }, { id: 'harga', label: 'Harga ERP' }, { id: 'hapus', label: 'Hapus' }],
   sellout: [{ id: 'dofas', label: 'Tempel DO FAS' }, { id: 'erp', label: 'Tempel Sub ERP' }, { id: 'j073', label: 'Upload J073' }],
   stock: [{ id: 'upload', label: 'Upload file stok' }],
-  ongkos: [{ id: 'ordb', label: 'Upload ORDB019' }, { id: 'j073', label: 'Upload J073' }],
+  ongkos: [{ id: 'ordb', label: 'Upload ORDB019' }, { id: 'logistik', label: 'Rekap logistik' }, { id: 'j073', label: 'Upload J073' }],
 };
 
 export default function KelolaData() {
@@ -102,6 +103,7 @@ export default function KelolaData() {
           {tab === 'sellout' && menu === 'j073' && <J073Upload onChanged={changed} />}
           {tab === 'stock' && <StockUpload onChanged={changed} />}
           {tab === 'ongkos' && menu === 'ordb' && <OngkosUpload onChanged={changed} />}
+          {tab === 'ongkos' && menu === 'logistik' && <LogistikUpload onChanged={changed} />}
           {tab === 'ongkos' && menu === 'j073' && <J073Upload onChanged={changed} />}
           {tab === 'target' && <TargetPanel onChanged={changed} />}
           {tab === 'tabel' && <TabelPanel onChanged={changed} />}
@@ -147,9 +149,9 @@ function StatusStrip({ row }: { row: Row | null }) {
 /* ---------------------------------------------------------------------------
    Riwayat upload & hapus (Transaksi + Sell In BNN)
 --------------------------------------------------------------------------- */
-const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', target: 'Target', outstanding: 'Outstanding DO', tabel: 'Edit tabel', stock: 'Stock', ongkos: 'ORDB019', harga: 'Harga ERP' };
+const DS_LABEL: Record<string, string> = { transaksi: 'Transaksi', sellin: 'Sell In BNN', dofas: 'DO FAS', erp: 'Sub ERP', j073: 'J073', target: 'Target', outstanding: 'Outstanding DO', tabel: 'Edit tabel', stock: 'Stock', ongkos: 'ORDB019', harga: 'Harga ERP', logistik: 'Rekap logistik' };
 const inFilter = (f: string, ds: unknown) => f === 'all' || ds === f || (f === 'sellout' && (ds === 'dofas' || ds === 'erp' || ds === 'j073'))
-  || (f === 'sellin' && (ds === 'outstanding' || ds === 'harga')) || (f === 'ongkos' && ds === 'j073');
+  || (f === 'sellin' && (ds === 'outstanding' || ds === 'harga')) || (f === 'ongkos' && (ds === 'j073' || ds === 'logistik'));
 
 function Riwayat({ version, dataset, limit, compact }: { version: number; dataset?: string; limit?: number; compact?: boolean }) {
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -198,7 +200,7 @@ function Riwayat({ version, dataset, limit, compact }: { version: number; datase
                   </td>
                   <td>{r.created_by || '–'}</td>
                   <td className="whitespace-nowrap">{r.aksi === 'ubah' ? '–' : r.date_from ? fmtRange({ from: String(r.date_from), to: String(r.date_to) }) : '–'}</td>
-                  {!compact && <td className="text-[12px]" title={dists.join(', ')}>{r.dataset === 'target' ? (JENIS_LABEL as Record<string, string>)[dists[0]] || '–' : r.dataset !== 'transaksi' && r.dataset !== 'j073' && r.dataset !== 'ongkos' ? '–' : dists.length ? (dists.length > 3 ? `${dists.slice(0, 3).join(', ')} +${dists.length - 3}` : dists.join(', ')) : 'Semua'}</td>}
+                  {!compact && <td className="text-[12px]" title={dists.join(', ')}>{r.dataset === 'target' ? (JENIS_LABEL as Record<string, string>)[dists[0]] || '–' : r.dataset !== 'transaksi' && r.dataset !== 'j073' && r.dataset !== 'ongkos' && r.dataset !== 'logistik' ? '–' : dists.length ? (dists.length > 3 ? `${dists.slice(0, 3).join(', ')} +${dists.length - 3}` : dists.join(', ')) : 'Semua'}</td>}
                   <td className="num font-mono">{cell(r.rows_saved)}</td>
                   <td className="num font-mono">{cell(r.rows_deleted)}</td>
                   <td><StatusBadge s={String(r.status)} at={r.created_at} /></td>

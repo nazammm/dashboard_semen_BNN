@@ -8,6 +8,7 @@ import { COLORS, fmt, fmtIDR, fmtIDRCompact } from '../lib/format';
 import { MONTHS_FULL, fmtDate } from '../lib/dates';
 import type { Row } from '../lib/types';
 import { kapasitasTruk } from '../lib/ordbImport';
+import { JALUR_LABEL } from '../lib/logistikImport';
 import { DataBadge } from '../components/DataStatus';
 import { Card, ChartBox, ErrorBox, FileIcon, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th, cx } from '../components/ui';
 import { exportRowsToExcel } from '../lib/xlsx';
@@ -59,12 +60,19 @@ interface DoRow {
   dist: string; periode: string; doNo: string; biaya: number; ton: number; tanpaBiaya: number; luarErp: boolean;
   sumber: string | null; locoTon: number | null; hargaTon: number | null;
   truk: string; transporter: string; zona: string; segmen: string; cust: string; toko: string; tipe: string;
-  omzet: number | null; tagih: number | null; lengkap: boolean;
+  omzet: number | null; tagih: number | null; lengkap: boolean; jalur: string | null; biayaRekap: number;
 }
 interface Trip {
   dist: string; periode: string; foad: string; transporter: string; truk: string; zona: string; tujuan: string; segmen: string; ritase: number; biaya: number; ton: number;
-  keGudang: boolean; status: string;
+  keGudang: boolean; status: string; jalur: string | null; sumberBiaya: string | null; dariErp: boolean;
+  tonWaktu: number; hariKirim: number | null; tonEst: number; tonTelat: number; hariSj: number | null;
 }
+// jalur dari rekap logistik (SOMType); filter halaman hanya untuk pengiriman ke toko
+const JALUR_OPTS = [{ value: 'all', label: 'Semua jalur' }, { value: 'gudang_toko', label: 'Gudang → toko' }, { value: 'pelabuhan_toko', label: 'Pelabuhan → toko' },
+  { value: 'lain', label: 'Jalur lain' }, { value: 'tanpa', label: 'Tidak ada di rekap' }];
+const cocokJalur = (j: string | null, f: string) => f === 'all' || (f === 'tanpa' ? !j : f === 'lain' ? !!j && j !== 'gudang_toko' && j !== 'pelabuhan_toko' : j === f);
+const bool = (v: unknown) => v === true || v === 1 || v === '1' || v === 't';
+const angkaAtauNull = (v: unknown) => (v == null || v === '' ? null : Number(v));
 
 export default function OngkosKirim() {
   useDocTitle('Ongkos Kirim');
@@ -109,6 +117,7 @@ function Body({ info }: { info: Row[] }) {
   const [zonaBuka, setZonaBuka] = useState<Set<string>>(() => new Set());
   const [satuan, setSatuan] = useState('zak50');
   const [segmen, setSegmen] = useState('all');
+  const [jalur, setJalur] = useState('all');
   const S = satuanOf(satuan);
   const rp = (x: number | null) => (x == null ? '–' : fmt(x * S.f));
 
@@ -124,7 +133,9 @@ function Body({ info }: { info: Row[] }) {
       dist: String(r.dist_code), periode: String(r.periode).slice(0, 10), foad: String(r.foad), transporter: namaTransporter(r.transporter),
       truk: String(r.truk || ''), zona: judul(r.zona) || 'Tanpa zona', tujuan: judul(r.tujuan) || judul(r.zona) || 'Tanpa tujuan',
       segmen: String(r.segmen || '').toUpperCase(), ritase: n(r.harga_ritase), biaya: n(r.biaya), ton: n(r.ton),
-      keGudang: r.ke_gudang === true || r.ke_gudang === 1 || r.ke_gudang === '1', status: String(r.status_transporter || 'normal'),
+      keGudang: bool(r.ke_gudang), status: String(r.status_transporter || 'normal'),
+      jalur: r.jalur ? String(r.jalur) : null, sumberBiaya: r.sumber_biaya ? String(r.sumber_biaya) : null, dariErp: r.dari_erp == null ? true : bool(r.dari_erp),
+      tonWaktu: n(r.ton_waktu), hariKirim: angkaAtauNull(r.hari_kirim), tonEst: n(r.ton_est), tonTelat: n(r.ton_telat), hariSj: angkaAtauNull(r.hari_sj),
     }));
     const dos: DoRow[] = load.data.dos.map(r => {
       const tipeKirim = r.tipe_kirim ? String(r.tipe_kirim) : '?';
@@ -138,6 +149,7 @@ function Body({ info }: { info: Row[] }) {
         lengkap: n(r.trip_tanpa_biaya) === 0 && (n(r.biaya) > 0 || n(r.trip_truk_toko) > 0),
         luarErp: n(r.trip_luar_erp) > 0, sumber: r.tagih_sumber == null ? null : String(r.tagih_sumber),
         locoTon: r.loco_per_ton == null ? null : n(r.loco_per_ton), hargaTon: r.harga_per_ton == null ? null : n(r.harga_per_ton),
+        jalur: r.jalur ? String(r.jalur) : null, biayaRekap: n(r.biaya_logistik),
       };
     });
     return { trips, dos };
@@ -148,8 +160,12 @@ function Body({ info }: { info: Row[] }) {
   const transOk = trans === 'all' || transporters.includes(trans) ? trans : 'all';
   const tipeOk = tipe === 'all' || tipes.includes(tipe) ? tipe : 'all';
 
-  const v = useMemo(() => (data ? hitung(data.trips.filter(t => segmen === 'all' || t.segmen === segmen), data.dos.filter(d => segmen === 'all' || d.segmen === segmen), tipeOk, transOk) : null),
-    [data, tipeOk, transOk, segmen]);
+  const adaRekap = useMemo(() => !!data?.trips.some(t => t.jalur), [data]);
+  const jalurOk = adaRekap ? jalur : 'all';
+  const v = useMemo(() => (data ? hitung(
+    data.trips.filter(t => (segmen === 'all' || t.segmen === segmen) && (t.keGudang || cocokJalur(t.jalur, jalurOk))),
+    data.dos.filter(d => (segmen === 'all' || d.segmen === segmen) && cocokJalur(d.jalur, jalurOk)), tipeOk, transOk) : null),
+    [data, tipeOk, transOk, segmen, jalurOk]);
 
   // tabel zona: klik judul kolom untuk mengurutkan (seperti halaman Tim Sales)
   const zonaSort = useSort(v?.zona ?? [], 'ton', 'desc', (z, k) => (
@@ -162,7 +178,7 @@ function Body({ info }: { info: Row[] }) {
   const j073Sampai = infoScope.map(r => String(r.j073_sampai || '').slice(0, 10)).filter(Boolean).sort()[0];
   const distLabel = dist === 'all' ? 'Semua distributor' : (() => { const d = dists.find(x => x.code === dist)!; return `${d.kode} · ${d.code}`; })();
   const periodeLabel = dari === sampai ? bulanLabel(dari) : `${bulanLabel(dari)} s.d. ${bulanLabel(sampai)}`;
-  const filterAktif = tipeOk !== 'all' || transOk !== 'all' || segmen !== 'all';
+  const filterAktif = tipeOk !== 'all' || transOk !== 'all' || segmen !== 'all' || jalurOk !== 'all';
 
   const [busy, setBusy] = useState(false);
   const download = async () => {
@@ -182,10 +198,13 @@ function Body({ info }: { info: Row[] }) {
         { name: 'Per toko', header: ['Kode toko', 'Toko', 'Zona', 'DO', 'Ton', 'Bayar truk (Rp)', 'Bayar truk per ton', 'Ongkir dibayar toko (Rp)', 'Margin (Rp; + untung, − rugi)', 'Ongkos % omzet'],
           rows: v.toko.map(t => [t.cust, t.toko, t.zona, t.jumlahDo, t.ton, t.biaya, perTon(t.biaya, t.ton), t.tagih, t.tanggung, t.omzet ? t.biayaOmzet / t.omzet : null]),
           widths: [11, 34, 20, 6, 9, 16, 13, 14, 20, 14] },
-        { name: 'Per DO', header: ['Distributor', 'Bulan kirim', 'No DO', 'Kode toko', 'Toko', 'Tipe kirim', 'Zona', 'Truk', 'Transporter', 'Ton', 'Bayar truk (Rp)', 'Ongkir dibayar toko (Rp)', 'Sumber ongkir', 'Harga Loco per ton', 'Harga DO (Product Price) per ton', 'Omzet (Rp)', 'Biaya lengkap'],
+        { name: 'Per DO', header: ['Distributor', 'Bulan kirim', 'No DO', 'Kode toko', 'Toko', 'Tipe kirim', 'Zona', 'Truk', 'Transporter', 'Ton', 'Bayar truk (Rp)', 'Ongkir dibayar toko (Rp)', 'Sumber ongkir', 'Harga Loco per ton', 'Harga DO (Product Price) per ton', 'Omzet (Rp)', 'Biaya lengkap', 'Jalur (rekap logistik)', 'Bayar truk dari rekap logistik (Rp)'],
           rows: v.dos.map(d => [d.dist, d.periode.slice(0, 7), d.doNo, d.cust, d.toko, d.tipe === '?' ? '' : d.tipe, d.zona, namaTruk(d.truk), d.transporter, d.ton, d.biaya, d.tagih,
-            d.sumber ? SUMBER[d.sumber] || d.sumber : '', d.locoTon, d.hargaTon, d.omzet, d.lengkap ? 'ya' : d.luarErp ? 'armada sendiri' : 'belum']),
-          widths: [10, 10, 11, 10, 30, 8, 18, 22, 26, 8, 15, 15, 20, 13, 13, 15, 13] },
+            d.sumber ? SUMBER[d.sumber] || d.sumber : '', d.locoTon, d.hargaTon, d.omzet, d.lengkap ? 'ya' : d.luarErp ? 'armada sendiri' : 'belum',
+            d.jalur ? JALUR_LABEL[d.jalur] || d.jalur : '', d.biayaRekap || null]),
+          widths: [10, 10, 11, 10, 30, 8, 18, 22, 26, 8, 15, 15, 20, 13, 13, 15, 13, 16, 16] },
+        ...(v.waktu.tonWaktu > 0 ? [{ name: 'Waktu kirim', header: ['Jalur', 'Ton', 'Rata-rata DO ke kirim (hari)', 'Ton lewat estimasi', '% lewat estimasi', 'Median SJ kembali ke DO planner (hari)'],
+          rows: v.waktu.jalur.map(j => [JALUR_LABEL[j.jalur] || j.jalur, j.tonWaktu, j.hari, j.tonTelat, j.tonEst ? j.tonTelat / j.tonEst : null, j.sj]), widths: [20, 10, 18, 14, 12, 22] }] : []),
         { name: 'Angkutan ke gudang', header: ['Tujuan', 'Perjalanan', 'Ton', 'Biaya (Rp)', 'Per ton'],
           rows: v.gudang.tujuan.map(g => [g.nama, g.trips, g.ton, g.biaya, perTon(g.biaya, g.ton)]), widths: [34, 11, 11, 16, 12] },
       ], `Ongkos_Kirim_${dist === 'all' ? 'semua' : dists.find(x => x.code === dist)!.kode}_${dari.slice(0, 7)}${dari !== sampai ? '_' + sampai.slice(0, 7) : ''}.xlsx`, 'ongkos-kirim');
@@ -212,8 +231,9 @@ function Body({ info }: { info: Row[] }) {
         <Select label="Transporter" value={transOk} onChange={e => setTrans(e.target.value)} style={{ minWidth: 170 }}
           options={[{ value: 'all', label: 'Semua transporter' }, ...transporters.map(t => ({ value: t, label: t }))]} />
         <Select label="Segmen" value={segmen} onChange={e => setSegmen(e.target.value)} style={{ minWidth: 140 }} options={SEGMEN_OPTS} />
+        {adaRekap && <Select label="Jalur" value={jalurOk} onChange={e => setJalur(e.target.value)} style={{ minWidth: 160 }} options={JALUR_OPTS} />}
         <Select label="Satuan" value={satuan} onChange={e => setSatuan(e.target.value)} style={{ minWidth: 150 }} options={SATUAN_OPTS} />
-        {filterAktif && <button type="button" className="btn btn-sm self-end max-[880px]:col-span-2 max-[880px]:justify-center" onClick={() => { setTipe('all'); setTrans('all'); setSegmen('all'); }}>Reset filter</button>}
+        {filterAktif && <button type="button" className="btn btn-sm self-end max-[880px]:col-span-2 max-[880px]:justify-center" onClick={() => { setTipe('all'); setTrans('all'); setSegmen('all'); setJalur('all'); }}>Reset filter</button>}
       </FilterBar>
 
       {load.error && <ErrorBox error={load.error} />}
@@ -222,6 +242,7 @@ function Body({ info }: { info: Row[] }) {
         <div className={cx(load.loading && 'opacity-60 transition-opacity')}>
           <Kelengkapan v={v} periodeLabel={periodeLabel} namaDist={c => dists.find(x => x.code === c)?.kode || c} />
           <BelumHitung v={v} />
+          <SumberRekap v={v} />
           <SatuZak v={v} S={S} />
 
           <div className="grid-kpi mt-4">
@@ -237,6 +258,7 @@ function Body({ info }: { info: Row[] }) {
           </div>
 
           <Tren info={infoScope} S={S} />
+          <WaktuKirim v={v} />
           {v.gudang.trips > 0 && <Gudang g={v.gudang} S={S} />}
 
           <div className={cx('grid gap-4 mt-4 max-[1100px]:grid-cols-1', dist !== 'all' ? 'grid-cols-3 max-[1400px]:grid-cols-2' : 'grid-cols-2')}>
@@ -364,6 +386,8 @@ function Body({ info }: { info: Row[] }) {
             kalau tarifnya belum ada, dihitung dari harga: (Product Price − harga Loco kolom Price, gudang yang sama, pada tanggal DO) × qty, minimal 0.
             Diskon / promo / cash back tidak dihitung, karena itu potongan harga semen per toko (toko yang ambil sendiri juga dapat), bukan potongan ongkir. Per ton / per zak, omzet, dan margin hanya memakai DO yang semua perjalanannya sudah ada biayanya.
             Truk toko (Eks. Toko) memang tanpa biaya; armada sendiri (mis. LAM) biayanya di luar ERP dan tidak dihitung.
+            Kalau rekap logistik distributor sudah diunggah: perjalanan (FOAD) yang di ORDB019 biayanya 0 atau bulannya belum diunduh memakai Jml Harga rekap (baris semen; kalau 0, semua baris FOAD itu),
+            dibagi ke DO menurut ton; biaya ORDB019 tetap didahulukan. Jalur dan waktu kirim juga dari rekap.
             Margin = ongkir dibayar toko − bayar truk, dari DO yang sama: plus (hijau) = untung, minus (merah) = rugi / ditanggung distributor. Per zak = per ton x berat zak (50 kg = 1/20 ton, 40 kg = 1/25 ton).
           </p>
         </div>
@@ -554,6 +578,26 @@ function hitung(tripsSemua: Trip[], dosAll: DoRow[], tipe: string, trans: string
     isi: <>{fmt(tanpaJ073.length)} DO ({fmtTon(sum(tanpaJ073, d => d.ton))} ton) tidak ditemukan di J073 atau J073-nya tanpa kolom pengiriman, jadi tagihan ke toko belum bisa dihitung. Biasanya DO bulan sebelumnya yang baru dikirim; pastikan J073 bulan itu sudah diunggah.</> });
   cek.sort((a, b) => b.nilai - a.nilai);
 
+  // rekap logistik: perjalanan yang biayanya dari rekap (ORDB019 0 / tidak ada) dan waktu kirim
+  const rekapTrips = trips.filter(t => t.sumberBiaya === 'logistik');
+  const rekap = {
+    tonBiaya: sum(rekapTrips, t => t.ton), biaya: sum(rekapTrips, t => t.biaya), trips: rekapTrips.length,
+    tonTanpaOrdb: sum(trips.filter(t => !t.dariErp), t => t.ton), tonDiRekap: sum(trips.filter(t => t.jalur), t => t.ton), tonSemua: sum(trips, t => t.ton),
+  };
+  const ringkasWaktu = (ts: Trip[]) => {
+    const w = ts.filter(t => t.tonWaktu > 0 && t.hariKirim != null);
+    const tonWaktu = sum(w, t => t.tonWaktu);
+    const sj = ts.filter(t => t.hariSj != null && t.hariSj >= 0).map(t => t.hariSj!).sort((a, b) => a - b);
+    return {
+      tonWaktu, hari: tonWaktu ? sum(w, t => t.hariKirim! * t.tonWaktu) / tonWaktu : null, median: medianTon(w.map(t => [t.hariKirim!, t.tonWaktu])),
+      tonEst: sum(ts, t => t.tonEst), tonTelat: sum(ts, t => t.tonTelat), sj: sj.length ? sj[Math.floor((sj.length - 1) / 2)] : null, sjTrips: sj.length,
+      ember: EMBER.map(e => ({ ...e, ton: sum(w.filter(t => t.hariKirim! >= e.dari && t.hariKirim! < e.sampai), t => t.tonWaktu) })),
+    };
+  };
+  const jw = new Map<string, Trip[]>();
+  trips.filter(t => t.jalur).forEach(t => { const a = jw.get(t.jalur!) || []; a.push(t); jw.set(t.jalur!, a); });
+  const waktu = { ...ringkasWaktu(trips), jalur: [...jw.entries()].map(([jalur, ts]) => ({ jalur, ...ringkasWaktu(ts) })).filter(j => j.tonWaktu > 0).sort((a, b) => b.tonWaktu - a.tonWaktu) };
+
   return {
     dos, ton, tonLengkap, real, kosong, tonKosong, realTon: perTon(real, tonLengkap), tripBerbiaya: trips.filter(t => t.biaya > 0).length, tripSemua: trips.length,
     pctOmzet: omzetDasar ? biayaOmzet / omzetDasar : null, omzetDasar,
@@ -566,8 +610,20 @@ function hitung(tripsSemua: Trip[], dosAll: DoRow[], tipe: string, trans: string
       loco: perTon(sum(denganLoco, d => d.locoTon! * d.ton), sum(denganLoco, d => d.ton)),
       ongkir: perTon(tagih, tonTagih), truk: perTon(realTagih, tonTagih), ton: tonTagih,
     },
-    truk, tipe: tipeRows, zona, transporter, perTransporter, ritaseBeda: { beda, total: totalR }, toko, cek: cek.slice(0, 5),
+    truk, tipe: tipeRows, zona, transporter, perTransporter, ritaseBeda: { beda, total: totalR }, toko, cek: cek.slice(0, 5), rekap, waktu,
   };
+}
+/** Lama DO → kirim, dikelompokkan (hari; per ton muatan). */
+const EMBER = [{ label: 'Hari yang sama', dari: -1e9, sampai: 0.5 }, { label: '1–2 hari', dari: 0.5, sampai: 2.5 }, { label: '3–7 hari', dari: 2.5, sampai: 7.5 },
+  { label: '8–30 hari', dari: 7.5, sampai: 30.5 }, { label: 'Lebih dari 30 hari', dari: 30.5, sampai: 1e9 }];
+/** Median berbobot ton: [nilai, ton][] */
+function medianTon(xs: [number, number][]): number | null {
+  const a = xs.filter(x => x[1] > 0).sort((p, q) => p[0] - q[0]);
+  const total = a.reduce((s, x) => s + x[1], 0);
+  if (!total) return null;
+  let c = 0;
+  for (const [v, w] of a) { c += w; if (c >= total / 2) return v; }
+  return a[a.length - 1][0];
 }
 
 /* ---------------------------------------------------------------------------
@@ -627,6 +683,86 @@ function Kelengkapan({ v, periodeLabel, namaDist }: { v: Hasil; periodeLabel: st
         )}
       </div>
     </div>
+  );
+}
+
+/** Biaya dari rekap logistik: FOAD yang di ORDB019 biayanya 0 atau bulannya belum diunduh. */
+function SumberRekap({ v }: { v: Hasil }) {
+  const r = v.rekap;
+  if (r.tonBiaya < 0.5 && r.tonTanpaOrdb < 0.5) return null;
+  return (
+    <div className="upl-note is-info mt-3" role="note">
+      <svg viewBox="0 0 24 24" className="w-[18px] h-[18px] shrink-0 mt-px" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M4 5.5h16v13H4zM4 9.5h16M9 13.5h6" /></svg>
+      <div className="text-[13px] leading-relaxed">
+        <b>Biaya {fmtTon(r.tonBiaya)} ton ({fmtPct(r.tonBiaya / Math.max(r.tonSemua, 1e-9), 0)}) diambil dari rekap logistik</b>
+        {' '}({fmt(r.trips)} perjalanan, {fmtIDRCompact(r.biaya)}), karena di ORDB019 biayanya masih 0 atau belum ada.
+        {r.tonTanpaOrdb >= 0.5 && <> {fmtTon(r.tonTanpaOrdb)} ton tidak ada di ORDB019 sama sekali (bulannya belum diunduh), jadi muatannya juga dari rekap.</>}
+        {' '}Biaya ORDB019 tetap didahulukan kalau ada.
+      </div>
+    </div>
+  );
+}
+
+/** Waktu kirim dari rekap logistik: DO → kirim, lewat estimasi, SJ kembali. */
+function WaktuKirim({ v }: { v: Hasil }) {
+  const w = v.waktu;
+  if (w.tonWaktu < 0.5) return null;
+  const maks = Math.max(...w.ember.map(e => e.ton), 1e-9);
+  return (
+    <section className="card mt-4">
+      <div className="flex items-baseline justify-between flex-wrap gap-2">
+        <div className="card-title !mb-0">Waktu kirim <span className="text-faint font-normal">· dari rekap logistik, {fmtTon(w.tonWaktu)} ton</span></div>
+      </div>
+      <div className="grid gap-6 mt-3 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] max-[880px]:grid-cols-1">
+        <div className="grid grid-cols-3 gap-3 max-[520px]:grid-cols-1">
+          <div>
+            <div className="text-faint text-[12px]">DO sampai kirim</div>
+            <div className="font-mono text-[22px] text-ink">{w.median == null ? '–' : fmt(w.median)} <span className="text-[13px] text-soft">hari</span></div>
+            <div className="text-faint text-[11.5px]">median per ton · rata-rata {w.hari == null ? '–' : fmt(w.hari, 1)} hari</div>
+          </div>
+          <div>
+            <div className="text-faint text-[12px]">Lewat estimasi kirim</div>
+            <div className={cx('font-mono text-[22px]', w.tonEst && w.tonTelat / w.tonEst > 0.1 ? 'text-red' : 'text-ink')}>{w.tonEst ? fmtPct(w.tonTelat / w.tonEst, 1) : '–'}</div>
+            <div className="text-faint text-[11.5px]">{fmtTon(w.tonTelat)} ton dikirim setelah Est. Delv. Date</div>
+          </div>
+          <div>
+            <div className="text-faint text-[12px]">SJ kembali ke DO planner</div>
+            <div className="font-mono text-[22px] text-ink">{w.sj == null ? '–' : fmt(w.sj)} <span className="text-[13px] text-soft">hari</span></div>
+            <div className="text-faint text-[11.5px]">median, {fmt(w.sjTrips)} perjalanan</div>
+          </div>
+        </div>
+        <div>
+          <div className="text-faint text-[12px] mb-1.5">Ton menurut lama DO sampai kirim</div>
+          <div className="flex flex-col gap-1.5">
+            {w.ember.map(e => (
+              <div key={e.label} className="grid grid-cols-[120px_minmax(0,1fr)_88px] items-center gap-2 text-[12.5px]">
+                <span className="text-soft">{e.label}</span>
+                <span className="h-2.5 rounded-sm bg-[#EEF1F4] overflow-hidden" aria-hidden="true"><span className="block h-full rounded-sm" style={{ width: `${e.ton / maks * 100}%`, background: COLORS.blue }} /></span>
+                <span className="num font-mono text-right">{fmtTon(e.ton)} t · {fmtPct(e.ton / w.tonWaktu, 0)}</span>
+              </div>
+            ))}
+          </div>
+          {w.jalur.length > 1 && (
+            <div className="border border-line rounded overflow-x-auto mt-3">
+              <table className="!min-w-0 tbl-dense">
+                <thead><tr><th>Jalur</th><th className="num">Ton</th><th className="num">DO → kirim (median)</th><th className="num">Lewat estimasi</th></tr></thead>
+                <tbody>
+                  {w.jalur.map(j => (
+                    <tr key={j.jalur}>
+                      <td className="text-[12.5px]">{JALUR_LABEL[j.jalur] || j.jalur}</td>
+                      <td className="num font-mono">{fmtTon(j.tonWaktu)}</td>
+                      <td className="num font-mono">{j.median == null ? '–' : `${fmt(j.median)} hari`}</td>
+                      <td className="num font-mono">{j.tonEst ? fmtPct(j.tonTelat / j.tonEst, 1) : '–'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+      <p className="text-faint text-[11.5px] mt-3">DO sampai kirim = tanggal DO toko sampai tanggal kirim (SJ); DO yang lama biasanya pesanan toko yang diambil bertahap, bukan truk yang telat. Lewat estimasi = dikirim setelah Est. Delv. Date di rekap.</p>
+    </section>
   );
 }
 
