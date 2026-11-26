@@ -57,8 +57,10 @@ Harga ERP (perkiraan nilai di halaman Outstanding DO, tarif ongkir per zona di h
   bawaan 13 distributor) x produk CMT / RJW / CWC. Semua baris tabel Basic and Additional Price diambil dengan tipe kirim,
   zona, gudang, Price, Discount, Transport, Subsidi, Handling, Net Price, Effective Date dan Expired Date:
   LOCO GUDANG = harga ambil sendiri; FRANCO ... = tarif ongkir per zona (ongkir = Net Price - (Price - Discount)).
-  Mulai versi 2026.11.23.1: SEKALI tekan Pengaturan -> "Baca ulang harga sejak 1 Januari" (setelah 21_harga_kirim.sql),
-  supaya tarif kirim sejak awal tahun ikut tersimpan dan baris LOCO KAPAL / LOCO PABRIK tidak lagi tercampur ke harga Loco.
+  Mulai versi 2026.11.26.1: jalan pertama bagian Harga ERP otomatis membaca ulang sejak 1 Januari (sekali saja, juga dari
+  jadwal), supaya tarif kirim sejak awal tahun ikut tersimpan dan baris LOCO KAPAL / LOCO PABRIK tidak lagi tercampur ke harga
+  Loco. Bisa juga dipicu manual: Pengaturan -> "Baca ulang harga sejak 1 Januari". Syarat: 18_harga_loco.sql terbaru di SSMS
+  dan web versi terbaru (menu Kelola Data -> Harga ERP).
 - Tidak dicek per hari: mulai 1 Januari, harga dibaca, lalu lompat ke Expired Date terdekat + 1 hari, sampai tidak ada
   baris yang berakhir lagi (= semua masih berlaku). Jalan berikutnya mulai dari masa berlaku terakhir yang sudah terunggah (harga_loco.json), jadi
   biasanya cukup satu kali Next per PT x produk.
