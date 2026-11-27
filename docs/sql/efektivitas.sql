@@ -129,5 +129,87 @@ from sementrack.v_ongkos_trip t
 where not t.ke_gudang and t.ton > 0 and t.isi_truk is not null and t.truk_max_ton > 0
 group by 1, 2, 3, 4, 5, 6, 7;
 
+-- status data + harga / logistik / promo (salinan ongkos_kirim.sql)
+create or replace view sementrack.v_data_status as
+with
+yr_so as (select max(substring(k from 4)::int) y from jsonb_object_keys((select to_jsonb(v) from public.v_cement_targets_ext v limit 1)) k where k ~ '^do_\d{4}$'),
+yr_si as (select max(substring(k from 11)::int) y from jsonb_object_keys((select to_jsonb(v) from public.v_delivery_ext v limit 1)) k where k ~ '^realisasi_\d{4}$'),
+so as (select (select y from yr_so) y, max(v.month_num) m from public.v_cement_targets_ext v, yr_so
+       where coalesce((to_jsonb(v) ->> ('do_' || yr_so.y))::numeric, 0) > 0),
+si as (select (select y from yr_si) y, max(v.month_num) m from public.v_delivery_ext v, yr_si
+       where coalesce((to_jsonb(v) ->> ('realisasi_' || yr_si.y))::numeric, 0) > 0),
+sync as (select (s.tanggal_update + coalesce(s.jam_update, time '00:00')) as ts, s.keterangan from public.status_sync s where s.id = 1),
+sellin_up as (select u.created_at, u.created_by from sementrack.sellin_bnn_upload u where u.status = 'selesai' order by u.id desc limit 1),
+dofas_up as (select l.created_at, l.created_by, l.date_from from sementrack.kelola_log l where l.dataset = 'dofas' and l.status = 'selesai' order by l.id desc limit 1),
+erp_up as (select l.created_at, l.created_by, l.date_from from sementrack.kelola_log l where l.dataset = 'erp' and l.status = 'selesai' order by l.id desc limit 1),
+j073_up as (select l.created_at, l.created_by from sementrack.kelola_log l where l.dataset = 'j073' and l.status = 'selesai' order by l.id desc limit 1),
+po_up as (select u.created_at, u.created_by, u.posisi from sementrack.sellin_po_upload u where u.status = 'selesai' order by u.id desc limit 1),
+stock_up as (select l.created_at, l.created_by from sementrack.kelola_log l where l.dataset = 'stock' and l.status = 'selesai' order by l.id desc limit 1),
+harga_up as (select l.created_at, l.created_by from sementrack.kelola_log l where l.dataset = 'harga' and l.status = 'selesai' order by l.id desc limit 1),
+logistik_up as (select l.created_at, l.created_by from sementrack.kelola_log l where l.dataset = 'logistik' and l.status = 'selesai' order by l.id desc limit 1),
+promo_up as (select l.created_at, l.created_by from sementrack.kelola_log l where l.dataset = 'promo' and l.status = 'selesai' order by l.id desc limit 1),
+ongkos_up as (select l.created_at, l.created_by from sementrack.kelola_log l where l.dataset = 'ongkos' and l.status = 'selesai' order by l.id desc limit 1)
+select 'transaksi'::text as sumber, 'Transaksi distributor'::text as nama, 'harian'::text as frekuensi,
+       (select max(do_date) from public.transaksi) as data_sampai,
+       (select to_char(ts, 'YYYY-MM-DD"T"HH24:MI') from sync) as diperbarui,
+       (select keterangan from sync) as keterangan
+union all
+select 'sellin', 'Sell In BNN', 'harian',
+       (select max(tanggal) from sementrack.sellin_bnn where not sementrack.sellin_is_mortar(tipe_produk)),
+       (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from sellin_up),
+       (select 'Upload oleh ' || created_by from sellin_up)
+union all
+select 'sellout_bulanan', 'Sell Out bulanan', 'bulanan',
+       (select case when m is null then null else (make_date(y, m::int, 1) + interval '1 month - 1 day')::date end from so), null, null
+union all
+select 'sellin_bulanan', 'Sell In bulanan', 'bulanan',
+       (select case when m is null then null else (make_date(y, m::int, 1) + interval '1 month - 1 day')::date end from si), null, null
+union all
+select 'dofas', 'DO FAS', 'harian',
+       (select (created_at at time zone 'Asia/Jakarta')::date from dofas_up),
+       (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from dofas_up),
+       (select 'Tempel data ' || extract(year from date_from) || ' oleh ' || created_by from dofas_up)
+union all
+select 'erp', 'Sub ERP', 'harian',
+       (select (created_at at time zone 'Asia/Jakarta')::date from erp_up),
+       (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from erp_up),
+       (select 'Tempel data ' || extract(year from date_from) || ' oleh ' || created_by from erp_up)
+union all
+select 'j073', 'J073', 'harian',
+       (select max(do_date) from sementrack.sellout_j073),
+       (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from j073_up),
+       (select 'Upload oleh ' || created_by from j073_up)
+union all
+select 'outstanding', 'Outstanding DO', 'harian',
+       (select posisi from po_up),
+       (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from po_up),
+       (select 'Upload oleh ' || created_by from po_up)
+union all
+select 'stock', 'Stock semen', 'harian',
+       (select max(tanggal) from sementrack.stock_semen),
+       (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from stock_up),
+       (select 'Upload oleh ' || created_by from stock_up)
+union all
+select 'ongkos', 'Ongkos kirim (ORDB019)', 'mingguan',
+       (select max(kirim_date) from sementrack.ongkos_kirim),
+       (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from ongkos_up),
+       (select 'Upload oleh ' || created_by from ongkos_up)
+union all
+select 'harga', 'Harga produk ERP (ORDB050/088)', 'mingguan',
+       greatest((select max(diambil) from sementrack.harga_loco), (select max(diambil) from sementrack.harga_kirim)),
+       (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from harga_up),
+       (select 'Upload oleh ' || created_by from harga_up)
+union all
+select 'logistik', 'Pengiriman & truk (J082 / rekap logistik)', 'mingguan',
+       (select max(kirim_date) from sementrack.logistik_kirim),
+       (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from logistik_up),
+       (select 'Upload oleh ' || created_by from logistik_up)
+union all
+select 'promo', 'Promo DO (J078)', 'mingguan',
+       (select max(do_date) from sementrack.promo_do),
+       (select to_char(created_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD"T"HH24:MI') from promo_up),
+       (select 'Upload oleh ' || created_by from promo_up);
+
+grant select on sementrack.v_data_status to public;
 grant select on sementrack.v_promo_bulanan, sementrack.v_promo_efek, sementrack.v_ongkos_zona, sementrack.v_isi_truk to public;
 commit;
