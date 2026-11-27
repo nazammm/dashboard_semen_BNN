@@ -57,11 +57,12 @@ select b.tanggal,
        coalesce(nullif(initcap(lower(b.loco_franco)), ''), 'Tidak diisi') as loco_franco,
        round(sum(b.ton), 3)   as ton,
        sum(b.delivery_qty)    as zak,
-       count(*)::int          as pengiriman
+       count(*)::int          as pengiriman,
+       coalesce(nullif(btrim(b.asal_pengiriman), ''), 'Tidak diisi') as asal   -- gudang / terminal asal (ITP-Palembang Terminal, CCY, ...)
 from sementrack.sellin_bnn b
 left join sementrack.sellin_region_map m on m.kode_customer = b.kode_customer
 where not sementrack.sellin_is_mortar(b.tipe_produk)
-group by 1, 2, 3, 4, 5;
+group by 1, 2, 3, 4, 5, 9;
 
 -- ---------------------------------------------------------------------
 -- 2. Log aksi kelola data (upload transaksi, hapus transaksi / sell in)

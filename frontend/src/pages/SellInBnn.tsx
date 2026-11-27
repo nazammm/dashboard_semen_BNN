@@ -31,7 +31,28 @@ import { sellinGeo } from '../lib/ringkasan';
 
 type Semen = 'STR' | 'RJW' | 'CWC';
 type Unit = 'hari' | 'minggu' | 'bulan';
-interface Rec { tanggal: string; sub: string; produk: string; semen: Semen; ton: number; kirim: number; langsung: boolean }   // langsung = pesanan Toko/Project (tidak lewat gudang)
+interface Rec { tanggal: string; sub: string; produk: string; semen: Semen; ton: number; kirim: number; langsung: boolean; kat: string }   // langsung = pesanan Toko/Project (tidak lewat gudang); kat = tipe pesanan · asal kirim
+
+/* ---------- tipe pesanan x asal kirim (mis. Sumsel: Gudang dari CCY & Terminal Palembang, Toko / Project langsung dari Terminal Palembang) ---------- */
+const asalLabel = (a: string) => {
+  const u = a.toUpperCase();
+  if (!a || u === 'TIDAK DIISI') return 'asal tidak diisi';
+  if (/CCY|CONTAINER YARD/.test(u)) return 'CCY Citeureup';
+  if (/SUNDA KELAPA/.test(u)) return 'Sunda Kelapa';
+  if (/MARUNDA/.test(u)) return 'Marunda';
+  if (/PRIOK/.test(u)) return 'Tanjung Priok';
+  const t = u.match(/ITP[-\s]*(.+?)\s+TERMINAL/);
+  if (t) return `Terminal ${t[1].charAt(0) + t[1].slice(1).toLowerCase()}`;
+  if (/CITEUREUP/.test(u)) return 'Pabrik Citeureup';
+  return a.replace(/^ITP[-\s]*/i, '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+};
+const TIPE_URUT: Record<string, number> = { Gudang: 0, Toko: 1, Project: 2 };
+const tipeLabel = (t: string) => (t === 'Gudang' ? 'Pesanan gudang' : t === 'Toko' ? 'Langsung ke toko' : t === 'Project' ? 'Project' : t || 'Tanpa tipe');
+const katOf = (tipe: string, asal: string) => `${tipe}|${asalLabel(asal)}`;
+const katLabel = (k: string) => { const [t, a] = k.split('|'); return `${tipeLabel(t)} · ${a}`; };
+const katUrut = (a: string, b: string) => (TIPE_URUT[a.split('|')[0]] ?? 9) - (TIPE_URUT[b.split('|')[0]] ?? 9);
+// gudang = biru, langsung ke toko = magenta, project = hijau; asal kedua dst. lebih muda
+const KAT_WARNA: Record<string, string[]> = { Gudang: ['#0181D5', '#7CB8E4', '#1E3A5C', '#B9D9F0'], Toko: ['#C8035F', '#E58AB4'], Project: ['#2E7D4F', '#8CC3A2'] };
 
 const UNMAPPED = 'Belum dipetakan';
 const key = (s: unknown) => String(s ?? '').trim().toUpperCase();
@@ -123,8 +144,9 @@ function Body({ rows, info, last, delivery, Y }: { rows: Row[]; info: Row; last:
 
   const recs = useMemo<Rec[]>(() => rows.map(r => {
     const produk = String(r.produk || '–');
+    const tipe = String(r.tipe_pesanan || '').trim();
     return { tanggal: String(r.tanggal).slice(0, 10), sub: key(r.region || UNMAPPED), produk, semen: semenOf(produk), ton: Number(r.ton || 0), kirim: Number(r.pengiriman || 0),
-      langsung: !!r.tipe_pesanan && String(r.tipe_pesanan).toLowerCase() !== 'gudang' };
+      langsung: !!tipe && tipe.toLowerCase() !== 'gudang', kat: katOf(tipe, String(r.asal ?? '')) };
   }), [rows]);
 
   /* ---------- filter ---------- */
@@ -233,13 +255,25 @@ function Body({ rows, info, last, delivery, Y }: { rows: Row[]; info: Row; last:
         prev: x.full ? pArr[x.m] : prorate(pArr, { from: addYears(x.from, -1), to: addYears(x.to, -1) }, P),
       }));
     }
+    // komposisi bulan: per region / sub region; kalau hanya satu daerah, per tipe pesanan & asal kirim
+    const drillPerKat = (month: number) => new Set(cur.filter(r => +r.tanggal.slice(5, 7) === month && r.ton > 0).map(r => groupOf(r.sub))).size <= 1;
     const drillGroups = (month: number) => {
-      const s = new Map<string, number>();
-      cur.forEach(r => { if (+r.tanggal.slice(5, 7) === month) { const g = groupOf(r.sub); s.set(g, (s.get(g) || 0) + r.ton); } });
-      return [...s.entries()].map(([g, val]) => ({ label: groupName(g), value: val })).filter(x => x.value > 0).sort((a, b) => b.value - a.value);
+      const s = new Map<string, number>(), perKat = drillPerKat(month);
+      cur.forEach(r => { if (+r.tanggal.slice(5, 7) === month) { const g = perKat ? r.kat : groupOf(r.sub); s.set(g, (s.get(g) || 0) + r.ton); } });
+      return [...s.entries()].map(([g, val]) => ({ label: perKat ? katLabel(g) : groupName(g), value: val })).filter(x => x.value > 0).sort((a, b) => b.value - a.value);
     };
 
-    return { ton, kirim, langsung, targetFull, prev, prevRange, months, partial, monthLabel, trend, showCompare, monthRows, drillGroups };
+    // tipe pesanan x asal kirim: total periode dan per batang grafik
+    const katTot = new Map<string, number>();
+    cur.forEach(r => katTot.set(r.kat, (katTot.get(r.kat) || 0) + r.ton));
+    const kats = [...katTot.entries()].filter(([, t]) => t > 0.0005).sort((a, b) => katUrut(a[0], b[0]) || b[1] - a[1]).map(([k]) => k);
+    const katSeri = kats.map(k => {
+      const m = new Map<string, number>();
+      cur.forEach(r => { if (r.kat === k) { const b = bucketOf(r.tanggal); m.set(b, (m.get(b) || 0) + r.ton); } });
+      return { k, total: katTot.get(k) || 0, data: buckets.map(b => m.get(b.k) || 0) };
+    });
+
+    return { ton, kirim, langsung, targetFull, prev, prevRange, months, partial, monthLabel, trend, showCompare, monthRows, drillGroups, drillPerKat, katSeri };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recs, delivery, range.from, range.to, region, sub, semen, produk, comparable, groupBy, unit, Y, P, kTgt, kPrev]);
 
@@ -361,17 +395,63 @@ function Body({ rows, info, last, delivery, Y }: { rows: Row[]; info: Row; last:
         )}
       </Card>
 
+      {v.katSeri.length > 1 && <KomposisiPesanan v={v} unit={unit} scope={scope} />}
+
       {comparable && v.monthRows.length > 0 && (
         <>
           <h2 className="section-title">Rincian per Bulan · Sell In (Ton)</h2>
           <GrowthTable caption={`Rincian sell in per bulan: target, realisasi ${P} dan ${Y}, pertumbuhan, capaian`}
             rows={v.monthRows} Y={Y} P={P} labels={{ target: 'Target', value: 'Sell In', capaian: 'Capaian' }} monthLabel={v.monthLabel}
             drill={{ enabled: true, groupsFor: v.drillGroups,
-              heading: m => `Komposisi Sell In ${v.monthLabel(m)} ${Y} · per ${groupBy === 'region' ? 'Region' : 'Sub Region'}`,
+              heading: m => `Komposisi Sell In ${v.monthLabel(m)} ${Y} · per ${v.drillPerKat(m) ? 'tipe pesanan & asal kirim' : groupBy === 'region' ? 'Region' : 'Sub Region'}`,
               title: m => `Lihat komposisi sell in ${MONTHS_ID[m]}` }} />
         </>
       )}
 
     </>
+  );
+}
+
+/** Sell in per tipe pesanan (gudang / langsung ke toko / project) dan asal kirim (terminal, CCY, pabrik). */
+function KomposisiPesanan({ v, unit, scope }: {
+  v: { ton: number; trend: { labels: string[] }; katSeri: { k: string; total: number; data: number[] }[] }; unit: Unit; scope: string;
+}) {
+  const pakai: Record<string, number> = {};
+  const warna = v.katSeri.map(s => { const t = s.k.split('|')[0]; const p = KAT_WARNA[t] || ['#5D6B7C', '#B9C1CC']; const i = pakai[t] = (pakai[t] ?? -1) + 1; return p[i % p.length]; });
+  const tipeTot = new Map<string, number>();
+  v.katSeri.forEach(s => { const t = s.k.split('|')[0]; tipeTot.set(t, (tipeTot.get(t) || 0) + s.total); });
+  return (
+    <Card className="mt-3.5">
+      <div className="card-title">Sell In per Tipe Pesanan & Asal Kirim · {UNIT_LABEL[unit]} (Ton) · {scope}</div>
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12.5px] text-soft mb-2">
+        {[...tipeTot.entries()].sort((a, b) => (TIPE_URUT[a[0]] ?? 9) - (TIPE_URUT[b[0]] ?? 9)).map(([t, ton]) => (
+          <span key={t}><b className="text-ink">{tipeLabel(t)}</b> {fmtTon(ton)} ton ({v.ton > 0 ? (ton / v.ton * 100).toFixed(1) : '0'}%)</span>
+        ))}
+      </div>
+      <div className="grid gap-5 grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] max-[960px]:grid-cols-1">
+        <ChartBox className="tall" label={`Sell in per tipe pesanan dan asal kirim: ${v.katSeri.map(s => `${katLabel(s.k)} ${fmtTon(s.total)} ton`).join('; ')}`}
+          deps={[v.trend.labels.join('|'), v.katSeri.map(s => s.k + s.data.join(',')).join('|')]}
+          build={() => ({
+            type: 'bar',
+            data: { labels: v.trend.labels, datasets: v.katSeri.map((s, i) => ({ label: katLabel(s.k), data: s.data, backgroundColor: warna[i], maxBarThickness: 26, stack: 'a' })) } as any,
+            options: { responsive: true, maintainAspectRatio: false,
+              scales: { y: { stacked: true, beginAtZero: true, grid: { color: COLORS.line }, ticks: { callback: (x: any) => fmtCompact(x) } }, x: { stacked: true, grid: { display: false }, ticks: { autoSkip: true, maxRotation: 0 } } },
+              plugins: { legend: { display: false }, tooltip: { mode: 'index', filter: (c: any) => c.parsed.y > 0, callbacks: { label: (c: any) => ` ${c.dataset.label}: ${fmt(c.parsed.y)} ton` } } } },
+          })} />
+        <table className="!min-w-0 tbl-dense self-start" aria-label="Sell in per tipe pesanan dan asal kirim">
+          <thead><tr><th>Tipe pesanan · asal kirim</th><th className="num">Ton</th><th className="num">Porsi</th></tr></thead>
+          <tbody>
+            {v.katSeri.map((s, i) => (
+              <tr key={s.k}>
+                <td className="text-[12.5px]"><i className="inline-block w-2.5 h-2.5 rounded-sm mr-2 align-middle" style={{ background: warna[i] }} aria-hidden="true" />{katLabel(s.k)}</td>
+                <td className="num font-mono">{fmtTon(s.total)}</td>
+                <td className="num font-mono">{v.ton > 0 ? (s.total / v.ton * 100).toFixed(1) + '%' : '–'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-faint text-[12px] mt-2">Pesanan gudang = stok distributor (diambil dari terminal / CCY / pabrik ke gudang). Langsung ke toko dan Project = pesanan toko / proyek (mis. PMN dari Terminal Palembang) yang dikirim tanpa lewat gudang.</p>
+    </Card>
   );
 }
