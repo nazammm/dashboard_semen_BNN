@@ -6,6 +6,9 @@
    Harga Perzak, Jml Harga, Tgl Terima SJ Toko / DoPlanner, KET DALAM/LUAR KOTA.
    Daerah dipetakan ke kode ERP di server (dbo.distributor). Ton di pratinjau = perkiraan (kode semen yang dikenal);
    server memakai kategori ORDB019.
+   Job ERP J082 (Schedule Delivery Order, .TXT dipisah |, ditarik Nazam Auto Task) bentuknya sama, plus Tipe Truk, Truk Max Tonase,
+   Total Berat, P/A, Ritase Cost, Payment Date; kolom Daerah di J082 = wilayah, jadi kode distributor diambil dari nama file
+   (J082_<kode ERP>_<bulan>.TXT). Angka J082 memakai titik desimal (2.000 = 2). Baris ke toko yang belum ber-SJ dilewati.
    Murni (tanpa DOM) supaya bisa jalan di Web Worker dan diuji di Node.
    Urutan kolom yang dikirim = urutan argumen sementrack.logistik_simpan.
 ============================================================================ */
@@ -32,12 +35,16 @@ export interface LogistikStats {
   jalur: { jalur: string; foad: number; ton: number; biaya: number; biayaSemen: number }[];
   bulan: { bulan: string; foad: number; ton: number; biaya: number }[];
   telat: { ton: number; tonEst: number };
+  mode: 'rekap' | 'j082';
+  belumKirim: number;
+  isi: { foad: number; kurang50: number };
 }
 export interface LogistikParseResult { ok: boolean; error?: string; missing?: string[]; rows: LogistikRow[]; stats: LogistikStats }
 
 const COLS = [
   { key: 'daerah', header: 'Daerah', required: true },
   { key: 'tgl_order', header: 'TANGGAL ORDER' },
+  { key: 'order_date', header: 'Order Date' },
   { key: 'foad', header: 'FOAD No.', required: true },
   { key: 'som_type', header: 'SOMType', required: true },
   { key: 'som_date', header: 'SOM Date' },
@@ -66,6 +73,12 @@ const COLS = [
   { key: 'terima_planner', header: 'Tgl Terima SJ DoPlanner' },
   { key: 'sj_terminal', header: 'Tgl. SJ Terminal' },
   { key: 'dalam_luar', header: 'KET DALAM/LUAR KOTA' },
+  { key: 'tipe_truk', header: 'Tipe Truk' },
+  { key: 'truk_max', header: 'Truk Max Tonase' },
+  { key: 'berat', header: 'Total Berat (Tonase)' },
+  { key: 'pa', header: 'P/A' },
+  { key: 'ritase', header: 'Ritase Cost' },
+  { key: 'payment', header: 'Payment Date' },
 ] as const;
 type Key = (typeof COLS)[number]['key'];
 
@@ -84,9 +97,21 @@ export function jalurDari(som: string): string {
   return 'lain';
 }
 
-/** Satu sheet rekap (array of arrays, nilai mentah) → baris untuk logistik_simpan. */
-export function parseLogistikSheet(aoa: unknown[][]): LogistikParseResult {
-  const stats: LogistikStats = { rowsRead: 0, rowsUsed: 0, invalid: 0, issues: [], daerah: [], dari: null, sampai: null, foad: 0, ton: 0, biaya: 0, foadBiaya: 0, jalur: [], bulan: [], telat: { ton: 0, tonEst: 0 } };
+/** Angka ERP .TXT: titik = desimal, koma = ribuan ("2.000" = 2, "1,250.50" = 1250.5). */
+export function angkaTitik(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const t = String(v).trim().replace(/,/g, '');
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+const statsKosong = (): LogistikStats => ({ rowsRead: 0, rowsUsed: 0, invalid: 0, issues: [], daerah: [], dari: null, sampai: null, foad: 0, ton: 0, biaya: 0,
+  foadBiaya: 0, jalur: [], bulan: [], telat: { ton: 0, tonEst: 0 }, mode: 'rekap', belumKirim: 0, isi: { foad: 0, kurang50: 0 } });
+
+/** Satu sheet rekap / J082 (array of arrays, nilai mentah) → baris untuk logistik_simpan. */
+export function parseLogistikSheet(aoa: unknown[][], fileName = ''): LogistikParseResult {
+  const stats = statsKosong();
   const fail = (error: string, missing?: string[]): LogistikParseResult => ({ ok: false, error, missing, rows: [], stats });
   let headerAt = -1;
   for (let r = 0; r < Math.min(aoa.length, 20); r++) {
@@ -97,8 +122,17 @@ export function parseLogistikSheet(aoa: unknown[][]): LogistikParseResult {
   const idx = new Map<string, number>();
   (aoa[headerAt] || []).forEach((h, i) => { const k = normHeader(h); if (k && !idx.has(k)) idx.set(k, i); });   // Daerah pertama = kode distributor
   const cols = COLS.map(c => idx.get(normHeader(c.header)) ?? -1);
-  const missing = COLS.filter((c, i) => 'required' in c && c.required && cols[i] < 0).map(c => c.header);
+  // J082: tanpa kolom kode distributor; kode dari nama file, angka bertitik desimal, tanpa biaya untuk sebagian user
+  const j082 = idx.has(normHeader('Tipe Truk')) && idx.has(normHeader('Truk Max Tonase'));
+  const distFile = /J082[_\s-]+([0-9A-Z]{3,8})(?![0-9A-Z])/i.exec(fileName)?.[1]?.toUpperCase() || null;
+  if (j082) {
+    stats.mode = 'j082';
+    if (!distFile) return fail('File J082 harus bernama J082_<kode ERP distributor>_..., mis. J082_4708_2026-10.TXT (kolom Daerah di J082 bukan kode distributor).');
+  }
+  const missing = COLS.filter((c, i) => 'required' in c && c.required && cols[i] < 0 && !(j082 && c.key === 'daerah')).map(c => c.header);
   if (missing.length) return fail('Kolom wajib tidak ditemukan di baris judul.', missing);
+  const num = j082 ? angkaTitik : toNumber;
+  const isiFoad = new Map<string, { berat: number; max: number }>();
 
   const rows: LogistikRow[] = [];
   const daerah = new Set<string>();
@@ -106,24 +140,29 @@ export function parseLogistikSheet(aoa: unknown[][]): LogistikParseResult {
   for (let r = headerAt + 1; r < aoa.length; r++) {
     const cells = aoa[r] || [];
     const get = (k: Key) => { const i = cols[COLS.findIndex(c => c.key === k)]; return i >= 0 ? cells[i] : null; };
-    const foadNo = txt(get('foad')), dae = txt(get('daerah')).toUpperCase();
+    const foadNo = txt(get('foad')), dae = j082 ? distFile! : txt(get('daerah')).toUpperCase();
     if (!foadNo && !dae) continue;                                  // baris kosong / total
     stats.rowsRead++;
     const bad = (reason: string) => { stats.invalid++; if (stats.issues.length < 20) stats.issues.push({ row: r + 1, reason }); };
     if (!foadNo || !dae) { bad('Daerah / FOAD No. kosong'); continue; }
-    const qty = toNumber(get('qty'));
+    const qty = num(get('qty'));
     if (qty == null) { bad(`Jumlah bukan angka ("${txt(get('qty'))}")`); continue; }
     const sj = ordbTanggal(get('sj_date')), kirim = ordbTanggal(get('kirim')) || sj;
     // tanggal muat: SJ Date; angkutan antar gudang tanpa SJ memakai Tgl. SJ Terminal / SOM Date / Tanggal Order
-    const tgl = sj || ordbTanggal(get('sj_terminal')) || ordbTanggal(get('som_date')) || ordbTanggal(get('tgl_order'));
+    const som0 = txt(get('som_type'));
+    if (!sj && /TOKO/i.test(som0) && j082) { stats.belumKirim++; continue; }        // jadwal ke toko yang belum ber-SJ
+    const tgl = sj || ordbTanggal(get('sj_terminal')) || ordbTanggal(get('som_date')) || ordbTanggal(get('tgl_order')) || ordbTanggal(get('order_date'));
     if (!tgl) { bad('Tanggal (SJ Date / SOM Date) tidak terbaca'); continue; }
     if (tgl < '2026-01-01') { bad('Sebelum 2026 (ongkos kirim dilacak mulai Januari 2026)'); continue; }
     const som = txt(get('som_type')), code = txt(get('product_code')).toUpperCase(), name = txt(get('product_name'));
-    const jml = toNumber(get('jml_harga')), est = ordbTanggal(get('est')), doDate = ordbTanggal(get('do_date'));
+    const jml = num(get('jml_harga')), est = ordbTanggal(get('est')), doDate = ordbTanggal(get('do_date'));
     rows.push([dae, foadNo, som || null, tgl, isi(get('do_no')), doDate, est, isi(get('sj_no')), kirim, isi(get('salesman')), isi(get('status')),
       isi(get('cust_code')), isi(get('cust_name')), code || null, name || null, qty, isi(get('transporter')), isi(get('zona_kode')), isi(get('zona')),
-      isi(get('plat')), isi(get('gudang_asal')), isi(get('gudang_tujuan')), toNumber(get('harga')), jml,
-      ordbTanggal(get('terima_toko')), ordbTanggal(get('terima_planner')), isi(get('dalam_luar'))]);
+      isi(get('plat')), isi(get('gudang_asal')), isi(get('gudang_tujuan')), num(get('harga')), jml,
+      ordbTanggal(get('terima_toko')), ordbTanggal(get('terima_planner')), isi(get('dalam_luar')),
+      isi(get('tipe_truk')), num(get('truk_max')), num(get('berat')), isi(get('pa')), num(get('ritase')), ordbTanggal(get('payment'))]);
+    const brt = num(get('berat')), mx = num(get('truk_max'));
+    if (brt != null && mx) { const x = isiFoad.get(`${dae}|${foadNo}`) || { berat: 0, max: mx }; x.berat += brt; x.max = Math.max(x.max, mx); isiFoad.set(`${dae}|${foadNo}`, x); }
     stats.rowsUsed++;
     daerah.add(dae);
     if (!stats.dari || tgl < stats.dari) stats.dari = tgl;
@@ -146,6 +185,7 @@ export function parseLogistikSheet(aoa: unknown[][]): LogistikParseResult {
   stats.daerah = [...daerah].sort();
   stats.jalur = [...jm.values()].sort((a, b) => b.foad - a.foad);
   stats.bulan = [...bm.values()].sort((a, b) => a.bulan.localeCompare(b.bulan));
+  for (const x of isiFoad.values()) { stats.isi.foad++; if (x.berat / x.max < 0.5) stats.isi.kurang50++; }
   return { ok: true, rows, stats };
 }
 
@@ -154,13 +194,15 @@ export function gabungLogistik(list: LogistikParseResult[]): LogistikParseResult
   const bad = list.find(r => !r.ok);
   if (bad) return bad;
   if (list.length === 1) return list[0];
-  const st: LogistikStats = { rowsRead: 0, rowsUsed: 0, invalid: 0, issues: [], daerah: [], dari: null, sampai: null, foad: 0, ton: 0, biaya: 0, foadBiaya: 0, jalur: [], bulan: [], telat: { ton: 0, tonEst: 0 } };
+  const st = statsKosong();
+  if (new Set(list.map(r => r.stats.mode)).size > 1) return { ...list[0], ok: false, error: 'Rekap logistik dan J082 diupload terpisah.', rows: [] };
+  st.mode = list[0].stats.mode;
   const jm = new Map<string, LogistikStats['jalur'][number]>(), bm = new Map<string, LogistikStats['bulan'][number]>(), dae = new Set<string>();
   const rows: LogistikRow[] = [];
   for (const r of list) {
     const s = r.stats;
     for (const d of s.daerah) {
-      if (dae.has(d)) return { ...r, ok: false, error: `Daerah ${d} ada di dua file. Pilih satu file per distributor.`, rows: [] };
+      if (dae.has(d) && st.mode === 'rekap') return { ...r, ok: false, error: `Daerah ${d} ada di dua file. Pilih satu file per distributor.`, rows: [] };
     }
     s.daerah.forEach(d => dae.add(d));
     rows.push(...r.rows);
@@ -168,6 +210,7 @@ export function gabungLogistik(list: LogistikParseResult[]): LogistikParseResult
     st.issues.push(...s.issues.slice(0, Math.max(0, 20 - st.issues.length)));
     st.foad += s.foad; st.ton += s.ton; st.biaya += s.biaya; st.foadBiaya += s.foadBiaya;
     st.telat.ton += s.telat.ton; st.telat.tonEst += s.telat.tonEst;
+    st.belumKirim += s.belumKirim; st.isi.foad += s.isi.foad; st.isi.kurang50 += s.isi.kurang50;
     if (s.dari && (!st.dari || s.dari < st.dari)) st.dari = s.dari;
     if (s.sampai && (!st.sampai || s.sampai > st.sampai)) st.sampai = s.sampai;
     for (const j of s.jalur) { const x = jm.get(j.jalur) || { jalur: j.jalur, foad: 0, ton: 0, biaya: 0, biayaSemen: 0 }; x.foad += j.foad; x.ton += j.ton; x.biaya += j.biaya; x.biayaSemen += j.biayaSemen; jm.set(j.jalur, x); }

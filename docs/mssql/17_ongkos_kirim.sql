@@ -146,7 +146,7 @@ GO
 
 ALTER TABLE sementrack.kelola_log DROP CONSTRAINT IF EXISTS CK_kelola_log_dataset_check;
 ALTER TABLE sementrack.kelola_log ADD CONSTRAINT CK_kelola_log_dataset_check
-  CHECK (dataset IN (N'transaksi', N'sellin', N'dofas', N'erp', N'j073', N'target', N'outstanding', N'tabel', N'stock', N'ongkos', N'harga'));
+  CHECK (dataset IN (N'transaksi', N'sellin', N'dofas', N'erp', N'j073', N'target', N'outstanding', N'tabel', N'stock', N'ongkos', N'harga', N'logistik', N'promo'));
 GO
 
 /* Baris: [dist_code, periode (YYYY-MM-01), kirim_date, do_no, foad, segmen, transporter, truk, asal, tujuan, zona, harga_ritase,

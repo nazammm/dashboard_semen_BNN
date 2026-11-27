@@ -189,7 +189,24 @@ internal static class KelolaEndpoints
                 var b = await Helpers.ReadBodyAsync(ctx.Request);
                 var rowsEl = b.Get("rows");
                 if (rowsEl is not { ValueKind: JsonValueKind.Array }) return Helpers.Error(400, "baris tidak valid");
-                var rows = await db.QueryAsync("select * from sementrack.logistik_simpan($1::json, $2, $3)",
+                var rows = await db.QueryAsync("select * from sementrack.logistik_simpan($1::json, $2, $3, $4)",
+                    new object?[] { rowsEl.Value.GetRawText(), s.Username, b.GetString("file_name"), b.GetString("mode") == "j082" ? "j082" : "rekap" }, timeoutSeconds: LongQuery);
+                db.ClearCache();
+                return Helpers.Json(rows[0]);
+            });
+        });
+
+        // J078 DO promo detail (efektivitas.sql): per distributor, rentang tanggal DO di file diganti.
+        d.MapPost("/promo", (HttpContext ctx, AuthService auth, Db db, ILogger<Db> log) =>
+        {
+            var limit = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (limit is { IsReadOnly: false }) limit.MaxRequestBodySize = 2 * StageMaxBody;
+            return SellinEndpoints.Run(ctx, auth, log, "promo simpan", async s =>
+            {
+                var b = await Helpers.ReadBodyAsync(ctx.Request);
+                var rowsEl = b.Get("rows");
+                if (rowsEl is not { ValueKind: JsonValueKind.Array }) return Helpers.Error(400, "baris tidak valid");
+                var rows = await db.QueryAsync("select * from sementrack.promo_simpan($1::json, $2, $3)",
                     new object?[] { rowsEl.Value.GetRawText(), s.Username, b.GetString("file_name") }, timeoutSeconds: LongQuery);
                 db.ClearCache();
                 return Helpers.Json(rows[0]);

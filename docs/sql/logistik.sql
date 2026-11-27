@@ -14,19 +14,22 @@ create table if not exists sementrack.logistik_kirim (
   qty numeric not null, ton numeric not null, transporter text, zona_kode text, zona text, plat text,
   gudang_asal text, gudang_tujuan text, harga_perzak numeric, jml_harga numeric, terima_toko date, terima_planner date, dalam_luar text
 );
+alter table sementrack.logistik_kirim add column if not exists tipe_truk text, add column if not exists truk_max_ton numeric,
+  add column if not exists berat_ton numeric, add column if not exists pa text, add column if not exists ritase_cost numeric, add column if not exists payment_date date;
 create index if not exists logistik_kirim_foad_idx on sementrack.logistik_kirim (dist_code, foad);
 create index if not exists logistik_kirim_tgl_idx on sementrack.logistik_kirim (dist_code, tgl);
 create index if not exists ongkos_kirim_foad_idx on sementrack.ongkos_kirim (dist_code, foad);
 
 alter table sementrack.kelola_log drop constraint if exists kelola_log_dataset_check;
 alter table sementrack.kelola_log add constraint kelola_log_dataset_check
-  check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073', 'target', 'outstanding', 'tabel', 'stock', 'ongkos', 'harga', 'logistik'));
+  check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073', 'target', 'outstanding', 'tabel', 'stock', 'ongkos', 'harga', 'logistik', 'promo'));
 
 -- Baris: [daerah, foad, som_type, tgl, do_no, do_date, est_kirim, sj_no, kirim_date, salesman, status_sj, cust_code, cust_name,
 --         product_code, product_name, qty, transporter, zona_kode, zona, plat, gudang_asal, gudang_tujuan, harga_perzak, jml_harga,
 --         terima_toko, terima_planner, dalam_luar]
 drop function if exists sementrack.logistik_simpan(json, text, text);
-create function sementrack.logistik_simpan(p_rows json, p_user text, p_file text default null)
+drop function if exists sementrack.logistik_simpan(json, text, text, text);
+create function sementrack.logistik_simpan(p_rows json, p_user text, p_file text default null, p_mode text default 'rekap')
 returns table(rows_saved integer, rows_deleted integer, ton numeric, biaya numeric, date_from date, date_to date, dist_codes text[],
               foad integer, foad_tanpa_ordb integer, foad_isi_biaya integer)
 language plpgsql security definer
@@ -46,7 +49,9 @@ begin
          nullif(r.v ->> 15, '')::numeric as qty, nullif(btrim(r.v ->> 16), '') as transporter, nullif(upper(btrim(r.v ->> 17)), '') as zona_kode,
          nullif(upper(btrim(r.v ->> 18)), '') as zona, nullif(upper(btrim(r.v ->> 19)), '') as plat, nullif(upper(btrim(r.v ->> 20)), '') as gudang_asal,
          nullif(upper(btrim(r.v ->> 21)), '') as gudang_tujuan, nullif(r.v ->> 22, '')::numeric as harga_perzak, nullif(r.v ->> 23, '')::numeric as jml_harga,
-         nullif(r.v ->> 24, '')::date as terima_toko, nullif(r.v ->> 25, '')::date as terima_planner, nullif(upper(btrim(r.v ->> 26)), '') as dalam_luar
+         nullif(r.v ->> 24, '')::date as terima_toko, nullif(r.v ->> 25, '')::date as terima_planner, nullif(upper(btrim(r.v ->> 26)), '') as dalam_luar,
+         nullif(upper(btrim(r.v ->> 27)), '') as tipe_truk, nullif(r.v ->> 28, '')::numeric as truk_max_ton, nullif(r.v ->> 29, '')::numeric as berat_ton,
+         nullif(upper(btrim(r.v ->> 30)), '') as pa, nullif(r.v ->> 31, '')::numeric as ritase_cost, nullif(r.v ->> 32, '')::date as payment_date
   from json_array_elements(p_rows) with ordinality as r(v, ord);
   select min(baris) into v_b from _r where coalesce(daerah, '') = '' or coalesce(foad, '') = '' or tgl is null or qty is null;
   if v_b is not null then
@@ -72,19 +77,43 @@ begin
                 or exists (select 1 from sementrack.ongkos_kirim o where o.product_code = r.product_code and o.kategori in ('SEMEN', 'WHITE CEMENT'))
               then coalesce(sementrack.j073_ton(r.product_code, r.product_name, r.qty), 0) else 0 end as ton
   from _r r join _d d on d.daerah = r.daerah;
+  create temp table _lk on commit drop as
+  select dist_code, foad, coalesce(do_no, '') as do_no, coalesce(product_code, '') as product_code, sum(qty) as qty from _l group by 1, 2, 3, 4;
+  -- data lama FOAD di file: isian yang kosong di file baru diambil dari sini
+  create temp table _lama on commit drop as
+  select k.dist_code, k.foad, coalesce(k.do_no, '') as do_no, coalesce(k.product_code, '') as product_code,
+         max(k.harga_perzak) as harga_perzak, sum(k.jml_harga) as jml_harga, max(k.tipe_truk) as tipe_truk, max(k.truk_max_ton) as truk_max_ton,
+         sum(k.berat_ton) as berat_ton, max(k.pa) as pa, max(k.ritase_cost) as ritase_cost, max(k.payment_date) as payment_date,
+         max(k.est_kirim) as est_kirim, max(k.terima_toko) as terima_toko, max(k.terima_planner) as terima_planner, max(k.dalam_luar) as dalam_luar
+  from sementrack.logistik_kirim k
+  where exists (select 1 from _lk x where x.dist_code = k.dist_code and x.foad = k.foad)
+  group by 1, 2, 3, 4;
 
-  with x as (delete from sementrack.logistik_kirim k using (select dist_code, min(tgl) a, max(tgl) b from _l group by dist_code) r
-             where k.dist_code = r.dist_code and k.tgl between r.a and r.b returning 1)
-  select count(*) into v_old from x;
-  with x as (delete from sementrack.logistik_kirim k where exists (select 1 from _l l where l.dist_code = k.dist_code and l.foad = k.foad) returning 1)
+  v_old := 0;
+  if p_mode <> 'j082' then
+    with x as (delete from sementrack.logistik_kirim k using (select dist_code, min(tgl) a, max(tgl) b from _l group by dist_code) r
+               where k.dist_code = r.dist_code and k.tgl between r.a and r.b returning 1)
+    select count(*) into v_old from x;
+  end if;
+  -- (J082 per bulan Order Date: satu FOAD bisa memuat DO dari dua bulan, jadi yang diganti hanya FOAD + DO yang ada di file)
+  with x as (delete from sementrack.logistik_kirim k
+             where exists (select 1 from _lk x where x.dist_code = k.dist_code and x.foad = k.foad and (p_mode <> 'j082' or x.do_no = coalesce(k.do_no, '')))
+             returning 1)
   select count(*) into v_old2 from x;
   insert into sementrack.logistik_kirim (dist_code, daerah, foad, periode, tgl, som_type, jalur, do_no, do_date, est_kirim, sj_no, kirim_date, salesman, status_sj,
                                          cust_code, cust_name, product_code, product_name, qty, ton, transporter, zona_kode, zona, plat, gudang_asal, gudang_tujuan,
-                                         harga_perzak, jml_harga, terima_toko, terima_planner, dalam_luar)
-  select l.dist_code, l.daerah, l.foad, date_trunc('month', f.a)::date, l.tgl, l.som_type, l.jalur, l.do_no, l.do_date, l.est_kirim, l.sj_no, l.kirim_date,
+                                         harga_perzak, jml_harga, terima_toko, terima_planner, dalam_luar,
+                                         tipe_truk, truk_max_ton, berat_ton, pa, ritase_cost, payment_date)
+  select l.dist_code, l.daerah, l.foad, date_trunc('month', f.a)::date, l.tgl, l.som_type, l.jalur, l.do_no, l.do_date,
+         coalesce(l.est_kirim, o.est_kirim), l.sj_no, l.kirim_date,
          l.salesman, l.status_sj, l.cust_code, l.cust_name, l.product_code, l.product_name, l.qty, l.ton, l.transporter, l.zona_kode, l.zona, l.plat,
-         l.gudang_asal, l.gudang_tujuan, l.harga_perzak, l.jml_harga, l.terima_toko, l.terima_planner, l.dalam_luar
-  from _l l join (select dist_code, foad, min(tgl) a from _l group by dist_code, foad) f on f.dist_code = l.dist_code and f.foad = l.foad;
+         l.gudang_asal, l.gudang_tujuan, coalesce(l.harga_perzak, o.harga_perzak), coalesce(l.jml_harga, o.jml_harga * l.qty / nullif(x.qty, 0)),
+         coalesce(l.terima_toko, o.terima_toko), coalesce(l.terima_planner, o.terima_planner), coalesce(l.dalam_luar, o.dalam_luar),
+         coalesce(l.tipe_truk, o.tipe_truk), coalesce(l.truk_max_ton, o.truk_max_ton), coalesce(l.berat_ton, o.berat_ton * l.qty / nullif(x.qty, 0)),
+         coalesce(l.pa, o.pa), coalesce(l.ritase_cost, o.ritase_cost), coalesce(l.payment_date, o.payment_date)
+  from _l l join (select dist_code, foad, min(tgl) a from _l group by dist_code, foad) f on f.dist_code = l.dist_code and f.foad = l.foad
+  join _lk x on x.dist_code = l.dist_code and x.foad = l.foad and x.do_no = coalesce(l.do_no, '') and x.product_code = coalesce(l.product_code, '')
+  left join _lama o on o.dist_code = l.dist_code and o.foad = l.foad and o.do_no = coalesce(l.do_no, '') and o.product_code = coalesce(l.product_code, '');
   get diagnostics v_new = row_count;
 
   insert into sementrack.kelola_log (dataset, aksi, created_by, source, file_name, date_from, date_to, dist_codes, rows_read, rows_saved, rows_deleted, status, finished_at)
@@ -101,6 +130,9 @@ begin
   from _l l;
 end $$;
 
+-- view efektivitas.sql bergantung pada view di bawah: ikut dihapus, jalankan efektivitas.sql lagi sesudah file ini
+drop view if exists sementrack.v_ongkos_zona;
+drop view if exists sementrack.v_isi_truk;
 drop view if exists sementrack.v_ongkos_info;
 drop view if exists sementrack.v_ongkos_do;
 drop view if exists sementrack.v_ongkos_trip;
@@ -119,7 +151,9 @@ select l.dist_code, l.foad, min(l.periode) as periode, min(l.tgl) as tgl, max(l.
          / nullif(sum(l.ton) filter (where l.ton > 0 and l.do_date is not null and l.kirim_date is not null), 0) as hari_kirim,
        sum(l.ton) filter (where l.ton > 0 and l.est_kirim is not null and l.kirim_date is not null) as ton_est,
        coalesce(sum(l.ton) filter (where l.ton > 0 and l.est_kirim is not null and l.kirim_date > l.est_kirim), 0) as ton_telat,
-       max(l.terima_planner) - min(l.kirim_date) as hari_sj
+       max(l.terima_planner) - min(l.kirim_date) as hari_sj,
+       max(l.tipe_truk) as tipe_truk, max(l.truk_max_ton) as truk_max_ton, sum(l.berat_ton) as berat_ton,
+       sum(l.berat_ton) / nullif(max(l.truk_max_ton), 0) as isi_truk, max(l.ritase_cost) as ritase_cost, max(l.payment_date) as payment_date
 from sementrack.logistik_kirim l
 group by l.dist_code, l.foad;
 
@@ -148,7 +182,8 @@ select t.dist_code, t.periode, t.foad, t.kirim_date, t.transporter, t.truk, t.as
        coalesce(ot.status,
          case when t.transporter ilike '%LINTAS ABADI MAKMUR%' then 'armada_sendiri'
               when t.transporter ~* 'EKS\.?\s*TOKO' then 'truk_toko' else 'normal' end) as status_transporter,
-       lf.jalur, lf.dalam_luar, lf.gudang_asal as gudang_asal_rekap, lf.ton_waktu, lf.hari_kirim, lf.ton_est, lf.ton_telat, lf.hari_sj
+       lf.jalur, lf.dalam_luar, lf.gudang_asal as gudang_asal_rekap, lf.ton_waktu, lf.hari_kirim, lf.ton_est, lf.ton_telat, lf.hari_sj,
+       lf.tipe_truk, lf.truk_max_ton, lf.berat_ton, lf.isi_truk
 from (
   select k.dist_code, k.periode, k.foad, min(k.kirim_date) as kirim_date,
          max(k.transporter) as transporter, max(k.truk) as truk, max(k.asal) as asal, max(k.zona) as zona, max(k.tujuan) as tujuan,
@@ -179,6 +214,7 @@ select k.dist_code, k.periode, k.do_no, k.biaya, k.biaya_logistik, k.ton_kirim, 
        case when j.ton_do > 0 and j.delivery_type is not null then j.handling * k.ton_kirim / j.ton_do end as handling,
        case when j.ton_do > 0 and j.delivery_type is not null then j.tagih_harga * k.ton_kirim / j.ton_do end as tagih_dari_harga,
        case when j.ton_do > 0 and j.delivery_type is not null and j.baris_tanpa_tarif = 0 then j.tagih_tarif * k.ton_kirim / j.ton_do end as tagih_dari_tarif,
+       case when j.ton_do > 0 and j.delivery_type is not null and j.baris_tanpa_tarif = 0 then j.subsidi_tarif * k.ton_kirim / j.ton_do end as subsidi,
        case when j.ton_loco > 0 then j.nilai_loco / j.ton_loco end as loco_per_ton,
        case when j.ton_harga > 0 then j.nilai_harga / j.ton_harga end as harga_per_ton
 from (
@@ -204,6 +240,7 @@ left join lateral (
          sum(greatest(s.harga_produk - hl.loco, 0) * s.order_qty) filter (where s.harga_produk is not null and hl.loco is not null) as tagih_harga,
          sum(coalesce(s.handling, 0) * s.order_qty) as handling,
          sum(tk.ongkir * s.order_qty) as tagih_tarif,
+         sum(tk.subsidi * s.order_qty) as subsidi_tarif,
          count(*) filter (where tk.ongkir is null) as baris_tanpa_tarif,
          coalesce(bool_or(tm.delivery_type like 'LOCO%'), false) as tipe_loco,
          sum(hl.loco * s.order_qty) filter (where hl.loco is not null) as nilai_loco,
@@ -223,7 +260,7 @@ left join lateral (
                      order by (h.warehouse = coalesce(s.warehouse, '')) desc, h.berlaku_dari desc limit 1) hl on true
   left join lateral (select m.delivery_type from sementrack.harga_tipe_map m
                      where m.kode = upper(split_part(btrim(s.delivery_type), ' ', 1)) limit 1) tm on true
-  left join lateral (select hk.ongkir from sementrack.harga_kirim hk
+  left join lateral (select hk.ongkir, coalesce(hk.subsidi, 0) + coalesce(hk.subsidi2, 0) as subsidi from sementrack.harga_kirim hk
                      where tm.delivery_type not like 'LOCO%' and hk.dist_code = s.dist_code and hk.product_code = s.product_code
                        and hk.delivery_type = tm.delivery_type and hk.zone = upper(btrim(coalesce(s.zona_kirim, '')))
                        and s.do_date >= hk.berlaku_dari and (hk.berlaku_sampai is null or s.do_date <= hk.berlaku_sampai)

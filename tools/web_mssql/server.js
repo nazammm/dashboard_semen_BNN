@@ -21,7 +21,7 @@ const bcrypt = require('bcryptjs');
 const DIST_DIR = path.join(__dirname, 'dist');
 
 // ---- Aturan akses (port dari AccessRules.cs) ----
-const DashboardPages = ['overview', 'tanya-data', 'beranda', 'sell-in-bnn', 'outstanding-do', 'sell-out-bnn', 'os-do-toko', 'stock', 'ongkos-kirim', 'harga-produk', 'rekap-harian', 'tim-sales', 'peta-toko', 'daftar-toko', 'transaksi-detail', 'toko-detail'];
+const DashboardPages = ['overview', 'tanya-data', 'beranda', 'sell-in-bnn', 'outstanding-do', 'sell-out-bnn', 'os-do-toko', 'stock', 'ongkos-kirim', 'harga-produk', 'efektivitas', 'rekap-harian', 'tim-sales', 'peta-toko', 'daftar-toko', 'transaksi-detail', 'toko-detail'];
 const AdminOnlyPages = ['interaksi-web', 'kelola-akses', 'kelola-data'];
 const KnownPageIds = new Set([...DashboardPages, ...AdminOnlyPages]);
 const DistScopedRoles = ['spv', 'sales'];
@@ -39,9 +39,9 @@ const defaultPermFor = (role, p) => {
   return x ? { can_view_detail: x[0], can_download: x[1] } : { can_view_detail: true, can_download: true };
 };
 // v_cement_targets_ext dan v_delivery_ext tidak dipindah ke SQL Server (tidak dipakai halaman mana pun)
-const AllowedTables = new Set(['v_transaksi_monthly', 'v_distributor_summary', 'v_salesman_performance', 'v_toko_agg', 'v_yearly_totals', 'v_monthly_totals', 'v_dist_monthly_totals', 'produk', 'v_target_dist', 'v_transaksi_detail', 'v_toko_pegangan_sales', 'status_sync', 'toko', 'distributor_target_salesman', 'v_sellin_bnn_daily', 'v_sellin_bnn_info', 'v_data_status', 'v_sellout_bnn_monthly', 'v_sellout_bnn_peta', 'v_sellout_bnn_ta', 'v_target_sell_in', 'v_target_sell_out', 'v_outstanding_do', 'v_outstanding_do_ringkas', 'v_outstanding_do_info', 'v_sellin_po_bulanan', 'v_stock_semen', 'v_stock_harian', 'v_stock_info', 'stock_daerah', 'v_toko_aktif_bulanan', 'v_penjualan_toko_bulanan', 'v_penjualan_toko_dist_bulanan', 'v_toko_baru', 'v_salesman_baru', 'v_ongkos_info', 'v_ongkos_trip', 'v_ongkos_do', 'v_outstanding_do_harga', 'v_harga_loco_info', 'v_os_do_toko', 'v_harga_produk']);
+const AllowedTables = new Set(['v_transaksi_monthly', 'v_distributor_summary', 'v_salesman_performance', 'v_toko_agg', 'v_yearly_totals', 'v_monthly_totals', 'v_dist_monthly_totals', 'produk', 'v_target_dist', 'v_transaksi_detail', 'v_toko_pegangan_sales', 'status_sync', 'toko', 'distributor_target_salesman', 'v_sellin_bnn_daily', 'v_sellin_bnn_info', 'v_data_status', 'v_sellout_bnn_monthly', 'v_sellout_bnn_peta', 'v_sellout_bnn_ta', 'v_target_sell_in', 'v_target_sell_out', 'v_outstanding_do', 'v_outstanding_do_ringkas', 'v_outstanding_do_info', 'v_sellin_po_bulanan', 'v_stock_semen', 'v_stock_harian', 'v_stock_info', 'stock_daerah', 'v_toko_aktif_bulanan', 'v_penjualan_toko_bulanan', 'v_penjualan_toko_dist_bulanan', 'v_toko_baru', 'v_salesman_baru', 'v_ongkos_info', 'v_ongkos_trip', 'v_ongkos_do', 'v_outstanding_do_harga', 'v_harga_loco_info', 'v_os_do_toko', 'v_harga_produk', 'v_promo_bulanan', 'v_promo_efek', 'v_ongkos_zona', 'v_isi_truk']);
 const TablesWithDistCode = new Set(['v_salesman_performance', 'v_toko_agg', 'toko', 'v_transaksi_detail', 'v_toko_pegangan_sales', 'v_dist_monthly_totals', 'v_transaksi_monthly', 'distributor_target_salesman']);
-const ReadAlias = { toko: 'sementrack.v_toko_multi', v_toko_agg: 'sementrack.v_toko_agg', distributor_target_salesman: 'sementrack.distributor_target_salesman', v_sellin_bnn_daily: 'sementrack.v_sellin_bnn_daily', v_sellin_bnn_info: 'sementrack.v_sellin_bnn_info', v_data_status: 'sementrack.v_data_status', v_sellout_bnn_monthly: 'sementrack.v_sellout_bnn_monthly', v_sellout_bnn_peta: 'sementrack.v_sellout_bnn_peta', v_sellout_bnn_ta: 'sementrack.v_sellout_bnn_ta', v_salesman_performance: 'sementrack.v_salesman_performance', v_toko_pegangan_sales: 'sementrack.v_toko_pegangan_sales', v_transaksi_detail: 'sementrack.v_transaksi_detail', v_target_dist: 'sementrack.v_target_dist', v_target_sell_in: 'sementrack.v_target_sell_in', v_target_sell_out: 'sementrack.v_target_sell_out', v_outstanding_do: 'sementrack.v_outstanding_do', v_outstanding_do_ringkas: 'sementrack.v_outstanding_do_ringkas', v_outstanding_do_info: 'sementrack.v_outstanding_do_info', v_sellin_po_bulanan: 'sementrack.v_sellin_po_bulanan', v_stock_semen: 'sementrack.v_stock_semen', v_stock_harian: 'sementrack.v_stock_harian', v_stock_info: 'sementrack.v_stock_info', stock_daerah: 'sementrack.stock_daerah', v_toko_aktif_bulanan: 'sementrack.v_toko_aktif_bulanan', v_penjualan_toko_bulanan: 'sementrack.v_penjualan_toko_bulanan', v_penjualan_toko_dist_bulanan: 'sementrack.v_penjualan_toko_dist_bulanan', v_toko_baru: 'sementrack.v_toko_baru', v_salesman_baru: 'sementrack.v_salesman_baru', v_ongkos_info: 'sementrack.v_ongkos_info', v_ongkos_trip: 'sementrack.v_ongkos_trip', v_ongkos_do: 'sementrack.v_ongkos_do', v_outstanding_do_harga: 'sementrack.v_outstanding_do_harga', v_harga_loco_info: 'sementrack.v_harga_loco_info', v_os_do_toko: 'sementrack.v_os_do_toko', v_harga_produk: 'sementrack.v_harga_produk' };
+const ReadAlias = { toko: 'sementrack.v_toko_multi', v_toko_agg: 'sementrack.v_toko_agg', distributor_target_salesman: 'sementrack.distributor_target_salesman', v_sellin_bnn_daily: 'sementrack.v_sellin_bnn_daily', v_sellin_bnn_info: 'sementrack.v_sellin_bnn_info', v_data_status: 'sementrack.v_data_status', v_sellout_bnn_monthly: 'sementrack.v_sellout_bnn_monthly', v_sellout_bnn_peta: 'sementrack.v_sellout_bnn_peta', v_sellout_bnn_ta: 'sementrack.v_sellout_bnn_ta', v_salesman_performance: 'sementrack.v_salesman_performance', v_toko_pegangan_sales: 'sementrack.v_toko_pegangan_sales', v_transaksi_detail: 'sementrack.v_transaksi_detail', v_target_dist: 'sementrack.v_target_dist', v_target_sell_in: 'sementrack.v_target_sell_in', v_target_sell_out: 'sementrack.v_target_sell_out', v_outstanding_do: 'sementrack.v_outstanding_do', v_outstanding_do_ringkas: 'sementrack.v_outstanding_do_ringkas', v_outstanding_do_info: 'sementrack.v_outstanding_do_info', v_sellin_po_bulanan: 'sementrack.v_sellin_po_bulanan', v_stock_semen: 'sementrack.v_stock_semen', v_stock_harian: 'sementrack.v_stock_harian', v_stock_info: 'sementrack.v_stock_info', stock_daerah: 'sementrack.stock_daerah', v_toko_aktif_bulanan: 'sementrack.v_toko_aktif_bulanan', v_penjualan_toko_bulanan: 'sementrack.v_penjualan_toko_bulanan', v_penjualan_toko_dist_bulanan: 'sementrack.v_penjualan_toko_dist_bulanan', v_toko_baru: 'sementrack.v_toko_baru', v_salesman_baru: 'sementrack.v_salesman_baru', v_ongkos_info: 'sementrack.v_ongkos_info', v_ongkos_trip: 'sementrack.v_ongkos_trip', v_ongkos_do: 'sementrack.v_ongkos_do', v_outstanding_do_harga: 'sementrack.v_outstanding_do_harga', v_harga_loco_info: 'sementrack.v_harga_loco_info', v_os_do_toko: 'sementrack.v_os_do_toko', v_harga_produk: 'sementrack.v_harga_produk', v_promo_bulanan: 'sementrack.v_promo_bulanan', v_promo_efek: 'sementrack.v_promo_efek', v_ongkos_zona: 'sementrack.v_ongkos_zona', v_isi_truk: 'sementrack.v_isi_truk' };
 const RANGE_FNS = ['dashboard_period_summary_range', 'dashboard_top_customers_range', 'dashboard_channel_breakdown_range', 'dashboard_payment_breakdown_range', 'dashboard_delivery_type_breakdown_range', 'dashboard_product_breakdown_range', 'dashboard_toko_channel_range'];
 const RpcSchema = { dashboard_toko_monthly_v2: 'sementrack', dashboard_top_customers_v2: 'sementrack', dashboard_store_year: 'sementrack' };
 RANGE_FNS.forEach((f) => { RpcSchema[f] = 'sementrack'; });
@@ -89,6 +89,7 @@ const PageDependencies = {
   // OS DO toko: J073 Qty Remains + harga sekarang (21_os_do_toko.sql)
   'os-do-toko': [['v_os_do_toko'], []],
   'harga-produk': [['v_harga_produk'], []],
+  'efektivitas': [['v_promo_bulanan', 'v_promo_efek', 'v_ongkos_zona', 'v_isi_truk', 'v_ongkos_info'], []],
   'peta-toko': [['v_monthly_totals'], ['dashboard_toko_monthly_v2']],
   'daftar-toko': [['v_monthly_totals', 'toko'], ['dashboard_toko_monthly_v2']],
   'transaksi-detail': [['produk', 'v_salesman_performance', 'v_toko_pegangan_sales', 'v_transaksi_detail'], []],
@@ -572,7 +573,7 @@ async function handleKelola(req, res, url, p, m) {
     }
     if (m === 'GET' && p === '/admin/data/distributor') return send(res, 200, await q('SELECT dist_code, dist_name, kode_erp FROM dbo.distributor ORDER BY dist_code'));
     if (m !== 'POST') return err(res, 404, 'not found');
-    const b = await readBody(req, p === '/admin/transaksi/stage' || p === '/admin/data/sellout' || p === '/admin/data/target' || p === '/admin/data/stock' || p === '/admin/data/ongkos' || p === '/admin/data/harga' ? 12 * 1024 * 1024 : p === '/admin/data/logistik' ? 24 * 1024 * 1024 : 256 * 1024);
+    const b = await readBody(req, p === '/admin/transaksi/stage' || p === '/admin/data/sellout' || p === '/admin/data/target' || p === '/admin/data/stock' || p === '/admin/data/ongkos' || p === '/admin/data/harga' ? 12 * 1024 * 1024 : p === '/admin/data/logistik' || p === '/admin/data/promo' ? 24 * 1024 * 1024 : 256 * 1024);
     if (b.__tooBig) return err(res, 413, 'paket terlalu besar');
     const dists = strArr(b.dist_codes);
     switch (p) {
@@ -622,10 +623,16 @@ async function handleKelola(req, res, url, p, m) {
         const r = await one('EXEC sementrack.ongkos_simpan @p1, @p2, @p3', [json(b.rows), s.username, scalar(b.file_name) || null]);
         cache.clear(); return send(res, 200, r);
       }
+      case '/admin/data/promo': {
+        // 25_efektivitas.sql: J078 DO promo detail; per distributor, rentang tanggal DO di file diganti
+        if (!Array.isArray(b.rows)) return err(res, 400, 'baris tidak valid');
+        const r = await one('EXEC sementrack.promo_simpan @p1, @p2, @p3', [json(b.rows), s.username, scalar(b.file_name) || null]);
+        cache.clear(); return send(res, 200, r);
+      }
       case '/admin/data/logistik': {
         // 22_logistik.sql: rekap logistik distributor; per distributor, rentang tanggal di file diganti
         if (!Array.isArray(b.rows)) return err(res, 400, 'baris tidak valid');
-        const r = await one('EXEC sementrack.logistik_simpan @p1, @p2, @p3', [json(b.rows), s.username, scalar(b.file_name) || null]);
+        const r = await one('EXEC sementrack.logistik_simpan @p1, @p2, @p3, @p4', [json(b.rows), s.username, scalar(b.file_name) || null, b.mode === 'j082' ? 'j082' : 'rekap']);
         cache.clear(); return send(res, 200, r);
       }
       case '/admin/data/harga': {

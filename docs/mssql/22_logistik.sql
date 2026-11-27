@@ -54,6 +54,11 @@ CREATE TABLE sementrack.logistik_kirim (
   dalam_luar nvarchar(50) NULL
 );
 GO
+-- kolom J082 (Schedule Delivery Order, ditarik Nazam Auto Task): tipe & kapasitas truk, berat muatan, ritase
+IF COL_LENGTH(N'sementrack.logistik_kirim', N'tipe_truk') IS NULL
+  ALTER TABLE sementrack.logistik_kirim ADD tipe_truk nvarchar(100) NULL, truk_max_ton decimal(10,3) NULL, berat_ton decimal(14,3) NULL,
+                                            pa nvarchar(5) NULL, ritase_cost decimal(20,2) NULL, payment_date date NULL;
+GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'logistik_kirim_foad_idx' AND object_id = OBJECT_ID(N'sementrack.logistik_kirim'))
   CREATE INDEX logistik_kirim_foad_idx ON sementrack.logistik_kirim (dist_code, foad) INCLUDE (ton, jml_harga, jalur, periode);
 GO
@@ -66,14 +71,16 @@ GO
 
 ALTER TABLE sementrack.kelola_log DROP CONSTRAINT IF EXISTS CK_kelola_log_dataset_check;
 ALTER TABLE sementrack.kelola_log ADD CONSTRAINT CK_kelola_log_dataset_check
-  CHECK (dataset IN (N'transaksi', N'sellin', N'dofas', N'erp', N'j073', N'target', N'outstanding', N'tabel', N'stock', N'ongkos', N'harga', N'logistik'));
+  CHECK (dataset IN (N'transaksi', N'sellin', N'dofas', N'erp', N'j073', N'target', N'outstanding', N'tabel', N'stock', N'ongkos', N'harga', N'logistik', N'promo'));
 GO
 
 /* ---------- 2. upload ----------
    Baris: [daerah, foad, som_type, tgl, do_no, do_date, est_kirim, sj_no, kirim_date, salesman, status_sj, cust_code, cust_name,
            product_code, product_name, qty, transporter, zona_kode, zona, plat, gudang_asal, gudang_tujuan, harga_perzak, jml_harga,
-           terima_toko, terima_planner, dalam_luar]   (tanggal YYYY-MM-DD) */
-CREATE OR ALTER PROCEDURE sementrack.logistik_simpan @p_rows nvarchar(max), @p_user nvarchar(200), @p_file nvarchar(4000) = NULL
+           terima_toko, terima_planner, dalam_luar, tipe_truk, truk_max_ton, berat_ton, pa, ritase_cost, payment_date]   (tanggal YYYY-MM-DD)
+   @p_mode: 'rekap' (rekap tim logistik: data di rentang tanggal file diganti) atau 'j082' (job J082: hanya FOAD di file yang diganti).
+   Kolom yang kosong di file baru (mis. Jml Harga di J082, Tipe Truk di rekap) diisi dari data lama FOAD + DO + produk yang sama. */
+CREATE OR ALTER PROCEDURE sementrack.logistik_simpan @p_rows nvarchar(max), @p_user nvarchar(200), @p_file nvarchar(4000) = NULL, @p_mode nvarchar(10) = N'rekap'
 AS
 BEGIN
   SET NOCOUNT ON; SET XACT_ABORT ON;
@@ -95,7 +102,10 @@ BEGIN
          NULLIF(UPPER(TRIM(JSON_VALUE(r.[value], '$[20]'))), N'') AS gudang_asal, NULLIF(UPPER(TRIM(JSON_VALUE(r.[value], '$[21]'))), N'') AS gudang_tujuan,
          sementrack.angka(JSON_VALUE(r.[value], '$[22]')) AS harga_perzak, sementrack.angka(JSON_VALUE(r.[value], '$[23]')) AS jml_harga,
          TRY_CONVERT(date, JSON_VALUE(r.[value], '$[24]'), 23) AS terima_toko, TRY_CONVERT(date, JSON_VALUE(r.[value], '$[25]'), 23) AS terima_planner,
-         NULLIF(UPPER(TRIM(JSON_VALUE(r.[value], '$[26]'))), N'') AS dalam_luar
+         NULLIF(UPPER(TRIM(JSON_VALUE(r.[value], '$[26]'))), N'') AS dalam_luar,
+         NULLIF(UPPER(TRIM(JSON_VALUE(r.[value], '$[27]'))), N'') AS tipe_truk, sementrack.angka(JSON_VALUE(r.[value], '$[28]')) AS truk_max_ton,
+         sementrack.angka(JSON_VALUE(r.[value], '$[29]')) AS berat_ton, NULLIF(UPPER(TRIM(JSON_VALUE(r.[value], '$[30]'))), N'') AS pa,
+         sementrack.angka(JSON_VALUE(r.[value], '$[31]')) AS ritase_cost, TRY_CONVERT(date, JSON_VALUE(r.[value], '$[32]'), 23) AS payment_date
   INTO #r FROM OPENJSON(@p_rows) r;
 
   SELECT @b = MIN(baris) FROM #r WHERE ISNULL(daerah, N'') = N'' OR ISNULL(foad, N'') = N'' OR tgl IS NULL OR qty IS NULL;
@@ -103,7 +113,8 @@ BEGIN
   SELECT @b = MIN(baris) FROM #r
   WHERE LEN(daerah) > 50 OR LEN(foad) > 50 OR LEN(som_type) > 100 OR LEN(do_no) > 50 OR LEN(sj_no) > 50 OR LEN(salesman) > 200 OR LEN(status_sj) > 50
      OR LEN(cust_code) > 50 OR LEN(cust_name) > 200 OR LEN(product_code) > 50 OR LEN(product_name) > 200 OR LEN(transporter) > 200
-     OR LEN(zona_kode) > 50 OR LEN(zona) > 200 OR LEN(plat) > 50 OR LEN(gudang_asal) > 200 OR LEN(gudang_tujuan) > 200 OR LEN(dalam_luar) > 50;
+     OR LEN(zona_kode) > 50 OR LEN(zona) > 200 OR LEN(plat) > 50 OR LEN(gudang_asal) > 200 OR LEN(gudang_tujuan) > 200 OR LEN(dalam_luar) > 50
+     OR LEN(tipe_truk) > 100 OR LEN(pa) > 5;
   IF @b IS NOT NULL BEGIN SET @msg = CONCAT(N'Teks terlalu panjang (baris ', @b, N')'); THROW 52023, @msg, 1; END
   IF EXISTS (SELECT 1 FROM #r WHERE tgl < DATEFROMPARTS(2026, 1, 1))
     THROW 52023, N'Ongkos kirim dilacak mulai Januari 2026, baris rekap sebelum itu tidak disimpan', 1;
@@ -125,24 +136,50 @@ BEGIN
          CASE WHEN dbo.calc_tonase(r.product_code, 1) > 0
                 OR EXISTS (SELECT 1 FROM sementrack.ongkos_kirim o WHERE o.product_code = r.product_code AND o.kategori IN (N'SEMEN', N'WHITE CEMENT'))
               THEN ISNULL(sementrack.j073_ton(r.product_code, r.product_name, r.qty), 0) ELSE 0 END AS ton,
-         r.transporter, r.zona_kode, r.zona, r.plat, r.gudang_asal, r.gudang_tujuan, r.harga_perzak, r.jml_harga, r.terima_toko, r.terima_planner, r.dalam_luar
+         r.transporter, r.zona_kode, r.zona, r.plat, r.gudang_asal, r.gudang_tujuan, r.harga_perzak, r.jml_harga, r.terima_toko, r.terima_planner, r.dalam_luar,
+         r.tipe_truk, r.truk_max_ton, r.berat_ton, r.pa, r.ritase_cost, r.payment_date
   INTO #l FROM #r r JOIN #d d ON d.daerah = r.daerah;
+  -- bagian qty baris di FOAD + DO + produknya (untuk membagi Jml Harga lama kalau barisnya lebih dari satu)
+  SELECT dist_code, foad, ISNULL(do_no, N'') AS do_no, ISNULL(product_code, N'') AS product_code, SUM(qty) AS qty
+  INTO #lk FROM #l GROUP BY dist_code, foad, ISNULL(do_no, N''), ISNULL(product_code, N'');
 
   BEGIN TRAN;
   EXEC sp_getapplock @Resource = N'logistik_kirim', @LockMode = N'Exclusive', @LockOwner = N'Transaction';
-  DELETE k FROM sementrack.logistik_kirim k
-  JOIN (SELECT dist_code, MIN(tgl) AS a, MAX(tgl) AS b FROM #l GROUP BY dist_code) r ON k.dist_code = r.dist_code AND k.tgl BETWEEN r.a AND r.b;
-  SET @old = @@ROWCOUNT;
+  -- data lama FOAD di file: isian yang kosong di file baru diambil dari sini
+  SELECT k.dist_code, k.foad, ISNULL(k.do_no, N'') AS do_no, ISNULL(k.product_code, N'') AS product_code,
+         MAX(k.harga_perzak) AS harga_perzak, SUM(k.jml_harga) AS jml_harga, MAX(k.tipe_truk) AS tipe_truk, MAX(k.truk_max_ton) AS truk_max_ton,
+         SUM(k.berat_ton) AS berat_ton, MAX(k.pa) AS pa, MAX(k.ritase_cost) AS ritase_cost, MAX(k.payment_date) AS payment_date,
+         MAX(k.est_kirim) AS est_kirim, MAX(k.terima_toko) AS terima_toko, MAX(k.terima_planner) AS terima_planner, MAX(k.dalam_luar) AS dalam_luar
+  INTO #lama FROM sementrack.logistik_kirim k
+  WHERE EXISTS (SELECT 1 FROM #lk x WHERE x.dist_code = k.dist_code AND x.foad = k.foad)
+  GROUP BY k.dist_code, k.foad, ISNULL(k.do_no, N''), ISNULL(k.product_code, N'');
+  SET @old = 0;
+  IF @p_mode <> N'j082'
+  BEGIN
+    DELETE k FROM sementrack.logistik_kirim k
+    JOIN (SELECT dist_code, MIN(tgl) AS a, MAX(tgl) AS b FROM #l GROUP BY dist_code) r ON k.dist_code = r.dist_code AND k.tgl BETWEEN r.a AND r.b;
+    SET @old = @@ROWCOUNT;
+  END
   -- FOAD yang sebagian barisnya di luar rentang file: baris lama FOAD itu ikut diganti
-  DELETE k FROM sementrack.logistik_kirim k WHERE EXISTS (SELECT 1 FROM #l l WHERE l.dist_code = k.dist_code AND l.foad = k.foad);
+  -- (J082 per bulan Order Date: satu FOAD bisa memuat DO dari dua bulan, jadi yang diganti hanya FOAD + DO yang ada di file)
+  DELETE k FROM sementrack.logistik_kirim k
+  WHERE EXISTS (SELECT 1 FROM #lk x WHERE x.dist_code = k.dist_code AND x.foad = k.foad AND (@p_mode <> N'j082' OR x.do_no = ISNULL(k.do_no, N'')));
   SET @old += @@ROWCOUNT;
   INSERT INTO sementrack.logistik_kirim (dist_code, daerah, foad, periode, tgl, som_type, jalur, do_no, do_date, est_kirim, sj_no, kirim_date, salesman, status_sj,
                                          cust_code, cust_name, product_code, product_name, qty, ton, transporter, zona_kode, zona, plat, gudang_asal, gudang_tujuan,
-                                         harga_perzak, jml_harga, terima_toko, terima_planner, dalam_luar)
-  SELECT l.dist_code, l.daerah, l.foad, DATEFROMPARTS(YEAR(f.a), MONTH(f.a), 1), l.tgl, l.som_type, l.jalur, l.do_no, l.do_date, l.est_kirim, l.sj_no, l.kirim_date,
+                                         harga_perzak, jml_harga, terima_toko, terima_planner, dalam_luar,
+                                         tipe_truk, truk_max_ton, berat_ton, pa, ritase_cost, payment_date)
+  SELECT l.dist_code, l.daerah, l.foad, DATEFROMPARTS(YEAR(f.a), MONTH(f.a), 1), l.tgl, l.som_type, l.jalur, l.do_no, l.do_date,
+         ISNULL(l.est_kirim, o.est_kirim), l.sj_no, l.kirim_date,
          l.salesman, l.status_sj, l.cust_code, l.cust_name, l.product_code, l.product_name, l.qty, l.ton, l.transporter, l.zona_kode, l.zona, l.plat,
-         l.gudang_asal, l.gudang_tujuan, l.harga_perzak, l.jml_harga, l.terima_toko, l.terima_planner, l.dalam_luar
-  FROM #l l JOIN (SELECT dist_code, foad, MIN(tgl) AS a FROM #l GROUP BY dist_code, foad) f ON f.dist_code = l.dist_code AND f.foad = l.foad;
+         l.gudang_asal, l.gudang_tujuan, ISNULL(l.harga_perzak, o.harga_perzak),
+         ISNULL(l.jml_harga, o.jml_harga * l.qty / NULLIF(x.qty, 0)),
+         ISNULL(l.terima_toko, o.terima_toko), ISNULL(l.terima_planner, o.terima_planner), ISNULL(l.dalam_luar, o.dalam_luar),
+         ISNULL(l.tipe_truk, o.tipe_truk), ISNULL(l.truk_max_ton, o.truk_max_ton), ISNULL(l.berat_ton, o.berat_ton * l.qty / NULLIF(x.qty, 0)),
+         ISNULL(l.pa, o.pa), ISNULL(l.ritase_cost, o.ritase_cost), ISNULL(l.payment_date, o.payment_date)
+  FROM #l l JOIN (SELECT dist_code, foad, MIN(tgl) AS a FROM #l GROUP BY dist_code, foad) f ON f.dist_code = l.dist_code AND f.foad = l.foad
+  JOIN #lk x ON x.dist_code = l.dist_code AND x.foad = l.foad AND x.do_no = ISNULL(l.do_no, N'') AND x.product_code = ISNULL(l.product_code, N'')
+  LEFT JOIN #lama o ON o.dist_code = l.dist_code AND o.foad = l.foad AND o.do_no = ISNULL(l.do_no, N'') AND o.product_code = ISNULL(l.product_code, N'');
   SET @new = @@ROWCOUNT;
 
   SELECT @ton = SUM(ton), @biaya = SUM(ISNULL(jml_harga, 0)), @from = MIN(tgl), @to = MAX(tgl) FROM #l;
@@ -177,7 +214,10 @@ SELECT l.dist_code, l.foad, MIN(l.periode) AS periode, MIN(l.tgl) AS tgl, MAX(l.
          / NULLIF(SUM(CASE WHEN l.ton > 0 AND l.do_date IS NOT NULL AND l.kirim_date IS NOT NULL THEN l.ton END), 0) AS hari_kirim,   -- DO -> kirim
        SUM(CASE WHEN l.ton > 0 AND l.est_kirim IS NOT NULL AND l.kirim_date IS NOT NULL THEN l.ton END) AS ton_est,
        SUM(CASE WHEN l.ton > 0 AND l.est_kirim IS NOT NULL AND l.kirim_date > l.est_kirim THEN l.ton ELSE 0 END) AS ton_telat,      -- kirim lewat Est. Delv. Date
-       DATEDIFF(day, MIN(l.kirim_date), MAX(l.terima_planner)) AS hari_sj                                                         -- SJ kembali ke DO planner
+       DATEDIFF(day, MIN(l.kirim_date), MAX(l.terima_planner)) AS hari_sj,                                                        -- SJ kembali ke DO planner
+       MAX(l.tipe_truk) AS tipe_truk, MAX(l.truk_max_ton) AS truk_max_ton, SUM(l.berat_ton) AS berat_ton,
+       SUM(l.berat_ton) / NULLIF(MAX(l.truk_max_ton), 0) AS isi_truk,                                                             -- berat muatan / kapasitas truk (J082)
+       MAX(l.ritase_cost) AS ritase_cost, MAX(l.payment_date) AS payment_date
 FROM sementrack.logistik_kirim l
 GROUP BY l.dist_code, l.foad;
 GO
@@ -210,7 +250,8 @@ SELECT t.dist_code, t.periode, t.foad, t.kirim_date, t.transporter, t.truk, t.as
        ISNULL(ot.status,
          CASE WHEN t.transporter LIKE N'%LINTAS ABADI MAKMUR%' THEN N'armada_sendiri'
               WHEN t.transporter LIKE N'%EKS%TOKO%' THEN N'truk_toko' ELSE N'normal' END) AS status_transporter,
-       lf.jalur, lf.dalam_luar, lf.gudang_asal AS gudang_asal_rekap, lf.ton_waktu, lf.hari_kirim, lf.ton_est, lf.ton_telat, lf.hari_sj
+       lf.jalur, lf.dalam_luar, lf.gudang_asal AS gudang_asal_rekap, lf.ton_waktu, lf.hari_kirim, lf.ton_est, lf.ton_telat, lf.hari_sj,
+       lf.tipe_truk, lf.truk_max_ton, lf.berat_ton, lf.isi_truk
 FROM (
   SELECT k.dist_code, k.periode, k.foad, MIN(k.kirim_date) AS kirim_date,
          MAX(k.transporter) AS transporter, MAX(k.truk) AS truk, MAX(k.asal) AS asal, MAX(k.zona) AS zona, MAX(k.tujuan) AS tujuan,
@@ -251,6 +292,7 @@ SELECT k.dist_code, k.periode, k.do_no, k.biaya, k.biaya_logistik, k.ton_kirim, 
        CASE WHEN j.ton_do > 0 AND j.delivery_type IS NOT NULL THEN j.handling * k.ton_kirim / j.ton_do END AS handling,
        CASE WHEN j.ton_do > 0 AND j.delivery_type IS NOT NULL THEN j.tagih_harga * k.ton_kirim / j.ton_do END AS tagih_dari_harga,
        CASE WHEN j.ton_do > 0 AND j.delivery_type IS NOT NULL AND j.baris_tanpa_tarif = 0 THEN j.tagih_tarif * k.ton_kirim / j.ton_do END AS tagih_dari_tarif,
+       CASE WHEN j.ton_do > 0 AND j.delivery_type IS NOT NULL AND j.baris_tanpa_tarif = 0 THEN j.subsidi_tarif * k.ton_kirim / j.ton_do END AS subsidi,   -- subsidi ongkir di tarif (Subsidi + Subsidi 2)
        CASE WHEN j.ton_loco > 0 THEN j.nilai_loco / j.ton_loco END AS loco_per_ton,
        CASE WHEN j.ton_harga > 0 THEN j.nilai_harga / j.ton_harga END AS harga_per_ton
 FROM (
@@ -277,6 +319,7 @@ OUTER APPLY (
                   THEN (CASE WHEN s.harga_produk > hl.loco THEN s.harga_produk - hl.loco ELSE 0 END) * s.order_qty END) AS tagih_harga,
          SUM(ISNULL(s.handling, 0) * s.order_qty) AS handling,
          SUM(tk.ongkir * s.order_qty) AS tagih_tarif,
+         SUM(tk.subsidi * s.order_qty) AS subsidi_tarif,
          SUM(CASE WHEN tk.ongkir IS NULL THEN 1 ELSE 0 END) AS baris_tanpa_tarif,
          MAX(CASE WHEN tm.delivery_type LIKE N'LOCO%' THEN 1 ELSE 0 END) AS tipe_loco,
          SUM(CASE WHEN hl.loco IS NOT NULL THEN hl.loco * s.order_qty END) AS nilai_loco,
@@ -301,7 +344,7 @@ OUTER APPLY (
   -- tarif resmi: kode tipe J073 (kata pertama Delivery Type) -> tipe di tabel harga, zona J073 = Zone harga, gudang seperti harga Loco
   OUTER APPLY (SELECT TOP (1) m.delivery_type FROM sementrack.harga_tipe_map m
                WHERE m.kode = UPPER(LEFT(LTRIM(s.delivery_type), CHARINDEX(N' ', LTRIM(s.delivery_type) + N' ') - 1))) tm
-  OUTER APPLY (SELECT TOP (1) hk.ongkir FROM sementrack.harga_kirim hk
+  OUTER APPLY (SELECT TOP (1) hk.ongkir, ISNULL(hk.subsidi, 0) + ISNULL(hk.subsidi2, 0) AS subsidi FROM sementrack.harga_kirim hk
                WHERE tm.delivery_type NOT LIKE N'LOCO%' AND hk.dist_code = s.dist_code AND hk.product_code = s.product_code
                  AND hk.delivery_type = tm.delivery_type AND hk.zone = UPPER(TRIM(ISNULL(s.zona_kirim, N'')))
                  AND s.do_date >= hk.berlaku_dari AND (hk.berlaku_sampai IS NULL OR s.do_date <= hk.berlaku_sampai)

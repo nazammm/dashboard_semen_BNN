@@ -13,9 +13,10 @@ import { parseStockSheets, parseStockText, type StockParseResult, type StockShee
 import { gabungOrdb, parseOrdbSheet, type OrdbParseResult } from './ordbImport';
 import { gabungHarga, parseHargaText, type HargaParseResult } from './hargaImport';
 import { gabungLogistik, parseLogistikSheet, type LogistikParseResult } from './logistikImport';
+import { gabungPromo, parsePromoSheet, type PromoParseResult } from './promoImport';
 
-export type Dataset = 'sellin' | 'transaksi' | 'j073' | 'target' | 'outstanding' | 'stock' | 'ongkos' | 'harga' | 'logistik';
-export type ImportResult = SellinParseResult | TrxParseResult | J073ParseResult | TargetParseResult | PoParseResult | StockParseResult | OrdbParseResult | HargaParseResult | LogistikParseResult;
+export type Dataset = 'sellin' | 'transaksi' | 'j073' | 'target' | 'outstanding' | 'stock' | 'ongkos' | 'harga' | 'logistik' | 'promo';
+export type ImportResult = SellinParseResult | TrxParseResult | J073ParseResult | TargetParseResult | PoParseResult | StockParseResult | OrdbParseResult | HargaParseResult | LogistikParseResult | PromoParseResult;
 /** kind 'files' = beberapa file sekaligus (hanya transaksi: file mentah J028 + J028B). distributor = master untuk mencocokkan kode ERP. */
 export type ImportWorkerIn = { dataset: Dataset; dateOrder?: DateOrder | null; distributor?: DistMaster[] }
   & ({ kind: 'file'; file: File } | { kind: 'files'; files: File[] } | { kind: 'text'; text: string });
@@ -61,12 +62,15 @@ async function bacaOrdb(file: File): Promise<OrdbParseResult> {
   const aoa = ws ? XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: null, blankrows: true }) : [];
   return parseOrdbSheet(aoa, file.name);
 }
-/** Rekap logistik distributor (.xlsx): sheet pertama. */
+/** File teks ERP (.TXT) dipisah | → array of arrays. */
+const pipaKeAoa = (t: string) => t.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim()).map(l => l.split('|'));
+/** Rekap logistik distributor (.xlsx, sheet pertama) atau job J082 (.TXT). */
 async function bacaLogistik(file: File): Promise<LogistikParseResult> {
+  if (/\.txt$/i.test(file.name)) return parseLogistikSheet(pipaKeAoa(await file.text()), file.name);
   const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const aoa = ws ? XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: null, blankrows: false }) : [];
-  return parseLogistikSheet(aoa);
+  return parseLogistikSheet(aoa, file.name);
 }
 const tsvKeAoa = (t: string) => t.split(/\r?\n/).map(l => l.split('\t'));
 
@@ -92,13 +96,26 @@ self.onmessage = async (e: MessageEvent<ImportWorkerIn>) => {
       const fs = msg.kind === 'files' ? msg.files : [msg.file];
       const out: LogistikParseResult[] = [];
       for (let i = 0; i < fs.length; i++) {
-        if (!/\.(xls|xlsx)$/i.test(fs[i].name)) throw new Error(`${fs[i].name}: pilih file rekap logistik (.xlsx).`);
+        if (!/\.(xls|xlsx|txt)$/i.test(fs[i].name)) throw new Error(`${fs[i].name}: pilih file rekap logistik (.xlsx) atau J082 (.TXT).`);
         const r = await bacaLogistik(fs[i]);
         if (!r.ok) throw new Error(`${fs[i].name}: ${r.error}${r.missing?.length ? ' (' + r.missing.join(', ') + ')' : ''}`);
         out.push(r);
         post({ type: 'progress', p: (i + 1) / fs.length });
       }
       post({ type: 'done', res: gabungLogistik(out) });
+      return;
+    }
+    if (msg.dataset === 'promo') {
+      if (msg.kind === 'text') { post({ type: 'done', res: parsePromoSheet(pipaKeAoa(msg.text)) }); return; }
+      const fs = msg.kind === 'files' ? msg.files : [msg.file];
+      const out: PromoParseResult[] = [];
+      for (let i = 0; i < fs.length; i++) {
+        const r = parsePromoSheet(pipaKeAoa(await fs[i].text()));
+        if (!r.ok) throw new Error(`${fs[i].name}: ${r.error}${r.missing?.length ? ' (' + r.missing.join(', ') + ')' : ''}`);
+        out.push(r);
+        post({ type: 'progress', p: (i + 1) / fs.length });
+      }
+      post({ type: 'done', res: gabungPromo(out) });
       return;
     }
     if (msg.dataset === 'harga') {
