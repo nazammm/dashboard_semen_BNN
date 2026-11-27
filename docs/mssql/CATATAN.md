@@ -28,6 +28,7 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 21_os_do_toko.sql | OS DO toko: DO J073 yang belum dikirim (Qty Remains, kolom qty_sisa dari 20) + selisih harga DO vs harga ERP hari ini (harga_loco + harga_kirim) untuk halaman OS DO Toko. Jalankan setelah 18 dan 20 |
 | 22_logistik.sql | Rekap logistik distributor (upload di Kelola Data → Ongkos kirim → Rekap logistik): tabel logistik_kirim + logistik_simpan; view Ongkos Kirim (v_ongkos_baris, v_ongkos_trip, v_ongkos_do, v_ongkos_info) pindah ke sini: biaya ORDB019 didahulukan, FOAD yang di ORDB 0 / belum diunduh memakai Jml Harga rekap; jalur (gudang / pelabuhan → toko) dan waktu kirim. Jalankan setelah 20 dan 21; jalankan lagi kalau 17, 18, 19, atau 20 dijalankan ulang | `SELECT sumber_biaya, COUNT(*) FROM sementrack.v_ongkos_trip GROUP BY sumber_biaya` |
 | 23_sellin_asal.sql | v_sellin_bnn_daily dapat kolom asal (asal pengiriman): halaman Sell In BNN membagi realisasi per tipe pesanan (gudang / langsung ke toko / project) dan asal kirim (Terminal Palembang, CCY, ...). Definisi sama dengan 02 | `SELECT asal, SUM(ton) FROM sementrack.v_sellin_bnn_daily WHERE region = N'Sumsel' GROUP BY asal` |
+| 24_harga_produk.sql | Halaman Harga Produk: v_harga_produk = riwayat harga Loco gudang (harga_loco) + harga kirim per zona (harga_kirim) dengan harga sebelumnya. Jalankan setelah 18 | `SELECT delivery_type, COUNT(*) FROM sementrack.v_harga_produk GROUP BY delivery_type` |
 
 ## Untuk tahap 5 (backend)
 
