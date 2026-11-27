@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth';
 import { COLORS, PALETTE, fmt, fmtCompact, fmtIDR } from '../lib/format';
 import { addDays, fmtDate } from '../lib/dates';
 import type { Row } from '../lib/types';
+import { DataBadge } from '../components/DataStatus';
 import { Card, ChartBox, ErrorBox, FileIcon, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th, cx } from '../components/ui';
 import { exportRowsToExcel } from '../lib/xlsx';
 
@@ -133,7 +134,7 @@ function Body({ rows }: { rows: H[] }) {
 
   return (
     <>
-      <PageHeader title="Harga Produk" desc={`Harga dari ERP per zak${v.diambil ? ` · terakhir dibaca ${fmtDate(v.diambil)}` : ''}`} />
+      <PageHeader title="Harga Produk" status={<DataBadge source="harga" />} desc={`Harga dari ERP per zak${v.diambil ? ` · terakhir dibaca ${fmtDate(v.diambil)}` : ''}`} />
       <FilterBar label="Filter Harga Produk" stickyMobile={false}>
         <Select label="Tipe harga" value={tipe} onChange={e => setTipe(e.target.value)} style={{ minWidth: 170 }}
           options={tipes.map(t => ({ value: t, label: t === 'LOCO GUDANG' ? 'Loco gudang (ambil sendiri)' : judul(t) }))} />

@@ -7,6 +7,7 @@ import { COLORS, fmt, fmtCompact, fmtIDR, fmtIDRCompact, MONTHS_ID } from '../li
 import type { Row } from '../lib/types';
 import { JALUR_LABEL } from '../lib/logistikImport';
 import { JENIS_PROMO } from '../lib/promoImport';
+import { DataBadge } from '../components/DataStatus';
 import { Card, ChartBox, ErrorBox, FileIcon, FilterBar, Kpi, PageHeader, PageSkeleton, Select, TableWrap, Th, cx } from '../components/ui';
 import { exportRowsToExcel } from '../lib/xlsx';
 
@@ -61,7 +62,7 @@ export default function Efektivitas() {
   const pakai = (r: Row) => dist === 'all' || String(r.dist_code) === dist;
   return (
     <>
-      <PageHeader title="Efektivitas Ongkos & Promo" desc="Mana ongkos dan promo yang menghasilkan, mana yang perlu dikurangi" />
+      <PageHeader title="Efektivitas Ongkos & Promo" desc="Mana ongkos dan promo yang menghasilkan, mana yang perlu dikurangi" status={<DataBadge source={['ongkos', 'logistik', 'promo']} />} />
       <FilterBar label="Filter Efektivitas" stickyMobile={false}>
         <Select label="Distributor" value={dist} onChange={e => setDist(e.target.value)} style={{ minWidth: 150 }}
           options={[{ value: 'all', label: 'Semua distributor' }, ...dists.map(d => ({ value: d, label: nama.get(d) && nama.get(d) !== d ? `${nama.get(d)} (${d})` : d }))]} />
@@ -92,7 +93,7 @@ function Isi({ zona, isi, promo, efek, nama, semua, semenSaja, judulPeriode }: {
       const k = `${r.dist_code}|${r.zona}|${r.tipe_kirim}`;
       const x = m.get(k) || { dist: String(r.dist_code), zona: String(r.zona), tipe: String(r.tipe_kirim || ''), jalur: String(r.jalur || ''), ton: 0, tonMargin: 0, margin: 0, tonTagih: 0, tagih: 0, tonLengkap: 0, biaya: 0, tonSubsidi: 0, subsidi: 0, doN: 0 };
       x.ton += n(r.ton); x.tonMargin += n(r.ton_margin); x.margin += n(r.margin); x.tonTagih += n(r.ton_tagih); x.tagih += n(r.tagih);
-      x.tonLengkap += n(r.ton_lengkap); x.biaya += n(r.biaya_lengkap); x.tonSubsidi += n(r.ton_subsidi); x.subsidi += n(r.subsidi); x.doN += n(r.jumlah_do);
+      x.tonLengkap += n(r.ton_lengkap); x.biaya += n(r.biaya_lengkap); x.tonSubsidi += n(r.ton_subsidi); x.subsidi -= n(r.subsidi);   // di tarif ERP subsidi ditulis minus (memotong ongkir): dibalik jadi biaya positif x.doN += n(r.jumlah_do);
       if (!x.jalur && r.jalur) x.jalur = String(r.jalur);
       m.set(k, x);
     });

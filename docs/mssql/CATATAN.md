@@ -30,6 +30,7 @@ Urutan skrip (jalankan di SSMS, database MARKETING_ANALIS):
 | 23_sellin_asal.sql | v_sellin_bnn_daily dapat kolom asal (asal pengiriman): halaman Sell In BNN membagi realisasi per tipe pesanan (gudang / langsung ke toko / project) dan asal kirim (Terminal Palembang, CCY, ...). Definisi sama dengan 02 | `SELECT asal, SUM(ton) FROM sementrack.v_sellin_bnn_daily WHERE region = N'Sumsel' GROUP BY asal` |
 | 24_harga_produk.sql | Halaman Harga Produk: v_harga_produk = riwayat harga Loco gudang (harga_loco) + harga kirim per zona (harga_kirim) dengan harga sebelumnya. Jalankan setelah 18 | `SELECT delivery_type, COUNT(*) FROM sementrack.v_harga_produk GROUP BY delivery_type` |
 | 25_efektivitas.sql | Halaman Efektivitas Ongkos & Promo: tabel promo_do + promo_simpan (job J078), view v_promo_bulanan, v_promo_efek, v_ongkos_zona, v_isi_truk. Jalankan setelah 22 (22 sekarang juga menyimpan kolom J082: tipe & kapasitas truk). Kalau 22 dijalankan ulang, jalankan 25 lagi | `SELECT kelompok, SUM(trip) FROM sementrack.v_isi_truk GROUP BY kelompok` |
+| 26_status_data.sql | Status data (badge & sidebar) ditambah Harga ERP, J082 dan J078. Jalankan setelah 25 | `SELECT * FROM sementrack.v_data_status` |
 
 ## Untuk tahap 5 (backend)
 
