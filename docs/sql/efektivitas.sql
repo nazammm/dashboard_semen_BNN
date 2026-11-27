@@ -126,7 +126,7 @@ select t.dist_code, t.periode, coalesce(t.jalur, '') as jalur, coalesce(t.tipe_t
        count(*) filter (where t.biaya > 0)::int as trip_berbiaya, coalesce(sum(t.ton) filter (where t.biaya > 0), 0) as ton_berbiaya,
        coalesce(sum(t.biaya) filter (where t.biaya > 0), 0) as biaya
 from sementrack.v_ongkos_trip t
-where not t.ke_gudang and t.isi_truk is not null and t.truk_max_ton > 0
+where not t.ke_gudang and t.ton > 0 and t.isi_truk is not null and t.truk_max_ton > 0
 group by 1, 2, 3, 4, 5, 6, 7;
 
 grant select on sementrack.v_promo_bulanan, sementrack.v_promo_efek, sementrack.v_ongkos_zona, sementrack.v_isi_truk to public;
