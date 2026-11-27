@@ -186,7 +186,7 @@ SELECT t.dist_code, t.periode, ISNULL(t.jalur, N'') AS jalur, ISNULL(t.tipe_truk
        SUM(CASE WHEN t.biaya > 0 THEN 1 ELSE 0 END) AS trip_berbiaya, SUM(CASE WHEN t.biaya > 0 THEN t.ton ELSE 0 END) AS ton_berbiaya,
        SUM(CASE WHEN t.biaya > 0 THEN t.biaya ELSE 0 END) AS biaya
 FROM sementrack.v_ongkos_trip t
-WHERE t.ke_gudang = 0 AND t.isi_truk IS NOT NULL AND t.truk_max_ton > 0
+WHERE t.ke_gudang = 0 AND t.ton > 0 AND t.isi_truk IS NOT NULL AND t.truk_max_ton > 0   -- perjalanan yang membawa semen
 GROUP BY t.dist_code, t.periode, ISNULL(t.jalur, N''), ISNULL(t.tipe_truk, N'(tanpa tipe)'), ISNULL(t.transporter, N''), t.status_transporter,
          CASE WHEN t.isi_truk < 0.5 THEN N'a_lt50' WHEN t.isi_truk < 0.8 THEN N'b_50_80' WHEN t.isi_truk < 0.95 THEN N'c_80_95'
               WHEN t.isi_truk <= 1.05 THEN N'd_penuh' ELSE N'e_lebih' END;
