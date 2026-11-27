@@ -93,7 +93,7 @@ from pathlib import Path
 
 from playwright.sync_api import Error as PWError, Page, TimeoutError as PWTimeout, sync_playwright
 
-VERSI = "2026.11.26.1"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
+VERSI = "2026.11.27.1"               # tampil di awal log dan di aplikasi, untuk memastikan exe yang dipakai sudah terbaru
 ERP = os.environ.get("ERP_URL", "https://www.bangunsukses.com").rstrip("/")   # ERP_URL hanya untuk uji
 MATRIX = "01"                    # pilihan di #ContentPlaceHolder1_ddMatrix, sama dengan rekaman
 FORMAT_TANGGAL_ERP = "%d %b %Y"  # PERLU DICEK (1): format isi kolom tanggal ERP, mis. "01 Nov 2026"
@@ -116,6 +116,8 @@ DAFTAR_DIST = [("4094", "INSA"), ("9575", "PKB"), ("6980", "BKP"), ("6984", "BMM
                ("1001K", "KTP"), ("1001P", "PTK"), ("4403", "NC"), ("4403B", "NCB"), ("6987", "NSA"), ("6981", "PM")]
 ONGKOS_DIST_BAWAAN = ",".join(k for k, _ in DAFTAR_DIST)
 FOLDER_FILE_BAWAAN = r"D:\Nazam\Template\Auto Task File"     # salinan J073 / ORDB019 yang sudah diunduh (ONGKOS_FOLDER)
+JOB_BULANAN = ("J082", "J078")      # job per distributor per bulan Order Date: J082 truk / jalur / waktu kirim, J078 promo per DO
+URUT_JENIS = {"J073": 0, "ORDB": 1, "J082": 2, "J078": 3}
 ONGKOS_MULAI = date(2026, 1, 1)                                 # ongkos kirim dilacak mulai 2026; sebelum itu tidak diambil
 ONGKOS_HARI = int(os.environ.get("ONGKOS_HARI", "7"))          # dari jadwal: ongkos kirim diperbarui paling sering sekali seminggu
 KELOMPOK_ISI_ULANG = int(os.environ.get("KELOMPOK_ISI_ULANG", "8"))
@@ -133,7 +135,7 @@ HARGA_HALAMAN = "SLS_Price_Promo_Simulation.aspx"
 HARGA_HARI = int(os.environ.get("HARGA_HARI", "7"))            # dari jadwal: harga Loco dibaca paling sering sekali seminggu
 HARGA_MAKS_LOMPAT = 60                                          # pengaman: paling banyak sekian Next per PT x produk
 POLA_STATUS = re.compile(r"FINISH|PROCESS|QUEUE|WAIT|PENDING|RUNNING|ERROR|FAIL|CANCEL|DONE|SUCCESS", re.I)
-POLA_KODE = re.compile(r"^(J028B?|J073|ORDB\d+)$", re.I)
+POLA_KODE = re.compile(r"^(J028B?|J073|J078|J082|ORDB\d+)$", re.I)
 
 
 def j073_dist() -> list[str]:
@@ -294,8 +296,27 @@ def buka_form(page: Page, menu: str, penanda: str) -> None:
         page.locator("#mmlink7").click()
         page.locator("a").filter(has_text=re.compile(rf"^\s*{re.escape(menu)}\s*$")).first.click(timeout=15_000)
         tanda.wait_for(timeout=15_000)
+        return
     except PWTimeout:
-        raise SystemExit(f"Halaman {menu} tidak bisa dibuka.\nHalaman: {jejak(page, f'menu_{menu}')}")
+        pass
+    # daftar Submit Job lebih dari satu halaman (J078, J082 di halaman 2): cari di tiap halaman
+    try:
+        page.goto(f"{ERP}/SYS_Submit_Job.aspx")
+        hal = page.locator("select").filter(has=page.locator("option", has_text=re.compile(r"^\s*2\s*$")))
+        jumlah = hal.first.locator("option").count() if hal.count() else 1
+        for i in range(jumlah):
+            if i:
+                hal = page.locator("select").filter(has=page.locator("option", has_text=re.compile(r"^\s*2\s*$")))
+                hal.first.select_option(index=i)
+                page.wait_for_load_state("networkidle", timeout=30_000)
+            tautan = page.locator("a").filter(has_text=re.compile(rf"^\s*{re.escape(menu)}\s*$"))
+            if tautan.count():
+                tautan.first.click(timeout=15_000)
+                tanda.wait_for(timeout=15_000)
+                return
+    except PWTimeout:
+        pass
+    raise SystemExit(f"Halaman {menu} tidak bisa dibuka.\nHalaman: {jejak(page, f'menu_{menu}')}")
 
 
 LAPORAN_META: dict[str, dict] = {}   # Report ID -> {dist, bulan, mulai, status} dari kolom Parameters / Start Run
@@ -542,6 +563,24 @@ def kirim_j073(page: Page, dist: str, dari: date, sampai: date) -> None:
         raise SystemExit(f"J073: distributor {dist} tidak terpilih (terpilih: {pilih}).\nHalaman: {jejak(page, f'j073_{dist}')}")
     print(f"  J073 {dist}: periode '{a}' s.d. '{b}'")
     kirim_selesai(page, f"J073_{dist}")
+
+
+def kirim_j08x(page: Page, menu: str, dist: str, dari: date, sampai: date) -> None:
+    """J082 (Schedule Delivery Order) / J078 (DO Promo Detail) per distributor, rentang Order Date, format TXT.
+    J082: tipe Non-Bulk (semen zak)."""
+    buka_form(page, menu, "#ContentPlaceHolder1_ddDist")
+    tipe = page.locator("#ContentPlaceHolder1_ddReportType")
+    if tipe.count():
+        tipe.select_option(label="Non-Bulk")
+    nilai = pilih_dist(page, "#ContentPlaceHolder1_ddDist", dist)
+    isi_tanggal(page, "#ContentPlaceHolder1_txtPeriodeFrom", dari)
+    isi_tanggal(page, "#ContentPlaceHolder1_txtPeriodeTo", sampai)
+    a = page.locator("#ContentPlaceHolder1_txtPeriodeFrom").input_value()
+    b = page.locator("#ContentPlaceHolder1_txtPeriodeTo").input_value()
+    if page.locator("#ContentPlaceHolder1_ddDist").input_value() != nilai:
+        raise SystemExit(f"{menu}: distributor {dist} tidak terpilih.\nHalaman: {jejak(page, f'{menu.lower()}_{dist}')}")
+    print(f"  {menu} {dist}: Order Date '{a}' s.d. '{b}'")
+    kirim_selesai(page, f"{menu}_{dist}_{dari:%Y%m}")
 
 
 def pilih_dist(page: Page, selector: str, dist: str) -> str:
@@ -1061,9 +1100,13 @@ def kiriman_ongkos(hari: date, dists: list[str], mulai: date | None = None) -> l
             bulan = [m for m in bulan if m >= ONGKOS_MULAI]
         for m in bulan:
             hasil.append({"jenis": "ORDB", "dist": d, "bulan": m, "kunci": f"ORDB|{d}|{m:%Y-%m}"})
+        # J082 (truk, jalur, waktu kirim) dan J078 (promo per DO): per bulan Order Date, bulan yang sama dengan ORDB019
+        for m in bulan:
+            for j in JOB_BULANAN:
+                hasil.append({"jenis": j, "dist": d, "bulan": m, "kunci": f"{j}|{d}|{m:%Y-%m}"})
     # urut per bulan lalu per distributor: semua distributor maju bersama, bukan satu distributor sampai habis dulu
     urut = {d: i for i, d in enumerate(dists)}
-    return sorted(hasil, key=lambda k: (k.get("dari") or k["bulan"], k["jenis"] != "J073", urut[k["dist"]]))
+    return sorted(hasil, key=lambda k: (k.get("dari") or k["bulan"], URUT_JENIS.get(k["jenis"], 9), urut[k["dist"]]))
 
 
 def cek_rentang_ongkos(dari: date, sampai: date | None, dist: str | None) -> tuple[date, list[str]]:
@@ -1091,6 +1134,8 @@ def kiriman_rentang(dari: date, sampai: date, dists: list[str]) -> list[dict]:
         m = dari.replace(day=1)
         while m <= sampai:
             hasil.append({"jenis": "ORDB", "dist": d, "bulan": m, "kunci": f"ORDB|{d}|{m:%Y-%m}"})
+            for j in JOB_BULANAN:
+                hasil.append({"jenis": j, "dist": d, "bulan": m, "kunci": f"{j}|{d}|{m:%Y-%m}"})
             m = awal_bulan(m + timedelta(days=32))
     return hasil
 
@@ -1114,6 +1159,29 @@ def folder_file() -> Path:
 
 def path_ordb(dist: str, bulan: date) -> Path:
     return folder_file() / "ORDB019" / dist / f"ORDB019_{dist}_{bulan:%Y-%m}.XLS"
+
+
+def path_bulanan(jenis: str, dist: str, bulan: date) -> Path:
+    """Salinan J082 / J078 satu distributor satu bulan Order Date."""
+    return folder_file() / jenis / dist / f"{jenis}_{dist}_{bulan:%Y-%m}.TXT"
+
+
+def akhir_bulan(bulan: date, hari: date) -> date:
+    return min(bulan_tambah(bulan, 1) - timedelta(days=1), hari)
+
+
+def isi_j078(p: Path) -> str | None:
+    """Kode distributor dari baris data pertama J078 (kolom Distributor "4708 - PT ...")."""
+    try:
+        with open(p, encoding="utf-8", errors="replace") as f:
+            judul = f.readline().rstrip("\r\n").split("|")
+            data = f.readline().rstrip("\r\n").split("|")
+    except OSError:
+        return None
+    if "Distributor" not in judul or len(data) <= judul.index("Distributor"):
+        return None
+    m = re.match(r"\s*([0-9A-Z]{3,8})\s*-", data[judul.index("Distributor")], re.I)
+    return m.group(1).upper() if m else None
 
 
 def path_j073(dist: str, a: date, b: date) -> Path:
@@ -1193,6 +1261,9 @@ def j073_lokal_semua(dists: list[str] | None = None) -> list[tuple[Path, dict]]:
 
 
 def cari_lokal(k: dict, hari: date) -> Path | None:
+    if k["jenis"] in JOB_BULANAN:
+        p = path_bulanan(k["jenis"], k["dist"], k["bulan"])
+        return p if p.exists() and segar(k["bulan"], waktu_file(p), hari) else None
     return file_ordb_lokal(k["dist"], k["bulan"], hari) if k["jenis"] == "ORDB" else file_j073_lokal(k["dist"], k["dari"], k["sampai"], hari)
 
 
@@ -1207,6 +1278,12 @@ def simpan_lokal(f: Path, k: dict) -> tuple[Path, dict, str | None]:
             pesan_salah = f"isi laporan ternyata {isi[0]} {isi[1]:%Y-%m}, bukan {k['dist']} {k['bulan']:%Y-%m}"
             k = {**k, "dist": isi[0], "bulan": isi[1], "kunci": f"ORDB|{isi[0]}|{isi[1]:%Y-%m}"}
         tujuan = path_ordb(k["dist"], k["bulan"])
+    elif k["jenis"] in JOB_BULANAN:
+        isi = isi_j078(f) if k["jenis"] == "J078" else None        # J082 tidak menyebut distributor di isinya
+        if isi and isi != k["dist"].upper():
+            pesan_salah = f"isi {k['jenis']} ternyata distributor {isi}, bukan {k['dist']}"
+            k = {**k, "dist": isi, "kunci": f"{k['jenis']}|{isi}|{k['bulan']:%Y-%m}"}
+        tujuan = path_bulanan(k["jenis"], k["dist"], k["bulan"])
     else:
         isi = isi_j073(f)
         if isi and isi != k["dist"].upper():
@@ -1249,6 +1326,8 @@ def migrasi_unduhan() -> int:
 
 
 def label_kiriman(k: dict) -> str:
+    if k["jenis"] in JOB_BULANAN:
+        return f"Ongkos kirim {k['jenis']} {k['dist']} {k['bulan']:%Y-%m}"
     if k["jenis"] == "J073":
         return f"Ongkos kirim J073 {k['dist']} {k['dari']:%Y-%m}..{k['sampai']:%Y-%m}"
     return f"Ongkos kirim ORDB019 {k['dist']} {k['bulan']:%Y-%m}"
@@ -1294,6 +1373,9 @@ def ambil_erp(pw, bagian: set[str], dari: date, sampai: date, daftar_bulan: list
             if k["jenis"] == "J073":
                 antre.append(dict(bagian="ONGKOS", label=label_kiriman(k), kode="J073", jenis="job", ongkos=k, dist=k["dist"].upper(),
                                   kirim=(lambda k=k: kirim_j073(page, k["dist"], k["dari"], k["sampai"]))))
+            elif k["jenis"] in JOB_BULANAN:
+                antre.append(dict(bagian="ONGKOS", label=label_kiriman(k), kode=k["jenis"], jenis="job", ongkos=k, dist=k["dist"].upper(),
+                                  kirim=(lambda k=k: kirim_j08x(page, k["jenis"], k["dist"], k["bulan"], akhir_bulan(k["bulan"], date.today())))))
             else:
                 antre.append(dict(bagian="ONGKOS", label=label_kiriman(k), kode="ORDB019", jenis="laporan", ongkos=k,
                                   kirim=(lambda k=k: kirim_ordb(page, k["dist"], k["bulan"]))))
@@ -2301,10 +2383,12 @@ def unggah_harga(page: Page, url: str, h: Hasil, simpan: bool) -> str:
 
 def unggah_ongkos(page: Page, url: str, h: Hasil, simpan: bool, tandai: bool = False) -> str:
     """Upload hasil Ongkos kirim satu per satu (J073 dulu). Satu file gagal tidak menghentikan yang lain."""
-    urut = sorted(h.ongkos, key=lambda x: (x[1]["jenis"] != "J073", x[1]["dist"], str(x[1].get("dari") or x[1].get("bulan"))))
-    n = {"J073": 0, "ORDB": 0, "kosong": 0}
+    # J073 dulu, lalu ORDB019, J082 (setelah ORDB: biaya rekap lama tetap terbawa), J078
+    urut = sorted(h.ongkos, key=lambda x: (URUT_JENIS.get(x[1]["jenis"], 9), x[1]["dist"], str(x[1].get("dari") or x[1].get("bulan"))))
+    n = {"J073": 0, "ORDB": 0, "J082": 0, "J078": 0, "kosong": 0}
+    menu = {"J073": "j073", "ORDB": "ordb", "J082": "logistik", "J078": "promo"}
     for f, k in urut:
-        alamat = "/kelola-data?data=ongkos&menu=j073" if k["jenis"] == "J073" else "/kelola-data?data=ongkos&menu=ordb"
+        alamat = f"/kelola-data?data=ongkos&menu={menu[k['jenis']]}"
         try:
             hasil = unggah_berkas(page, url, alamat, [f], f.stem, simpan, k["jenis"] == "J073", kosong_boleh=True)
             n["kosong" if hasil == "kosong" else k["jenis"]] += 1
@@ -2313,7 +2397,7 @@ def unggah_ongkos(page: Page, url: str, h: Hasil, simpan: bool, tandai: bool = F
         except (SystemExit, Exception) as e:  # noqa: BLE001
             h.catat_gagal(label_kiriman(k), e)
         kunci_segarkan()
-    teks = f"J073 {n['J073']} file, ORDB019 {n['ORDB']} laporan" + (f", {n['kosong']} kosong" if n["kosong"] else "")
+    teks = f"J073 {n['J073']} file, ORDB019 {n['ORDB']} laporan, J082 {n['J082']} file, J078 {n['J078']} file" + (f", {n['kosong']} kosong" if n["kosong"] else "")
     print("  Ongkos kirim: " + teks)
     return teks
 
@@ -2329,7 +2413,7 @@ def isi_ulang_ongkos(pw, a, h: Hasil) -> None:
     kelompok_semua = ([lokal] if lokal else []) + [erp[i:i + KELOMPOK_ISI_ULANG] for i in range(0, len(erp), KELOMPOK_ISI_ULANG)]
     print(f"Isi ulang ongkos kirim sejak {a.isi_ulang:%Y-%m} ({len(a.ongkos_dist)} distributor): {len(semua)} job/laporan, "
           f"{len(semua) - len(sisa)} sudah masuk, {len(lokal)} dari salinan lokal, {len(erp)} diminta ke ERP")
-    total = {"J073": 0, "ORDB": 0, "kosong": 0}
+    total = {"J073": 0, "ORDB": 0, "J082": 0, "J078": 0, "kosong": 0}
     for i, kelompok in enumerate(kelompok_semua):
         print(f"Kelompok {i + 1} dari {len(kelompok_semua)}"
               + (" (salinan lokal)" if lokal and i == 0 else ": " + ", ".join(label_kiriman(k).replace("Ongkos kirim ", "") for k in kelompok)))
@@ -2355,7 +2439,7 @@ def isi_ulang_ongkos(pw, a, h: Hasil) -> None:
         finally:
             browser.close()
     sisa_akhir = len([k for k in semua if k["kunci"] not in baca_isi_ulang()])
-    h.berhasil["Ongkos kirim"] = (f"isi ulang: J073 {total['J073']} file, ORDB019 {total['ORDB']} laporan"
+    h.berhasil["Ongkos kirim"] = (f"isi ulang: J073 {total['J073']} file, ORDB019 {total['ORDB']} laporan, J082 {total['J082']}, J078 {total['J078']} file"
                                   + (f", {total['kosong']} kosong" if total["kosong"] else "") + (f"; {sisa_akhir} belum masuk" if sisa_akhir else "; lengkap"))
     print("Selesai " + h.berhasil["Ongkos kirim"])
 

@@ -30,7 +30,7 @@ BAGIAN = [("J028", "J028 + J028B", "Transaksi toko (Kelola Data → Transaksi)")
           ("OSDO", "OS DO", "Outstanding DO dari TIRO, per tanggal order"),
           ("DOFAS", "DO FAS", "Rekap DO harian (folder korin)"),
           ("STOCK", "Stock", "Stock semen bulan berjalan (folder b236)"),
-          ("ONGKOS", "Ongkos kirim", "J073 + ORDB019 semua distributor, seminggu sekali"),
+          ("ONGKOS", "Ongkos kirim", "J073 + ORDB019 + J082 + J078 semua distributor, seminggu sekali"),
           ("HARGA", "Harga ERP", "Harga Loco & tarif kirim per zona (OS DO, ongkos kirim), seminggu sekali")]
 NAMA_RIWAYAT = {"J028": "J028", "J073": "J073", "SUBDIST": "Sub ERP", "SELLIN": "Sell In", "OSDO": "OS DO", "DOFAS": "DO FAS", "STOCK": "Stock", "ONGKOS": "Ongkos kirim", "HARGA": "Harga Loco"}   # nama bagian di riwayat.json (mesin)
 BAWAAN = {"jadwal_aktif": False, "tiap_jam": 4, "jam_mulai": "07:00", "bagian": ["J028", "J073", "SUBDIST"],
@@ -249,7 +249,7 @@ def jalankan_aplikasi() -> None:
             st = app.setelan
             f = tk.Frame(self, bg=C["card"], padx=20, pady=16, highlightthickness=1, highlightbackground=C["line"])
             f.pack(padx=14, pady=14, fill="both")
-            tk.Label(f, text="Ambil ongkos kirim (J073 + ORDB019)", bg=C["card"], fg=C["txt"], font=app.f_bold).grid(row=0, column=0, columnspan=4, sticky="w")
+            tk.Label(f, text="Ambil ongkos kirim (J073, ORDB019, J082 truk, J078 promo)", bg=C["card"], fg=C["txt"], font=app.f_bold).grid(row=0, column=0, columnspan=4, sticky="w")
 
             tk.Label(f, text="Distributor", bg=C["card"], fg=C["muted"]).grid(row=1, column=0, sticky="nw", pady=(12, 0))
             awal = st.get("dialog_dist") or app.v_akun["ONGKOS_DIST"].get().split(",")
@@ -303,7 +303,7 @@ def jalankan_aplikasi() -> None:
                     sampai, _ = mesin.cek_rentang_ongkos(self.dari.nilai, self.sampai.nilai, ",".join(dists))
                     k = mesin.kiriman_rentang(self.dari.nilai, sampai, dists)
                     bln = len({x["bulan"] for x in k if x["jenis"] == "ORDB"})
-                    teks = (f"{len(dists)} distributor × (1 J073 + {bln} ORDB019) = {len(k)} job/laporan, "
+                    teks = (f"{len(dists)} distributor × (1 J073 + {bln} × ORDB019, J082, J078) = {len(k)} job/laporan, "
                             f"{tanggal_id(self.dari.nilai)} – {tanggal_id(sampai)}.")
                 except ValueError as e:
                     self.galat = str(e).replace("Ongkos kirim: ", "")
@@ -318,7 +318,7 @@ def jalankan_aplikasi() -> None:
                 k = mesin.kiriman_ongkos(date.today(), dists, self.mulai.nilai)
                 sisa = [x for x in k if x["kunci"] not in mesin.baca_isi_ulang()]
                 teks = (f"{len(dists)} distributor, sejak {Kalender.BULAN[self.mulai.nilai.month - 1]} {self.mulai.nilai.year}: "
-                        f"{len(k)} job/laporan (J073 per 3 bulan, ORDB019 per bulan), {len(k) - len(sisa)} sudah masuk, {len(sisa)} dikerjakan.")
+                        f"{len(k)} job/laporan (J073 per 3 bulan; ORDB019, J082, J078 per bulan), {len(k) - len(sisa)} sudah masuk, {len(sisa)} dikerjakan.")
             if self.galat:
                 self.info.config(text=self.galat, fg=C["bad"])
             else:
@@ -761,14 +761,14 @@ def jalankan_aplikasi() -> None:
             kotak = PilihDist(f, self, self.v_akun["ONGKOS_DIST"].get().split(","), kolom=2)
             kotak.grid(row=8, column=1, columnspan=2, sticky="w", pady=(8, 0))
             kotak.saat_berubah = lambda pilihan: self.v_akun["ONGKOS_DIST"].set(",".join(pilihan))
-            tk.Label(f, text="Dipakai jadwal mingguan: J073 3 bulan terakhir dan ORDB019 bulan lalu + bulan ini. "
+            tk.Label(f, text="Dipakai jadwal mingguan: J073 3 bulan terakhir; ORDB019, J082, J078 bulan lalu + bulan ini. "
                              "INSA-E tidak perlu (datanya ikut INSA 4094).",
                      bg=C["card"], fg=C["muted"], font=self.f_kecil, wraplength=240, justify="left").grid(row=9, column=1, columnspan=2, sticky="w")
             isian(f, 10, "Folder salinan", "ONGKOS_FOLDER", nilai=akun.get("ONGKOS_FOLDER", mesin.FOLDER_FILE_BAWAAN) or mesin.FOLDER_FILE_BAWAAN)
             pilih = tk.Label(f, text="Pilih…", bg=C["card"], fg=C["pri"], cursor="hand2")
             pilih.grid(row=10, column=2, padx=(8, 0))
             pilih.bind("<Button-1>", lambda _e: self.pilih_folder())
-            tk.Label(f, text="J073 dan ORDB019 yang sudah diunduh disimpan di sini; yang sudah ada tidak diunduh lagi.",
+            tk.Label(f, text="J073, ORDB019, J082, J078 yang sudah diunduh disimpan di sini; yang sudah ada tidak diunduh lagi.",
                      bg=C["card"], fg=C["muted"], font=self.f_kecil, wraplength=240, justify="left").grid(row=11, column=1, columnspan=2, sticky="w")
             self.tombol(f, "Ambil ongkos kirim…", self.dialog_ongkos, kecil=True).grid(row=12, column=0, columnspan=3, sticky="w", pady=(10, 0))
 

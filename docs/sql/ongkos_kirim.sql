@@ -73,7 +73,7 @@ create index if not exists ongkos_kirim_dist_periode_idx on sementrack.ongkos_ki
 
 alter table sementrack.kelola_log drop constraint if exists kelola_log_dataset_check;
 alter table sementrack.kelola_log add constraint kelola_log_dataset_check
-  check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073', 'target', 'outstanding', 'tabel', 'stock', 'ongkos', 'harga'));
+  check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073', 'target', 'outstanding', 'tabel', 'stock', 'ongkos', 'harga', 'logistik', 'promo'));
 
 create or replace function sementrack.ongkos_simpan(p_rows json, p_user text, p_file text default null)
 returns table(rows_saved integer, rows_deleted integer, biaya numeric, ton numeric, periode_dari date, periode_sampai date, dist_codes text[])

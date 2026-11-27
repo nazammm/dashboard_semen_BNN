@@ -1,6 +1,6 @@
 NAZAM AUTO TASK
 ================
-Aplikasi untuk mengambil data ERP (J028 + J028B, J073, Sub ERP, ongkos kirim J073 + ORDB019), TIRO (Sell In, Outstanding DO), dan
+Aplikasi untuk mengambil data ERP (J028 + J028B, J073, Sub ERP, ongkos kirim J073 + ORDB019 + J082 + J078), TIRO (Sell In, Outstanding DO), dan
 rekap DO harian di folder korin (DO FAS), file Stock Semen bulan berjalan di folder b236 (Stock), lalu memasukkannya ke SEMENTRACK. Rentang ERP: tanggal 1 bulan ini s.d. hari ini; TIRO: 1 Januari s.d. hari ini.
 
 TIRO butuh captcha: klik Login TIRO, ketik kodenya di jendela yang terbuka. Sesi disimpan dan dipakai
@@ -27,6 +27,12 @@ Tanpa aplikasi (baris perintah) tetap bisa: python j028_harian.py --semua (lihat
 Ongkos kirim (halaman Ongkos Kirim di SEMENTRACK)
 - Centang "Ongkos kirim" di Beranda (dan ikut jadwal). Dari jadwal bagian ini hanya jalan seminggu sekali.
 - Ongkos kirim dilacak mulai Januari 2026. Tanggal sebelum itu tidak bisa dipilih dan tidak diunduh.
+- Mulai versi 2026.11.27.1 bagian ini juga menarik per distributor per bulan (Order Date):
+  J082 Schedule Delivery Order -> Kelola Data "Rekap logistik / J082" (tipe & kapasitas truk, jalur, tanggal kirim, SJ kembali;
+  biaya Jml Harga di J082 kosong untuk akun ini, jadi biaya rekap tim logistik yang sudah diupload tetap dipakai), dan
+  J078 DO Promo Detail -> Kelola Data "Promo DO (J078)" (potongan & cash back voucher per DO). Dipakai halaman Efektivitas Ongkos.
+  Syarat: 22_logistik.sql (dijalankan ulang) dan 25_efektivitas.sql di SSMS, dan web versi terbaru.
+  Isi ulang sejak Januari: Ambil ongkos kirim -> "Isi data lama sejak" (J073 / ORDB019 yang sudah masuk dilewati).
 - Distributor dipilih dengan centang di Pengaturan -> Distributor ongkos (bawaan 13 distributor). INSA-E tidak perlu:
   datanya ada di INSA (4094).
 - Ambil untuk distributor dan tanggal tertentu: Beranda -> "Ambil ongkos kirim: pilih distributor dan tanggal…"

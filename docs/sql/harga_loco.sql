@@ -49,7 +49,7 @@ grant select on sementrack.harga_kirim, sementrack.harga_tipe_map to public;
 
 alter table sementrack.kelola_log drop constraint if exists kelola_log_dataset_check;
 alter table sementrack.kelola_log add constraint kelola_log_dataset_check
-  check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073', 'target', 'outstanding', 'tabel', 'stock', 'ongkos', 'harga'));
+  check (dataset in ('transaksi', 'sellin', 'dofas', 'erp', 'j073', 'target', 'outstanding', 'tabel', 'stock', 'ongkos', 'harga', 'logistik', 'promo'));
 
 drop function if exists sementrack.harga_loco_simpan(json, text, text);
 create or replace function sementrack.harga_loco_simpan(p_rows json, p_user text, p_file text default null)

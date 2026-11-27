@@ -27,7 +27,7 @@ export function LogistikUpload({ onChanged }: { onChanged: () => void }) {
   const save = async () => {
     if (phase.kind !== 'preview') return;
     const { res, name } = phase;
-    const body = { rows: res.rows, file_name: phase.source === 'file' ? name.slice(0, 200) : null };
+    const body = { rows: res.rows, file_name: phase.source === 'file' ? name.slice(0, 200) : null, mode: res.stats.mode };
     if (JSON.stringify(body).length > MAX_JSON) { imp.setError(`Terlalu besar untuk sekali simpan (${fmt(res.rows.length)} baris). Upload satu distributor per kali, atau pecah per beberapa bulan.`); return; }
     const ok = await imp.saveWith(() => adminApi<Row>('POST', 'admin/data/logistik', body));
     if (ok) { setRound(r => r + 1); onChanged(); }
@@ -39,8 +39,8 @@ export function LogistikUpload({ onChanged }: { onChanged: () => void }) {
       <ErrorLine error={imp.error} />
       <div hidden={phase.kind !== 'idle' && phase.kind !== 'reading'}>
         <SourcePicker key={round} id="logistik" reading={phase.kind === 'reading' ? phase : null} onFile={imp.readFile} onFiles={f => imp.readFiles(f)} onText={imp.readText} onCancel={imp.cancelRead}
-          accept=".xlsx,.xls"
-          fileHint="Rekap pengiriman dari tim logistik distributor (.xlsx, sheet pertama), kolom Daerah, FOAD No., SOMType, DO No., SJ Date, Product Code, Jumlah, Jml Harga, … Boleh beberapa file sekaligus (satu per distributor). Per distributor, data di rentang tanggal file akan diganti."
+          accept=".xlsx,.xls,.txt"
+          fileHint="Rekap pengiriman dari tim logistik distributor (.xlsx, sheet pertama: Daerah, FOAD No., SOMType, DO No., SJ Date, Product Code, Jumlah, Jml Harga, …), atau file job ERP J082 (.TXT, nama J082_<kode ERP>_<bulan>.TXT, biasanya ditarik Nazam Auto Task). Rekap: data di rentang tanggal file diganti; J082: FOAD di file diganti, biaya lama tetap dipakai kalau J082 kosong."
           pastePlaceholder={'Daerah\tTANGGAL ORDER\tFOAD No.\tOrder Date\tSOMType\t…\tJml Harga\t…'} />
       </div>
 
@@ -91,6 +91,13 @@ function LogistikPreview({ phase, onSave, onCancel }: {
           <div className="upl-fact">{fmtIDRCompact(st.biaya)}</div>
           <div className="upl-sub">{fmt(st.foadBiaya)} FOAD ada biayanya</div>
         </div>
+        {st.mode === 'j082' && (
+          <div>
+            <div className="card-title">Truk terisi &lt; 50%</div>
+            <div className="upl-fact">{st.isi.foad ? fmt(st.isi.kurang50 / st.isi.foad * 100, 0) + '%' : '–'}</div>
+            <div className="upl-sub">{fmt(st.isi.kurang50)} dari {fmt(st.isi.foad)} perjalanan{st.belumKirim ? ` · ${fmt(st.belumKirim)} baris belum ber-SJ dilewati` : ''}</div>
+          </div>
+        )}
         <div>
           <div className="card-title">Lewat estimasi kirim</div>
           <div className="upl-fact">{st.telat.tonEst ? fmt(st.telat.ton / st.telat.tonEst * 100, 1) + '%' : '–'}</div>
@@ -135,7 +142,9 @@ function LogistikPreview({ phase, onSave, onCancel }: {
         </div>
         <div className="flex flex-col gap-3">
           <Note tone="warn">
-            Rekap logistik {st.daerah.join(', ')} tanggal {tgl(st.dari)} s.d. {tgl(st.sampai)} akan <b>diganti</b> dengan isi file ini. Distributor dan tanggal lain tidak berubah.
+            {st.mode === 'j082'
+              ? <>J082 {st.daerah.join(', ')}: perjalanan (FOAD) di file ini <b>diganti</b>. Kolom yang kosong di J082 (mis. Jml Harga) memakai isian lama dari rekap logistik.</>
+              : <>Rekap logistik {st.daerah.join(', ')} tanggal {tgl(st.dari)} s.d. {tgl(st.sampai)} akan <b>diganti</b> dengan isi file ini. Distributor dan tanggal lain tidak berubah.</>}
           </Note>
           <Note tone="info">
             Di halaman Ongkos Kirim, biaya ORDB019 tetap dipakai kalau ada. Rekap ini mengisi FOAD yang di ORDB019 biayanya 0 atau bulannya belum diunduh,
