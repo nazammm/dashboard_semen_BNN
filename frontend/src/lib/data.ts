@@ -145,6 +145,8 @@ export const DataSource = {
     return ambil('v_outstanding_do_harga').catch(() => ambil('v_outstanding_do'));
   },
   /** Harga Loco Net yang tersimpan per distributor x produk. */
+  /** Riwayat harga ERP: Loco gudang + harga kirim per zona (24_harga_produk.sql). */
+  hargaProduk: () => getData('harga:produk', () => apiGetAll('v_harga_produk', '?select=*&order=dist_code.asc,product_code.asc,berlaku_dari.asc')),
   hargaInfo: () => getData('harga:info', () => apiGetAll('v_harga_loco_info', '?select=*&order=dist_code.asc,product_code.asc')),
   sellinInfo: () => getData<Row | null>('sellin:info', async () => (await apiGet<Row[]>('v_sellin_bnn_info?select=*'))[0] || null),
   transaksiDetail: (date: string, distCode?: string | null, productCodes?: string[] | null) => {
